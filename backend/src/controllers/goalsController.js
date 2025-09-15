@@ -37,7 +37,7 @@ export async function createGoal(req, res) {
     if (milestones && Array.isArray(milestones) && milestones.length > 0) {
       for (let i = 0; i < milestones.length; i++) {
         const milestone = milestones[i];
-        const { title: milestoneTitle, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
+        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
         
         // Create the milestone
         const { data: createdMilestone, error: milestoneError } = await supabase
@@ -45,6 +45,7 @@ export async function createGoal(req, res) {
           .insert([{ 
             goal_id: goal.id, 
             title: milestoneTitle, 
+            description: milestoneDescription,
             order: milestoneOrder 
           }])
           .select()
@@ -234,6 +235,7 @@ export async function updateGoal(req, res) {
             .from('milestones')
             .update({
               title: milestone.title,
+              description: milestone.description,
               completed: milestone.completed,
               order: milestone.order || 0
             })
@@ -605,7 +607,7 @@ export async function createGoalFromAI(args, userId, userContext) {
     if (milestones && Array.isArray(milestones) && milestones.length > 0) {
       for (let i = 0; i < milestones.length; i++) {
         const milestone = milestones[i];
-        const { title: milestoneTitle, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
+        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
         
         // Create the milestone
         const { data: createdMilestone, error: milestoneError } = await supabase
@@ -613,6 +615,7 @@ export async function createGoalFromAI(args, userId, userContext) {
           .insert([{ 
             goal_id: goal.id, 
             title: milestoneTitle, 
+            description: milestoneDescription,
             order: milestoneOrder 
           }])
           .select()
@@ -763,7 +766,7 @@ export async function updateGoalFromAI(args, userId, userContext) {
       // Create new milestones and their steps
       for (let i = 0; i < milestones.length; i++) {
         const milestone = milestones[i];
-        const { title: milestoneTitle, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
+        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
         
         // Create the milestone
         const { data: createdMilestone, error: milestoneError } = await supabase
@@ -771,6 +774,7 @@ export async function updateGoalFromAI(args, userId, userContext) {
           .insert([{ 
             goal_id: goalId, 
             title: milestoneTitle, 
+            description: milestoneDescription,
             order: milestoneOrder 
           }])
           .select()
@@ -845,7 +849,7 @@ export async function createMilestone(req, res) {
 
 export async function updateMilestone(req, res) {
   const { milestoneId } = req.params;
-  const { title, order } = req.body;
+  const { title, description, order } = req.body;
   const token = req.headers.authorization?.split(' ')[1];
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: `Bearer ${token}` } }
@@ -853,7 +857,7 @@ export async function updateMilestone(req, res) {
 
   const { data, error } = await supabase
     .from('milestones')
-    .update({ title, order, updated_at: new Date().toISOString() })
+    .update({ title, description, order, updated_at: new Date().toISOString() })
     .eq('id', milestoneId)
     .select()
     .single();

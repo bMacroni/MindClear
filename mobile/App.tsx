@@ -64,13 +64,6 @@ function App() {
     // Set up listener for auth state changes
     const unsubscribe = authService.subscribe(checkAuthAndInitialize);
     
-    // Cleanup listener on unmount
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-
     // Setting up Google Sign-In...
     try {
       const baseConfig: any = {
@@ -91,6 +84,13 @@ function App() {
     } catch (e) {
       console.warn('Failed to configure Google Sign-In at app init:', e);
     }
+    
+    // Cleanup listener on unmount
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

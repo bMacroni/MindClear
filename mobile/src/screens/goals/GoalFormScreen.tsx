@@ -53,7 +53,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       const uiMilestones: Milestone[] = (goalData.milestones || []).map(milestone => ({
         id: milestone.id,
         title: milestone.title,
-        description: '', // Backend doesn't have description field
+        description: milestone.description || '', // Use actual description from backend
         completed: milestone.completed,
         steps: milestone.steps,
       }));
@@ -90,6 +90,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
         milestones: milestones.map(m => ({
           id: m.id,
           title: m.title,
+          description: m.description,
           completed: m.completed,
           order: 0, // Will be set by backend
           steps: (m.steps || []).map((s, idx) => ({ ...s, order: idx + 1 })),

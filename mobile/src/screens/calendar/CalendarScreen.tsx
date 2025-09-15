@@ -1359,6 +1359,8 @@ export default function CalendarScreen() {
           style={styles.inlineAddTop}
           activeOpacity={0.7}
           accessibilityLabel="Create event"
+          accessibilityRole="button"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Icon name="plus" size={20} color={colors.text.secondary} />
         </TouchableOpacity>
