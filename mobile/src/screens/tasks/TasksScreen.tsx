@@ -1280,7 +1280,7 @@ const TasksScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         onRefresh={handleRefresh}
         refreshing={refreshing}
-        emptyComponent={showInbox ? renderEmptyState : undefined}
+        emptyComponent={showInbox ? renderEmptyState : () => null}
         initialLoadSize={20}
         loadMoreSize={10}
         ListFooterComponent={() => {

@@ -53,6 +53,8 @@ export function LazyList<T>({
   contentContainerStyle,
   ...props
 }: LazyListProps<T>) {
+  // Extract ListFooterComponent from props to prevent override
+  const { ListFooterComponent: propListFooterComponent, ...safeProps } = props;
   const [displayedData, setDisplayedData] = useState<T[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +180,7 @@ export function LazyList<T>({
       initialNumToRender={initialLoadSize}
       windowSize={10}
       getItemLayout={undefined} // Let FlatList calculate automatically
-      {...props}
+      {...safeProps}
     />
   );
 }

@@ -381,10 +381,21 @@ export async function getNextFocusTask(req, res) {
       .eq('user_id', user_id)
       .neq('status', 'completed');
 
-    // Apply exclusions in SQL if possible
+    // Apply exclusions in SQL with parameterized query for security
     const exclude = Array.isArray(exclude_ids) ? exclude_ids : [];
-    if (exclude.length > 0) {
-      query = query.not('id', 'in', `(${exclude.map(id => `'${id}'`).join(',')})`);
+    
+    // Validate exclude IDs to prevent injection attacks
+    const validExcludeIds = exclude.filter(id => {
+      // Allow integers (task IDs) or valid UUIDs
+      return typeof id === 'number' || 
+             (typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) ||
+             (typeof id === 'string' && /^\d+$/.test(id));
+    });
+    
+    if (validExcludeIds.length > 0) {
+      // Use Supabase's parameterized not method with in operator for security
+      // Pass the array directly to avoid string interpolation
+      query = query.not('id', 'in', validExcludeIds);
     }
 
     // Apply travel preference filter in SQL

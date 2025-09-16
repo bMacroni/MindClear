@@ -33,8 +33,19 @@
 # Keep vector icons
 -keep class com.oblador.vectoricons.** { *; }
 
-# Keep app-specific classes
--keep class com.foci.mobile.** { *; }
+# Keep app-specific classes (targeted rules only)
+# Keep React Native modules and native modules
+-keep class com.foci.mobile.** { @com.facebook.react.bridge.ReactMethod <methods>; }
+-keep class com.foci.mobile.** { @com.facebook.react.bridge.DoNotStrip <methods>; }
+-keep class com.foci.mobile.** { @com.facebook.react.bridge.DoNotStrip <fields>; }
+
+# Keep classes with native methods
+-keepclasseswithmembernames class com.foci.mobile.** {
+    native <methods>;
+}
+
+# Keep classes used in reflection (add specific classes as needed)
+# -keep class com.foci.mobile.SpecificReflectionClass { *; }
 
 # Remove logging in release builds
 -assumenosideeffects class android.util.Log {
