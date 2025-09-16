@@ -10,6 +10,7 @@ import { goalsAPI } from '../../services/api';
 import { offlineService } from '../../services/offline';
 import { authService, AuthState } from '../../services/auth';
 import GoalsListModal from '../../components/goals/GoalsListModal';
+import AddGoalOptionsModal from '../../components/goals/AddGoalOptionsModal';
 import Svg, { Circle } from 'react-native-svg';
 import { format, isPast, isToday, formatDistanceToNow } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -17,6 +18,8 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { HelpIcon } from '../../components/help/HelpIcon';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import { useFocusEffect } from '@react-navigation/native';
+import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
+import ScreenHeader from '../../components/common/ScreenHeader';
 
 interface Step {
   id: string;
@@ -66,24 +69,7 @@ export default function GoalsScreen({ navigation }: any) {
     isLoading: true,
     isAuthenticated: false,
   });
-  const [aiInput, setAiInput] = useState('');
-  const [aiFeedback, setAiFeedback] = useState('');
-  const [isRefinementMode, setIsRefinementMode] = useState(false);
-  const [aiInputHeights, setAiInputHeights] = useState<{ main?: number; feedback?: number }>({});
-  const [showAiInput, setShowAiInput] = useState(false);
-  const [showAiReview, setShowAiReview] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState<{
-    title: string;
-    description: string;
-    milestones: Array<{
-      title: string;
-      description: string;
-      steps: Array<{
-        title: string;
-        description: string;
-      }>;
-    }>;
-  } | null>(null);
+  const [showAddOptions, setShowAddOptions] = useState(false);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [editingDate, setEditingDate] = useState<Record<string, boolean>>({});
   const [dateDrafts, setDateDrafts] = useState<Record<string, Date>>({});
@@ -297,154 +283,6 @@ export default function GoalsScreen({ navigation }: any) {
     }
   }, [loadGoals]);
 
-  const handleAiSubmit = async () => {
-    if (!aiInput.trim()) {return;}
-    
-    setLoading(true);
-    
-    try {
-      // Extract goal title and description from user input
-      const goalTitle = aiInput.trim();
-      const goalDescription = isRefinementMode && aiFeedback.trim() ? `User feedback for refinement: ${aiFeedback.trim()}` : '';
-      
-      // Call the AI breakdown generation API
-      const breakdown = await goalsAPI.generateBreakdown({
-        title: goalTitle,
-        description: goalDescription,
-      });
-      
-      // Transform the API response to match our UI structure (avoid duplicated labels)
-      const suggestion = {
-        title: goalTitle,
-        description: goalDescription || `AI-generated breakdown for: ${goalTitle}`,
-        milestones: breakdown.milestones.map((milestone, _index) => ({
-          title: milestone.title,
-          description: '',
-          steps: milestone.steps.map((step, _stepIndex) => ({
-            title: step.text,
-            description: '',
-          })),
-        })),
-      };
-      
-      setAiSuggestion(suggestion);
-      setLoading(false);
-      setShowAiInput(false);
-      setShowAiReview(true);
-      setIsRefinementMode(false);
-    } catch (_error) {
-      // error generating AI breakdown
-      setLoading(false);
-      
-      // Check if it's an authentication error
-      if (_error instanceof Error && _error.message.includes('No authentication token')) {
-        Alert.alert(
-          'Authentication Required',
-          'Please log in to use the AI assistant.',
-          [
-            {
-              text: 'Go to Login',
-              onPress: () => navigation.navigate('Login'),
-            },
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-          ]
-        );
-      } else {
-        Alert.alert('Error', 'Failed to generate AI breakdown. Please try again.');
-      }
-    }
-  };
-
-  const handleAcceptSuggestion = React.useCallback(async (options?: { openEdit?: boolean; goalOnly?: boolean }) => {
-    if (!aiSuggestion) {return;}
-    
-    try {
-      setLoading(true);
-      
-      // Create goal data for backend
-      const goalData = {
-        title: aiSuggestion.title,
-        description: aiSuggestion.description,
-        milestones: options?.goalOnly ? [] : aiSuggestion.milestones.map((milestone, _index) => ({
-          title: milestone.title,
-          order: _index + 1,
-          steps: milestone.steps.map((step, _stepIndex) => ({
-            text: step.title,
-            order: _stepIndex + 1,
-          })),
-        })),
-      };
-
-      // Create goal in backend
-      const created: any = await goalsAPI.createGoal(goalData as any);
-      
-      // Reload goals to get the updated list
-      await loadGoals();
-      
-      setAiSuggestion(null);
-      setShowAiReview(false);
-      setAiInput('');
-      setLoading(false);
-      
-      Alert.alert('Success', 'Goal created successfully!');
-
-      // If requested, open the inline edit mode for the newly created goal
-      if (options?.openEdit && created?.id) {
-        try {
-          const createdDrafts = (created.milestones || []).map((m: any) => ({
-            id: m.id,
-            title: m.title,
-            steps: (m.steps || []).map((s: any) => ({ id: s.id, title: s.text || s.title })),
-          }));
-          setExpandedGoals((prev) => ({ ...prev, [created.id]: true }));
-          setEditingGoals((prev) => ({ ...prev, [created.id]: true }));
-          setEditDrafts((prev) => ({ ...prev, [created.id]: createdDrafts }));
-        } catch {}
-      }
-    } catch (_error) {
-      // error creating goal
-      setLoading(false);
-      
-      // Check if it's an authentication error
-      if (_error instanceof Error && _error.message.includes('No authentication token')) {
-        Alert.alert(
-          'Authentication Required',
-          'Please log in to create goals.',
-          [
-            {
-              text: 'Go to Login',
-              onPress: () => navigation.navigate('Login'),
-            },
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-          ]
-        );
-      } else {
-        Alert.alert('Error', 'Failed to create goal. Please try again.');
-      }
-    }
-  }, [aiSuggestion, loadGoals, navigation]);
-
-  const handleRedoSuggestion = () => {
-    setShowAiReview(false);
-    setShowAiInput(true);
-    // Keep the original input and invite user feedback
-    setAiFeedback('');
-    setIsRefinementMode(true);
-  };
-
-  const handleCancelSuggestion = () => {
-    setAiSuggestion(null);
-    setShowAiReview(false);
-    setAiInput('');
-    setAiFeedback('');
-    setIsRefinementMode(false);
-  };
 
   const handleGoalPress = (goalId: string) => {
     setShowGoalsModal(false);
@@ -1164,12 +1002,11 @@ export default function GoalsScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Goals</Text>
-          <View style={{ position: 'absolute', top: 0, right: spacing.sm }}>
-            <HelpIcon />
-          </View>
-        </View>
+        <ScreenHeader
+          title="Goals"
+          rightActions={(<HelpIcon />)}
+          withDivider
+        />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Checking authentication...</Text>
           <Text style={styles.debugText}>Debug: {authState.isAuthenticated ? 'Authenticated' : 'Not Authenticated'}</Text>
@@ -1221,9 +1058,7 @@ export default function GoalsScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Goals</Text>
-        </View>
+        <ScreenHeader title="Goals" withDivider />
         <View style={styles.authContainer}>
           <Text style={styles.authIcon}>🔐</Text>
           <Text style={styles.authTitle}>Welcome to MindGarden</Text>
@@ -1251,12 +1086,8 @@ export default function GoalsScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Goals</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading goals...</Text>
-        </View>
+        <ScreenHeader title="Goals" withDivider />
+        <LoadingSkeleton type="list" count={5} />
       </SafeAreaView>
     );
   }
@@ -1274,9 +1105,23 @@ export default function GoalsScreen({ navigation }: any) {
     <HelpScope scope="goals">
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Goals</Text>
-      </View>
+      <ScreenHeader
+        title="Goals"
+        rightActions={(
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={() => setShowAddOptions(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Add goal"
+              style={styles.headerIconButton}
+            >
+              <Icon name="plus" size={20} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <HelpIcon />
+          </View>
+        )}
+        withDivider
+      />
 
       <ScrollView 
         style={styles.content} 
@@ -1325,11 +1170,11 @@ export default function GoalsScreen({ navigation }: any) {
               <Text style={styles.emptyStateIcon}>🎯</Text>
               <Text style={styles.emptyStateTitle}>No goals yet</Text>
               <Text style={styles.emptyStateText}>
-                Start by asking the AI assistant to help you create your first goal!
+                Start by adding your first goal.
               </Text>
               <Button
-                title="Ask AI Assistant"
-                onPress={() => setShowAiInput(true)}
+                title="Add Goal"
+                onPress={() => setShowAddOptions(true)}
                 style={styles.emptyStateButton}
               />
             </View>
@@ -1339,131 +1184,7 @@ export default function GoalsScreen({ navigation }: any) {
             </View>
           )}
         </View>
-
-        {/* AI Assistant Section (moved below Active Goals) */}
-        <View style={[styles.aiSection, styles.aiSectionCompact]}>
-          <View style={styles.aiHeader}>
-            <Icon name="light-bulb" size={18} color={colors.text.primary} />
-            <Text style={styles.aiTitle}>AI Assistant</Text>
-          </View>
-          {!showAiInput && !showAiReview ? (
-            <View style={styles.aiPrompt}>
-              <Text style={styles.aiPromptText}>Need help setting a new goal?</Text>
-              <Button
-                title="Ask AI Assistant"
-                onPress={() => setShowAiInput(true)}
-                variant="outline"
-                style={styles.aiButton}
-              />
-            </View>
-          ) : showAiInput ? (
-            <View style={styles.aiInputContainer}>
-              <Input
-                placeholder="Describe your goal or ask for help..."
-                value={aiInput}
-                onChangeText={setAiInput}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-                style={[
-                  styles.aiInput,
-                  aiInputHeights.main ? { height: aiInputHeights.main } : null,
-                ]}
-                onContentSizeChange={(e: any) => {
-                  const h = e?.nativeEvent?.contentSize?.height || 0;
-                  const clamped = Math.max(64, Math.min(h + 12, 220));
-                  setAiInputHeights((p) => ({ ...p, main: clamped }));
-                }}
-              />
-              {isRefinementMode && (
-                <Input
-                  placeholder="Tell me what you didn't like about the previous breakdown and what to adjust..."
-                  value={aiFeedback}
-                  onChangeText={setAiFeedback}
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                  style={[
-                    styles.aiInput,
-                    aiInputHeights.feedback ? { height: aiInputHeights.feedback } : null,
-                  ]}
-                  onContentSizeChange={(e: any) => {
-                    const h = e?.nativeEvent?.contentSize?.height || 0;
-                    const clamped = Math.max(64, Math.min(h + 12, 220));
-                    setAiInputHeights((p) => ({ ...p, feedback: clamped }));
-                  }}
-                />
-              )}
-              <View style={styles.aiInputActions}>
-                <Button
-                  title="Cancel"
-                  onPress={() => {
-                    setShowAiInput(false);
-                    setAiInput('');
-                    setAiFeedback('');
-                  }}
-                  variant="secondary"
-                  style={styles.aiCancelButton}
-                />
-                <Button
-                  title={loading ? "Thinking..." : "Ask AI"}
-                  onPress={handleAiSubmit}
-                  loading={loading}
-                  style={styles.aiSubmitButton}
-                />
-              </View>
-            </View>
-          ) : showAiReview && aiSuggestion ? (
-            <View style={styles.aiReviewContainer}>
-              <Text style={styles.aiReviewTitle}>AI Suggestion</Text>
-              <View style={styles.suggestionCard}>
-                <Text style={styles.suggestionGoalTitle}>{aiSuggestion.title}</Text>
-                <Text style={styles.suggestionGoalDescription}>{aiSuggestion.description}</Text>
-                <Text style={styles.milestonesTitle}>Suggested Milestones & Steps:</Text>
-                {aiSuggestion.milestones.map((milestone, _index) => (
-                  <View key={_index} style={styles.suggestionMilestone}>
-                    <Text style={styles.milestoneNumber}>{_index + 1}.</Text>
-                    <View style={styles.milestoneContent}>
-                      <Text style={styles.milestoneTitle}>{milestone.title}</Text>
-                      {!!milestone.description && (
-                        <Text style={styles.milestoneDescription}>{milestone.description}</Text>
-                      )}
-                      {milestone.steps && milestone.steps.length > 0 && (
-                        <View style={styles.stepsContainer}>
-                          {milestone.steps.map((step, _stepIndex) => (
-                            <View key={_stepIndex} style={styles.suggestionStep}>
-                              <Text style={styles.stepNumber}>•</Text>
-                              <Text style={styles.stepTitle}>{step.title}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.aiReviewActions}>
-                <View style={styles.fullWidth}>
-                  <Button title="Accept & Edit" onPress={() => handleAcceptSuggestion({ openEdit: true })} variant="primary" style={[styles.acceptButtonPrimary, styles.buttonFull]} />
-                </View>
-                <View style={styles.fullWidth}>
-                  <Button title="Accept As-Is" onPress={() => handleAcceptSuggestion()} variant="primary" style={[styles.acceptAsIsGold, styles.buttonFull]} />
-                </View>
-                <View style={styles.rowTwo}>
-                  <View style={styles.half}> 
-                    <Button title="Accept Goal Only" onPress={() => handleAcceptSuggestion({ goalOnly: true, openEdit: true })} variant="outline" style={styles.buttonFull} />
-                  </View>
-                  <View style={styles.half}>
-                    <Button title="Re-do" onPress={handleRedoSuggestion} variant="outline" style={styles.buttonFull} />
-                  </View>
-                </View>
-                <View style={styles.fullWidth}>
-                  <Button title="Cancel" onPress={handleCancelSuggestion} variant="secondary" style={[styles.buttonFull, styles.cancelButton]} />
-                </View>
-              </View>
-            </View>
-          ) : null}
-        </View>
+        {/* Inline AI Assistant flow removed. Use Add Goal button above. */}
 
         {/* Needs Review (Overdue) Section */}
         <View style={styles.goalsSection}>
@@ -1525,10 +1246,21 @@ export default function GoalsScreen({ navigation }: any) {
         onGoalDelete={handleGoalDelete}
       />
 
-      {/* Absolute-positioned Help icon under the system tray */}
-      <View style={{ position: 'absolute', top: insets.top + spacing.sm, right: spacing.sm }}>
-        <HelpIcon />
-      </View>
+      {/* Add Goal Options Modal */}
+      <AddGoalOptionsModal
+        visible={showAddOptions}
+        onClose={() => setShowAddOptions(false)}
+        onCreateManually={() => {
+          setShowAddOptions(false);
+          navigation.navigate('GoalForm');
+        }}
+        onAskAI={() => {
+          setShowAddOptions(false);
+          navigation.navigate('AIChat', { initialMessage: 'I want to add a new goal' });
+        }}
+      />
+
+      {/* Help icon moved into header actions */}
     </SafeAreaView>
     </HelpScope>
   );
@@ -1552,6 +1284,11 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     color: colors.text.primary,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   content: {
     flex: 1,
@@ -1836,6 +1573,13 @@ const styles = StyleSheet.create({
   iconButton: {
     padding: spacing.xs,
     borderRadius: borderRadius.sm,
+  },
+  headerIconButton: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    borderRadius: 6,
+    backgroundColor: colors.background.surface,
   },
   ringContainer: {
     alignItems: 'center',

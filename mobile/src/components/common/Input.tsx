@@ -5,13 +5,15 @@ import { spacing, borderRadius } from '../../themes/spacing';
 
 interface InputProps extends TextInputProps {
   error?: boolean;
+  fullWidth?: boolean;
 }
 
-export const Input: React.FC<InputProps> = ({ error, style, ...props }) => {
+export const Input: React.FC<InputProps> = ({ error, fullWidth = false, style, ...props }) => {
   return (
     <TextInput
       style={[
         styles.input,
+        fullWidth && styles.fullWidthInput,
         error && styles.inputError,
         style,
       ]}
@@ -34,6 +36,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     color: colors.text.primary,
     fontSize: 16,
+  },
+  fullWidthInput: {
+    maxWidth: 9999,
   },
   inputError: {
     borderColor: colors.error,

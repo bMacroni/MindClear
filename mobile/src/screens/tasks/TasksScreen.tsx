@@ -29,6 +29,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HelpIcon } from '../../components/help/HelpIcon';
 import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
+import ScreenHeader from '../../components/common/ScreenHeader';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface Task {
   id: string;
@@ -814,29 +816,22 @@ export const TasksScreen: React.FC = () => {
     />
   );
 
-  const renderHeaderActions = () => (
-    <View style={styles.headerActions}>
-      <View style={styles.autoScheduleSummary}>
-        <HelpTarget helpId="tasks-header-summary">
-          <Text style={styles.summaryText}>
-            {getAutoScheduledTasks().length} auto-scheduled • {getScheduledTasks().length} scheduled
-          </Text>
-        </HelpTarget>
-      </View>
-      
-      <View style={styles.actionButtons}>
+  const renderHeaderActions = (compact?: boolean) => (
+    <View style={[styles.headerActions, compact && styles.headerRightRow]}>
+      <View style={[styles.actionButtons, compact && { marginTop: 0 }]}>
         <TouchableOpacity
-          style={styles.settingsButton}
+          style={[styles.settingsButton, compact && styles.headerCompactButton]}
           onPress={handleAutoScheduleSettings}
           activeOpacity={0.7}
         >
           <Icon name="gear" size={20} color={colors.text.secondary} />
         </TouchableOpacity>
         
-        <HelpTarget helpId="tasks-bulk-auto-schedule" style={styles.bulkScheduleContainer}>
+        <HelpTarget helpId="tasks-bulk-auto-schedule">
           <TouchableOpacity
             style={[
               styles.bulkScheduleButton,
+              compact && styles.bulkScheduleButtonCompact,
               bulkScheduling && styles.bulkScheduleButtonDisabled
             ]}
             onPress={handleBulkAutoSchedule}
@@ -850,8 +845,8 @@ export const TasksScreen: React.FC = () => {
             ) : (
               <Icon name="checklist" size={16} color={colors.secondary} />
             )}
-            <Text style={styles.bulkScheduleText}>
-              {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule All'}
+            <Text style={[styles.bulkScheduleText, compact && { fontSize: typography.fontSize.sm }]}> 
+              {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
             </Text>
           </TouchableOpacity>
         </HelpTarget>
@@ -1150,13 +1145,50 @@ export const TasksScreen: React.FC = () => {
 
   return (
     <HelpScope scope="tasks">
+    <SafeAreaView style={styles.safeArea} edges={['top','left','right']}>
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Tasks</Text>
-        <Text style={styles.subtitle}>
-          {tasks.length} task{tasks.length !== 1 ? 's' : ''}
-        </Text>
-        {renderHeaderActions()}
+      <ScreenHeader title="Tasks" rightActions={(<HelpIcon />)} withDivider />
+      <View style={styles.dashboardContainer}>
+        <View style={styles.dashboardRow}>
+          <HelpTarget helpId="tasks-header-summary" style={{ flex: 1 }}>
+            <Text style={styles.dashboardText}>
+              {getAutoScheduledTasks().length} auto-scheduled • {getScheduledTasks().length} scheduled • {tasks.length} tasks
+            </Text>
+          </HelpTarget>
+          <View style={styles.dashboardActions}>
+            <TouchableOpacity
+              style={[styles.settingsButton, styles.headerCompactButton]}
+              onPress={handleAutoScheduleSettings}
+              activeOpacity={0.7}
+              accessibilityLabel="Auto-scheduling settings"
+            >
+              <Icon name="gear" size={20} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <HelpTarget helpId="tasks-bulk-auto-schedule">
+              <TouchableOpacity
+                style={[
+                  styles.bulkScheduleButton,
+                  styles.bulkScheduleButtonCompact,
+                  bulkScheduling && styles.bulkScheduleButtonDisabled
+                ]}
+                onPress={handleBulkAutoSchedule}
+                disabled={bulkScheduling}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={bulkScheduling ? 'Scheduling all tasks' : 'Auto-schedule all tasks'}
+              >
+                {bulkScheduling ? (
+                  <ActivityIndicator size="small" color={colors.secondary} />
+                ) : (
+                  <Icon name="checklist" size={16} color={colors.secondary} />
+                )}
+                <Text style={[styles.bulkScheduleText, { fontSize: typography.fontSize.sm }]}>
+                  {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
+                </Text>
+              </TouchableOpacity>
+            </HelpTarget>
+          </View>
+        </View>
         {/* Today's Focus Card */}
         {(() => {
           const focus = getFocusTask();
@@ -1294,11 +1326,7 @@ export const TasksScreen: React.FC = () => {
         </TouchableOpacity>
       </HelpTarget>
 
-      {/* Absolute-positioned Help icon under the system tray */}
-      <View style={{ position: 'absolute', top: insets.top + spacing.sm, right: spacing.sm }}>
-        <HelpIcon />
-      </View>
-
+      
       {/* Task Form Modal */}
       <Modal
         visible={showModal}
@@ -1390,11 +1418,16 @@ export const TasksScreen: React.FC = () => {
         duration={5000}
       />
     </View>
+    </SafeAreaView>
     </HelpScope>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background.primary,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background.surface,
@@ -1419,6 +1452,14 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     marginTop: spacing.sm,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerCompactButton: {
+    padding: spacing.sm,
   },
   focusHeaderRow: {
     marginTop: spacing.md,
@@ -1586,6 +1627,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: borderRadius.sm,
   },
+  bulkScheduleButtonCompact: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 0,
+  },
   bulkScheduleButtonDisabled: {
     opacity: 0.6,
   },
@@ -1723,5 +1769,24 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium as any,
+  },
+  dashboardContainer: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
+  },
+  dashboardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dashboardText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+  },
+  dashboardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
 });

@@ -8,6 +8,7 @@ import axios from 'axios';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
+import ScreenHeader from '../../components/common/ScreenHeader';
 import { OnboardingState, QuickAction } from '../../types/onboarding';
 import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
@@ -61,7 +62,6 @@ export default function AIChatScreen({ navigation, route }: any) {
   // Onboarding state management
   const [_onboardingState, setOnboardingState] = useState<OnboardingState>({ isCompleted: false });
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingTimer, setOnboardingTimer] = useState<NodeJS.Timeout | null>(null);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
 
   // Quick actions configuration
@@ -168,23 +168,7 @@ export default function AIChatScreen({ navigation, route }: any) {
 
   // Title updates are handled when sending messages
 
-  const sendOnboardingFollowUp = useCallback(() => {
-    const followUpMessage: Message = {
-      id: Date.now(),
-      text: "You can also just tell me what's on your mind. For example, try saying: 'Help me plan to learn to play the guitar' or 'Schedule a dentist appointment for next Tuesday at 3 PM.'",
-      sender: 'ai'
-    };
-    setConversations(prev => prev.map(c => {
-      if (c.id === currentConversationId) {
-        return {
-          ...c,
-          messages: [...c.messages, followUpMessage],
-          lastMessageAt: new Date(),
-        };
-      }
-      return c;
-    }));
-  }, [currentConversationId]);
+  // Deprecated: Removed timed follow-up onboarding message to prevent confusion during active chats
 
   // Onboarding flow logic
   const initializeOnboarding = useCallback(async () => {
@@ -193,14 +177,8 @@ export default function AIChatScreen({ navigation, route }: any) {
     
     if (!state.isCompleted) {
       setShowOnboarding(true);
-      const timer = setTimeout(() => {
-        if (!hasUserInteracted && showOnboarding) {
-          sendOnboardingFollowUp();
-        }
-      }, 10000);
-      setOnboardingTimer(timer);
     }
-  }, [hasUserInteracted, showOnboarding, sendOnboardingFollowUp]);
+  }, []);
 
   
 
@@ -221,14 +199,7 @@ export default function AIChatScreen({ navigation, route }: any) {
     setConversations(prev => prev.map(c => 
       c.id === currentConversationId ? resetConversation : c
     ));
-    // Restart timer
-    const timer = setTimeout(() => {
-      if (!hasUserInteracted && showOnboarding) {
-        sendOnboardingFollowUp();
-      }
-    }, 10000);
-    setOnboardingTimer(timer);
-  }, [currentConversationId, hasUserInteracted, showOnboarding, sendOnboardingFollowUp]);
+  }, [currentConversationId]);
 
   // Sign out is handled from Profile screen now
 
@@ -536,7 +507,7 @@ export default function AIChatScreen({ navigation, route }: any) {
         }
       });
     } catch (err: any) {
-      console.error('AI Chat error:', err.message);
+      console.error('AI Chat error:', (err as any)?.message || err);
       
       let errorMessage = 'AI failed to respond. Please try again.';
       if (err.response?.status === 401) {
@@ -557,10 +528,6 @@ export default function AIChatScreen({ navigation, route }: any) {
 
   const handleQuickActionPress = useCallback((action: QuickAction) => {
     setHasUserInteracted(true);
-    if (onboardingTimer) {
-      clearTimeout(onboardingTimer);
-      setOnboardingTimer(null);
-    }
     // Pre-fill input and send
     setInput(action.prefillText);
     setTimeout(() => {
@@ -569,7 +536,7 @@ export default function AIChatScreen({ navigation, route }: any) {
     // Hide onboarding after action
     setShowOnboarding(false);
     OnboardingService.setOnboardingCompleted();
-  }, [handleSend, onboardingTimer]);
+  }, [handleSend]);
 
   // Handle initial message from navigation
   useEffect(() => {
@@ -670,7 +637,7 @@ export default function AIChatScreen({ navigation, route }: any) {
             }
           });
                  } catch (err: any) {
-           console.error('AI Chat auto-send error:', err.message);
+           console.error('AI Chat auto-send error:', (err as any)?.message || err);
           
           let errorMessage = 'AI failed to respond. Please try again.';
           if (err.response?.status === 401) {
@@ -697,13 +664,7 @@ export default function AIChatScreen({ navigation, route }: any) {
   }, [initializeOnboarding]);
 
   // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (onboardingTimer) {
-        clearTimeout(onboardingTimer);
-      }
-    };
-  }, [onboardingTimer]);
+  // Timer removed with deprecation of follow-up; nothing to clean up here
 
   const renderMessage = (msg: Message) => {
     if (msg.sender === 'user') {
@@ -840,19 +801,20 @@ export default function AIChatScreen({ navigation, route }: any) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} animated />
-                     <View style={styles.header}>
-          <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
-            <Icon name="three-bars" size={20} color={colors.text.primary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {currentConversation?.title || 'Mind Clear AI Chat'}
-          </Text>
-          <View style={styles.headerActions}>
+        <ScreenHeader
+          title={currentConversation?.title || 'Mind Clear AI Chat'}
+          leftAction={(
+            <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
+              <Icon name="three-bars" size={20} color={colors.text.primary} />
+            </TouchableOpacity>
+          )}
+          rightActions={(
             <TouchableOpacity style={styles.helpButton} onPress={handleHelpPress}>
               <Icon name="question" size={20} color={colors.text.primary} />
             </TouchableOpacity>
-          </View>
-        </View>
+          )}
+          withDivider
+        />
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -884,10 +846,6 @@ export default function AIChatScreen({ navigation, route }: any) {
               setInput(text);
               if (showOnboarding && !hasUserInteracted) {
                 setHasUserInteracted(true);
-                if (onboardingTimer) {
-                  clearTimeout(onboardingTimer);
-                  setOnboardingTimer(null);
-                }
               }
             }}
             onSubmitEditing={handleSend}

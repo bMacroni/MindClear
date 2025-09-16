@@ -13,13 +13,14 @@ import { TaskDetailScreen } from '../screens/tasks/TaskDetailScreen';
 import NotificationScreen from '../screens/notifications/NotificationScreen';
 import { RootStackParamList } from './types';
 import { authService } from '../services/auth';
+import { navigationRef } from './navigationRef';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const navigationRef = useRef<any>(null);
+  // Use shared navigationRef for global route awareness
 
   useEffect(() => {
     // Check authentication state on app start
@@ -38,10 +39,9 @@ export default function AppNavigator() {
         });
 
         const authenticated = authService.isAuthenticated();
-        console.log('🔐 AppNavigator: Auth state check - authenticated:', authenticated);
         setIsAuthenticated(authenticated);
       } catch (error) {
-        console.error('🔐 AppNavigator: Error checking auth state:', error);
+        console.error('AppNavigator: Error checking auth state:', error);
         setIsAuthenticated(false);
       } finally {
         setIsLoading(false);
@@ -53,7 +53,6 @@ export default function AppNavigator() {
     // Listen for auth state changes
     const unsubscribe = authService.subscribe((authState) => {
       const wasAuthenticated = isAuthenticated;
-      console.log('🔐 AppNavigator: Auth state changed - authenticated:', authState.isAuthenticated);
       setIsAuthenticated(authState.isAuthenticated);
 
       // Handle navigation when auth state changes

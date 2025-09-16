@@ -8,6 +8,7 @@ export const HelpIcon: React.FC = () => {
   const { isHelpOverlayActive, setIsHelpOverlayActive } = useHelp();
   return (
     <TouchableOpacity
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
       accessibilityLabel={isHelpOverlayActive ? 'Exit help' : 'Enter help'}
       accessibilityRole="button"
       accessibilityHint="Toggle help overlay"

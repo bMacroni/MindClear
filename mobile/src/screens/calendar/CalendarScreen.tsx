@@ -19,6 +19,7 @@ import { CalendarImportModal } from '../../components/calendar/CalendarImportMod
 import { GoalDueCard } from '../../components/goals/GoalDueCard';
 // import { VirtualizedEventList } from '../../components/calendar/VirtualizedEventList';
 import { OfflineIndicator } from '../../components/common/OfflineIndicator';
+import ScreenHeader from '../../components/common/ScreenHeader';
 import { ErrorDisplay, ErrorBanner } from '../../components/common/ErrorDisplay';
 import { SearchAndFilter } from '../../components/calendar/SearchAndFilter';
 import { enhancedAPI } from '../../services/enhancedApi';
@@ -1266,20 +1267,23 @@ export default function CalendarScreen() {
       <OfflineIndicator />
       
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Calendar</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity 
-            onPress={() => setShowImportModal(true)} 
-            style={styles.importButton}
-          >
-            <Icon name="download" size={18} color={colors.text.secondary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
-            <Text style={styles.refreshButtonText}>↻</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <ScreenHeader
+        title="Calendar"
+        rightActions={(
+          <>
+            <TouchableOpacity 
+              onPress={() => setShowImportModal(true)} 
+              style={styles.importButton}
+            >
+              <Icon name="download" size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
+              <Text style={styles.refreshButtonText}>↻</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        withDivider
+      />
 
       {/* First-run Import Prompt */}
       {showImportPrompt && (
@@ -1355,6 +1359,8 @@ export default function CalendarScreen() {
           style={styles.inlineAddTop}
           activeOpacity={0.7}
           accessibilityLabel="Create event"
+          accessibilityRole="button"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Icon name="plus" size={20} color={colors.text.secondary} />
         </TouchableOpacity>

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
+import Icon from 'react-native-vector-icons/Octicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, Button } from '../../components/common';
 import { goalsAPI } from '../../services/api';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format } from 'date-fns';
 
 interface Milestone {
   id: string;
@@ -27,9 +30,11 @@ export default function GoalFormScreen({ navigation, route }: any) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [showAiHelp, setShowAiHelp] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(isEditing);
+  const [targetDate, setTargetDate] = useState<Date | undefined>(undefined);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const loadExistingGoal = useCallback(async () => {
     try {
@@ -38,12 +43,17 @@ export default function GoalFormScreen({ navigation, route }: any) {
       
       setTitle(goalData.title);
       setDescription(goalData.description);
+      try {
+        if (goalData.target_completion_date) {
+          setTargetDate(new Date(goalData.target_completion_date));
+        }
+      } catch {}
       
       // Transform backend milestone format to UI format
       const uiMilestones: Milestone[] = (goalData.milestones || []).map(milestone => ({
         id: milestone.id,
         title: milestone.title,
-        description: '', // Backend doesn't have description field
+        description: milestone.description || '', // Use actual description from backend
         completed: milestone.completed,
         steps: milestone.steps,
       }));
@@ -80,10 +90,12 @@ export default function GoalFormScreen({ navigation, route }: any) {
         milestones: milestones.map(m => ({
           id: m.id,
           title: m.title,
+          description: m.description,
           completed: m.completed,
           order: 0, // Will be set by backend
-          steps: m.steps || [],
+          steps: (m.steps || []).map((s, idx) => ({ ...s, order: idx + 1 })),
         })),
+        target_completion_date: targetDate ? targetDate.toISOString() : undefined,
       };
 
       if (isEditing) {
@@ -105,39 +117,6 @@ export default function GoalFormScreen({ navigation, route }: any) {
     }
   };
 
-  const handleAiSubmit = async () => {
-    if (!title.trim()) {return;}
-    
-    setLoading(true);
-    
-    try {
-      // Import the API service
-      const { goalsAPI } = await import('../../services/api');
-      
-      // Call the AI breakdown generation API
-      const breakdown = await goalsAPI.generateBreakdown({
-        title: title.trim(),
-        description: description.trim(),
-      });
-      
-      // Transform the API response to match our UI structure
-      const aiMilestones: Milestone[] = breakdown.milestones.map((milestone, index) => ({
-        id: Date.now().toString() + index,
-        title: milestone.title,
-        description: `AI-generated milestone: ${milestone.title}`,
-        completed: false,
-      }));
-      
-      setMilestones(aiMilestones);
-      setShowAiHelp(false);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error generating AI breakdown:', error);
-      setLoading(false);
-      Alert.alert('Error', 'Failed to generate AI breakdown. Please try again.');
-    }
-  };
-
   const addMilestone = () => {
     const newMilestone: Milestone = {
       id: Date.now().toString(),
@@ -146,6 +125,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       completed: false,
     };
     setMilestones([...milestones, newMilestone]);
+    setExpanded((p) => ({ ...p, [newMilestone.id]: true }));
   };
 
   const updateMilestone = (id: string, field: keyof Milestone, value: any) => {
@@ -162,6 +142,51 @@ export default function GoalFormScreen({ navigation, route }: any) {
     setMilestones(milestones.map(m => 
       m.id === id ? { ...m, completed: !m.completed } : m
     ));
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpanded((p) => ({ ...p, [id]: !p[id] }));
+  };
+
+  const addStep = (milestoneId: string) => {
+    setMilestones((prev) => prev.map(m => {
+      if (m.id !== milestoneId) {return m;}
+      const steps = m.steps || [];
+      const newStep = { id: `${Date.now()}_${steps.length + 1}`, text: '', completed: false, order: steps.length + 1 };
+      return { ...m, steps: [...steps, newStep] };
+    }));
+  };
+
+  const updateStep = (milestoneId: string, stepId: string, field: 'text'|'completed', value: any) => {
+    setMilestones((prev) => prev.map(m => {
+      if (m.id !== milestoneId) {return m;}
+      const steps = (m.steps || []).map(s => s.id === stepId ? { ...s, [field]: value } : s);
+      return { ...m, steps };
+    }));
+  };
+
+  const deleteStep = (milestoneId: string, stepId: string) => {
+    setMilestones((prev) => prev.map(m => {
+      if (m.id !== milestoneId) {return m;}
+      const steps = (m.steps || []).filter(s => s.id !== stepId).map((s, idx) => ({ ...s, order: idx + 1 }));
+      return { ...m, steps };
+    }));
+  };
+
+  const moveStep = (milestoneId: string, stepId: string, direction: 'up'|'down') => {
+    setMilestones((prev) => prev.map(m => {
+      if (m.id !== milestoneId) {return m;}
+      const steps = [...(m.steps || [])];
+      const index = steps.findIndex(s => s.id === stepId);
+      if (index === -1) {return m;}
+      const target = direction === 'up' ? index - 1 : index + 1;
+      if (target < 0 || target >= steps.length) {return m;}
+      const temp = steps[index];
+      steps[index] = steps[target];
+      steps[target] = temp;
+      const reord = steps.map((s, i) => ({ ...s, order: i + 1 }));
+      return { ...m, steps: reord };
+    }));
   };
 
   if (initialLoading) {
@@ -216,6 +241,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
             placeholder="What do you want to achieve?"
             value={title}
             onChangeText={setTitle}
+            fullWidth
             style={styles.titleInput}
           />
           
@@ -225,8 +251,35 @@ export default function GoalFormScreen({ navigation, route }: any) {
             onChangeText={setDescription}
             multiline
             numberOfLines={4}
+            fullWidth
             style={styles.descriptionInput}
           />
+
+          {/* Target Date */}
+          <View style={styles.dateRow}>
+            <Icon name="calendar" size={16} color={colors.text.secondary} />
+            <TouchableOpacity
+              onPress={() => setShowDatePicker(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Set target date"
+            >
+              <Text style={styles.dateText}>
+                {targetDate ? format(targetDate, 'EEE, MMM d, yyyy') : 'Set target date (optional)'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {showDatePicker && (
+            <DateTimePicker
+              value={targetDate || new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' as any : 'default'}
+              onChange={(event: any, selected?: Date) => {
+                if (Platform.OS === 'android') { setShowDatePicker(false); }
+                if (event?.type === 'dismissed') { return; }
+                if (selected) { setTargetDate(selected); }
+              }}
+            />
+          )}
         </View>
 
         {/* Milestones Section */}
@@ -234,126 +287,107 @@ export default function GoalFormScreen({ navigation, route }: any) {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Milestones</Text>
           </View>
-          
-          {/* AI vs Manual Options - Only show for new goals */}
-          {!isEditing && (
-            <View style={styles.milestoneOptions}>
-              <TouchableOpacity 
-                style={styles.aiOptionButton}
-                onPress={() => setShowAiHelp(true)}
-              >
-                <Text style={styles.aiOptionIcon}>🤖</Text>
-                <Text style={styles.aiOptionTitle}>AI Generate</Text>
-                <Text style={styles.aiOptionSubtitle}>Let AI break down your goal</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.manualOptionButton}
-                onPress={addMilestone}
-              >
-                <Text style={styles.manualOptionIcon}>✏️</Text>
-                <Text style={styles.manualOptionTitle}>Manual Entry</Text>
-                <Text style={styles.manualOptionSubtitle}>Create milestones yourself</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {showAiHelp && (
-            <View style={styles.aiSection}>
-              <Text style={styles.aiPromptText}>
-                Using your goal "{title}" to generate milestones...
-              </Text>
-              <View style={styles.aiActions}>
-                <Button
-                  title="Cancel"
-                  onPress={() => {
-                    setShowAiHelp(false);
-                  }}
-                  variant="secondary"
-                  style={styles.aiCancelButton}
-                />
-                <Button
-                  title={loading ? "Generating..." : "Generate Milestones"}
-                  onPress={handleAiSubmit}
-                  loading={loading}
-                  style={styles.aiSubmitButton}
-                />
-              </View>
-            </View>
-          )}
-
-          {milestones.length === 0 && !showAiHelp ? (
+          {milestones.length === 0 ? (
             <View style={styles.emptyMilestones}>
               <Text style={styles.emptyMilestonesText}>
-                No milestones yet. Add them manually or use AI help to generate them.
+                No milestones yet. Add them below.
               </Text>
             </View>
           ) : (
             <View style={styles.milestonesList}>
-              {milestones.map((milestone, index) => (
-                <View key={milestone.id} style={styles.milestoneItem}>
-                  <View style={styles.milestoneHeader}>
-                    <TouchableOpacity
-                      style={styles.milestoneCheckbox}
-                      onPress={() => toggleMilestone(milestone.id)}
-                    >
-                      <View style={[
-                        styles.checkbox,
-                        milestone.completed && styles.checkboxChecked
-                      ]}>
-                        {milestone.completed && <Text style={styles.checkmark}>✓</Text>}
+              {milestones.map((milestone, index) => {
+                const total = milestone.steps?.length || 0;
+                const completedSteps = (milestone.steps || []).filter(s => s.completed).length;
+                const isOpen = !!expanded[milestone.id];
+                return (
+                  <View key={milestone.id} style={styles.milestoneCard}>
+                    {/* Collapsed Header */}
+                    <TouchableOpacity onPress={() => toggleExpanded(milestone.id)} activeOpacity={0.8}>
+                      <View style={styles.milestoneHeaderRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.milestoneTitleText}>{milestone.title || `Milestone ${index + 1}`}</Text>
+                          {!!milestone.description && (
+                            <Text style={styles.milestoneDescriptionCollapsed}>{milestone.description}</Text>
+                          )}
+                        </View>
+                        <View style={styles.progressPill}>
+                          <Text style={styles.progressPillText}>{completedSteps}/{total}</Text>
+                        </View>
+                        <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.text.secondary} />
                       </View>
                     </TouchableOpacity>
-                    <Text style={styles.milestoneNumber}>{index + 1}</Text>
-                    <TouchableOpacity
-                      style={styles.removeButton}
-                      onPress={() => removeMilestone(milestone.id)}
-                    >
-                      <Text style={styles.removeButtonText}>×</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  <Input
-                    placeholder="Milestone title"
-                    value={milestone.title}
-                    onChangeText={(value) => updateMilestone(milestone.id, 'title', value)}
-                    style={styles.milestoneTitleInput}
-                  />
-                  
-                  <Input
-                    placeholder="Description (optional)"
-                    value={milestone.description}
-                    onChangeText={(value) => updateMilestone(milestone.id, 'description', value)}
-                    multiline
-                    numberOfLines={2}
-                    style={styles.milestoneDescriptionInput}
-                  />
-                  
-                  {/* Steps for this milestone */}
-                  {milestone.steps && milestone.steps.length > 0 && (
-                    <View style={styles.stepsContainer}>
-                      <Text style={styles.stepsTitle}>Steps:</Text>
-                      {milestone.steps.map((step, stepIndex) => (
-                        <View key={step.id} style={styles.stepItem}>
-                          <Text style={styles.stepNumber}>{stepIndex + 1}.</Text>
-                          <Text style={styles.stepText}>{step.text}</Text>
+
+                    {/* Expanded Content */}
+                    {isOpen && (
+                      <View style={styles.milestoneExpanded}>
+                        <Input
+                          placeholder="Milestone title"
+                          value={milestone.title}
+                          onChangeText={(value) => updateMilestone(milestone.id, 'title', value)}
+                          style={styles.milestoneTitleInput}
+                        />
+                        <Input
+                          placeholder="Description (optional)"
+                          value={milestone.description}
+                          onChangeText={(value) => updateMilestone(milestone.id, 'description', value)}
+                          multiline
+                          numberOfLines={2}
+                          style={styles.milestoneDescriptionInput}
+                        />
+
+                        {/* Steps List */}
+                        <View style={styles.stepsContainer}>
+                          {(milestone.steps || []).map((step, stepIndex) => (
+                            <View key={step.id} style={styles.stepRow}>
+                              <TouchableOpacity onPress={() => updateStep(milestone.id, step.id, 'completed', !step.completed)} style={styles.stepCheckboxBtn}>
+                                <View style={[styles.checkbox, step.completed && styles.checkboxChecked]}>
+                                  {step.completed && <Text style={styles.checkmark}>✓</Text>}
+                                </View>
+                              </TouchableOpacity>
+                              <Input
+                                placeholder={`Step ${stepIndex + 1}`}
+                                value={step.text}
+                                onChangeText={(t) => updateStep(milestone.id, step.id, 'text', t)}
+                                style={styles.stepInput}
+                              />
+                              <View style={styles.stepActions}>
+                                <TouchableOpacity onPress={() => moveStep(milestone.id, step.id, 'up')} style={styles.iconBtnSmall}>
+                                  <Icon name="chevron-up" size={16} color={colors.text.secondary} />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => moveStep(milestone.id, step.id, 'down')} style={styles.iconBtnSmall}>
+                                  <Icon name="chevron-down" size={16} color={colors.text.secondary} />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => deleteStep(milestone.id, step.id)} style={styles.iconBtnSmall}>
+                                  <Icon name="trash" size={16} color={colors.text.secondary} />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          ))}
+                          <TouchableOpacity onPress={() => addStep(milestone.id)}>
+                            <Text style={styles.linkButton}>+ Add Step</Text>
+                          </TouchableOpacity>
                         </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              ))}
+
+                        <View style={styles.milestoneFooterActions}>
+                          <TouchableOpacity onPress={() => removeMilestone(milestone.id)} style={styles.iconBtnDanger}>
+                            <Icon name="trash" size={16} color={colors.text.secondary} />
+                            <Text style={styles.removeText}>Remove Milestone</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
           )}
 
-          {!showAiHelp && (
-            <Button
-              title="Add Milestone"
-              onPress={addMilestone}
-              variant="outline"
-              style={styles.addMilestoneButton}
-            />
-          )}
+          <Button
+            title="Add Milestone"
+            onPress={addMilestone}
+            variant="outline"
+            style={[styles.addMilestoneButton, { maxWidth: '100%' }]}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -432,32 +466,18 @@ const styles = StyleSheet.create({
   descriptionInput: {
     marginBottom: spacing.sm,
   },
-  aiSection: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border.light,
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
   },
-  aiPromptText: {
+  dateText: {
     fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
-    marginBottom: spacing.sm,
+    fontWeight: typography.fontWeight.medium as any,
   },
-  aiInput: {
-    marginBottom: spacing.sm,
-  },
-  aiActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  aiCancelButton: {
-    flex: 1,
-  },
-  aiSubmitButton: {
-    flex: 1,
-  },
+  // AI flow styles removed
   emptyMilestones: {
     alignItems: 'center',
     paddingVertical: spacing.lg,
@@ -470,20 +490,43 @@ const styles = StyleSheet.create({
   milestonesList: {
     gap: spacing.md,
   },
-  milestoneItem: {
+  milestoneCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border.light,
   },
-  milestoneHeader: {
+  milestoneHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    gap: spacing.sm,
   },
-  milestoneCheckbox: {
-    marginRight: spacing.sm,
+  milestoneTitleText: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.primary,
+    fontWeight: typography.fontWeight.bold as any,
+  },
+  milestoneDescriptionCollapsed: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
+    marginTop: 2,
+  },
+  progressPill: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    backgroundColor: colors.background.primary,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    marginRight: spacing.xs,
+  },
+  progressPillText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
+  },
+  milestoneExpanded: {
+    marginTop: spacing.sm,
   },
   checkbox: {
     width: 20,
@@ -503,25 +546,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: typography.fontWeight.bold,
   },
-  milestoneNumber: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.text.secondary,
-    marginRight: 'auto',
-  },
-  removeButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.error,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeButtonText: {
-    color: colors.secondary,
-    fontSize: 16,
-    fontWeight: typography.fontWeight.bold,
-  },
+  // removed old milestone number/remove styles
   milestoneTitleInput: {
     marginBottom: spacing.sm,
   },
@@ -531,85 +556,50 @@ const styles = StyleSheet.create({
   addMilestoneButton: {
     marginTop: spacing.md,
   },
-  milestoneOptions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  aiOptionButton: {
-    flex: 1,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  manualOptionButton: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border.medium,
-  },
-  aiOptionIcon: {
-    fontSize: 24,
-    marginBottom: spacing.xs,
-  },
-  aiOptionTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.secondary,
-    marginBottom: spacing.xs,
-  },
-  aiOptionSubtitle: {
-    fontSize: typography.fontSize.xs,
-    color: colors.secondary,
-    textAlign: 'center',
-    opacity: 0.8,
-  },
-  manualOptionIcon: {
-    fontSize: 24,
-    marginBottom: spacing.xs,
-  },
-  manualOptionTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
-  manualOptionSubtitle: {
-    fontSize: typography.fontSize.xs,
-    color: colors.text.secondary,
-    textAlign: 'center',
-  },
+  // removed old option tiles styles
   stepsContainer: {
     marginTop: spacing.sm,
-    paddingLeft: spacing.md,
+    paddingLeft: 0,
   },
-  stepsTitle: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
-  stepItem: {
+  stepRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: spacing.xs,
+    gap: spacing.xs,
   },
-  stepNumber: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.text.secondary,
-    marginRight: spacing.xs,
-    minWidth: 20,
+  stepCheckboxBtn: {
+    padding: spacing.xs,
   },
-  stepText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.text.primary,
+  stepInput: {
     flex: 1,
+  },
+  stepActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6 as any,
+  },
+  iconBtnSmall: {
+    padding: spacing.xs,
+    borderRadius: borderRadius.sm,
+  },
+  iconBtnDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  removeText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
+  },
+  linkButton: {
+    color: colors.accent?.gold || colors.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium as any,
+    marginTop: spacing.xs,
+  },
+  milestoneFooterActions: {
+    marginTop: spacing.sm,
+    alignItems: 'flex-start',
   },
 }); 
