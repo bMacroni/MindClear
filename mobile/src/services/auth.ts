@@ -3,6 +3,7 @@ import { configService } from './config';
 import { secureStorage } from './secureStorage';
 import { AndroidStorageMigrationService } from './storageMigration';
 import { apiFetch } from './apiService';
+import logger from '../utils/logger';
 
 // Helper function for fetch with timeout
 const fetchWithTimeout = async (input: RequestInfo, init: RequestInit = {}, ms = 10000) => {
@@ -90,7 +91,7 @@ class AuthService {
       // Check if migration is needed and perform it
       const needsMigration = await AndroidStorageMigrationService.checkMigrationNeeded();
       if (needsMigration) {
-        console.log('🔐 Migrating auth data to secure storage...');
+        logger.info('🔐 Migrating auth data to secure storage...');
         const migrationResult = await AndroidStorageMigrationService.migrateAuthData();
         if (!migrationResult.success) {
           console.warn('⚠️ Some auth data migration failed:', migrationResult.errors);
@@ -176,7 +177,7 @@ class AuthService {
           } else {
             // If user reconstruction failed but we have a valid token, 
             // attempt to fetch user profile from server
-            console.log('User reconstruction failed, attempting to fetch profile from server...');
+            logger.info('User reconstruction failed, attempting to fetch profile from server...');
             const profileResult = await this.getProfile();
             
             if (profileResult.success && profileResult.user) {
@@ -191,7 +192,7 @@ class AuthService {
               await secureStorage.set('auth_user', JSON.stringify(profileResult.user));
             } else {
               // Profile fetch failed or token is invalid, clear auth data
-              console.log('Profile fetch failed, clearing auth data:', profileResult.message);
+              logger.warn('Profile fetch failed, clearing auth data:', profileResult.message);
               await this.clearAuthData();
               this.setUnauthenticatedState();
             }

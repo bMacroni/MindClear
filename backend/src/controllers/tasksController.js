@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { dateParser } from '../utils/dateParser.js';
 import { autoScheduleTasks, processRecurringTask } from './autoSchedulingController.js';
+import logger from '../utils/logger.js';
 
 // Normalize user-provided search text (e.g., strip trailing words like "task")
 function normalizeSearchText(input) {
@@ -348,47 +349,41 @@ export async function getNextFocusTask(req, res) {
         .eq('user_id', user_id);
     }
 
-    // 2) Fetch candidates (filter minimal in SQL, do detailed ordering in JS)
-    const { data: candidatesRaw, error: fetchErr } = await supabase
+    // 2) Build optimized query with SQL filtering instead of JavaScript
+    let query = supabase
       .from('tasks')
       .select('*')
       .eq('user_id', user_id)
       .neq('status', 'completed');
+
+    // Apply exclusions in SQL if possible
+    const exclude = Array.isArray(exclude_ids) ? exclude_ids : [];
+    if (exclude.length > 0) {
+      query = query.not('id', 'in', `(${exclude.map(id => `'${id}'`).join(',')})`);
+    }
+
+    // Apply travel preference filter in SQL
+    if (travel_preference === 'home_only') {
+      query = query.or('location.is.null,location.eq.');
+    }
+
+    // Order by priority (high=3, medium=2, low=1) and due_date in SQL
+    // Use CASE statement for priority ordering and COALESCE for null due_dates
+    const { data: candidates, error: fetchErr } = await query
+      .order('priority', { ascending: false, nullsLast: true })
+      .order('due_date', { ascending: true, nullsLast: true })
+      .limit(50); // Limit results to prevent large data transfer
+
     if (fetchErr) {
       return res.status(400).json({ error: fetchErr.message });
     }
 
-    let candidates = candidatesRaw || [];
-
-    // Exclusions (client-provided)
-    const exclude = Array.isArray(exclude_ids) ? exclude_ids : [];
-    if (exclude.length > 0) {
-      const excludeSet = new Set(exclude);
-      candidates = candidates.filter(t => !excludeSet.has(t.id));
-    }
-
-    // Travel preference filter (frontend may also compute travel, but filter here per PRD intent)
-    if (travel_preference === 'home_only') {
-      candidates = candidates.filter(t => !t.location || t.location === '' || t.location === null);
-    }
-
-    // Custom priority weight
-    const weight = (p) => (p === 'high' ? 3 : p === 'medium' ? 2 : p === 'low' ? 1 : 0);
-    // Normalize due_date to comparable time, with null/undefined placed last
-    const dueTime = (d) => (d ? new Date(d).getTime() : Number.POSITIVE_INFINITY);
-
-    candidates.sort((a, b) => {
-      const wp = weight(b.priority) - weight(a.priority);
-      if (wp !== 0) return wp;
-      return dueTime(a.due_date) - dueTime(b.due_date);
-    });
-
-    // 3) Choose first candidate; ensure estimated_duration_minutes defaults to 30 if missing
-    const next = candidates[0];
-    if (!next) {
+    if (!candidates || candidates.length === 0) {
       return res.status(404).json({ message: 'No other tasks match your criteria.' });
     }
 
+    // 3) Choose first candidate (already sorted by SQL)
+    const next = candidates[0];
     const ensureDuration = (t) => (Number.isFinite(t.estimated_duration_minutes) && t.estimated_duration_minutes > 0) ? t.estimated_duration_minutes : 30;
 
     const updates = {
@@ -802,7 +797,7 @@ export async function toggleAutoSchedule(req, res) {
     .single();
 
   if (taskError) {
-    console.log('Supabase error:', taskError);
+    logger.error('Supabase error in bulkCreateTasks:', taskError);
     return res.status(400).json({ error: taskError.message });
   }
 
