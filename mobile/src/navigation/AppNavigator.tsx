@@ -3,17 +3,19 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar, View, ActivityIndicator } from 'react-native';
 import { colors } from '../themes/colors';
+import { RootStackParamList } from './types';
+import { authService } from '../services/auth';
+import { navigationRef } from './navigationRef';
+
+// Import screens directly for now to fix lazy loading issues
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignupScreen from '../screens/auth/SignupScreen';
 import TabNavigator from './TabNavigator';
 import GoalFormScreen from '../screens/goals/GoalFormScreen';
 import GoalDetailScreen from '../screens/goals/GoalDetailScreen';
-import { TaskFormScreen } from '../screens/tasks/TaskFormScreen';
-import { TaskDetailScreen } from '../screens/tasks/TaskDetailScreen';
+import TaskFormScreen from '../screens/tasks/TaskFormScreen';
+import TaskDetailScreen from '../screens/tasks/TaskDetailScreen';
 import NotificationScreen from '../screens/notifications/NotificationScreen';
-import { RootStackParamList } from './types';
-import { authService } from '../services/auth';
-import { navigationRef } from './navigationRef';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 

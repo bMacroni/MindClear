@@ -38,7 +38,7 @@ interface TaskFormScreenProps {
   navigation: any;
 }
 
-export const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
+const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
   route,
   navigation,
 }) => {
@@ -162,3 +162,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.primary,
   },
 });
+
+export default TaskFormScreen;

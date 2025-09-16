@@ -18,6 +18,7 @@ import { HelpProvider } from './src/contexts/HelpContext';
 import HelpOverlay from './src/components/help/HelpOverlay';
 import { authService } from './src/services/auth';
 import { getCurrentRouteName } from './src/navigation/navigationRef';
+// import { initializeScreenPreloading } from './src/utils/screenPreloader';
 
 // Set Google client IDs immediately when the module loads
 configService.setGoogleClientIds({
@@ -28,6 +29,9 @@ configService.setGoogleClientIds({
 
 function App() {
   useEffect(() => {
+    // Initialize screen preloading for better performance
+    // initializeScreenPreloading();
+    
     // Set up auth state listener to initialize services after authentication
     const checkAuthAndInitialize = async () => {
       if (authService.isAuthenticated()) {

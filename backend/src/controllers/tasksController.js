@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { dateParser } from '../utils/dateParser.js';
 import { autoScheduleTasks, processRecurringTask } from './autoSchedulingController.js';
 import logger from '../utils/logger.js';
+import cacheService from '../utils/cacheService.js';
 
 // Normalize user-provided search text (e.g., strip trailing words like "task")
 function normalizeSearchText(input) {
@@ -105,6 +106,10 @@ export async function createTask(req, res) {
     
     return res.status(400).json({ error: error.message });
   }
+  
+  // Invalidate user's task cache since we added a new task
+  cacheService.invalidateUserCache(user_id, 'tasks');
+  
   res.status(201).json(data);
 }
 
@@ -114,39 +119,59 @@ export async function getTasks(req, res) {
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
   
-  // Create Supabase client with the JWT
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+  // Create cache key for this user's tasks
+  const cacheKey = cacheService.generateUserKey(user_id, 'tasks');
+  
+  try {
+    // Try to get from cache first
+    const cachedTasks = cacheService.get(cacheKey);
+    if (cachedTasks) {
+      logger.debug('Cache hit for user tasks:', user_id);
+      return res.json(cachedTasks);
     }
-  });
-  
-  const { data, error } = await supabase
-    .from('tasks')
-    .select(`
-      *,
-      goals:goal_id (
-        id,
-        title,
-        description
-      ),
-      calendar_events!task_id (
-        id,
-        start_time,
-        end_time,
-        title
-      )
-    `)
-    .eq('user_id', user_id)
-    .order('created_at', { ascending: false });
-  
-  if (error) {
-    return res.status(400).json({ error: error.message });
-  }
 
-  res.json(data);
+    logger.debug('Cache miss for user tasks:', user_id);
+    
+    // Create Supabase client with the JWT
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+    
+    const { data, error } = await supabase
+      .from('tasks')
+      .select(`
+        *,
+        goals:goal_id (
+          id,
+          title,
+          description
+        ),
+        calendar_events!task_id (
+          id,
+          start_time,
+          end_time,
+          title
+        )
+      `)
+      .eq('user_id', user_id)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Cache the results
+    cacheService.cacheUserTasks(user_id, data);
+    
+    res.json(data);
+  } catch (error) {
+    logger.error('Error in getTasks:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 }
 
 export async function getTaskById(req, res) {

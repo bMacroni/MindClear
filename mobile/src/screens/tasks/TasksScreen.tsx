@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   Modal,
   Alert,
@@ -31,6 +30,7 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LazyList } from '../../utils/lazyListUtils';
 
 interface Task {
   id: string;
@@ -59,7 +59,7 @@ interface Goal {
   title: string;
 }
 
-export const TasksScreen: React.FC = () => {
+const TasksScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const insets = useSafeAreaInsets();
@@ -1272,21 +1272,17 @@ export const TasksScreen: React.FC = () => {
         })()}
       </View>
 
-      <FlatList
+      <LazyList
         data={showInbox ? getInboxTasks() : []}
         renderItem={renderTaskItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
-          />
-        }
-        ListEmptyComponent={showInbox ? renderEmptyState : undefined}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+        emptyComponent={showInbox ? renderEmptyState : undefined}
+        initialLoadSize={20}
+        loadMoreSize={10}
         ListFooterComponent={() => {
           if (!showInbox) {return null;}
           const completedTasks = getCompletedTasks();
@@ -1790,3 +1786,5 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
 });
+
+export default TasksScreen;

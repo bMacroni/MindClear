@@ -1,5 +1,13 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createLazyScreen } from '../utils/lazyLoading';
+import { CustomTabBar } from '../components/common/CustomTabBar';
+import { MainTabParamList } from './types';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { BrainDumpProvider } from '../contexts/BrainDumpContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Import screens directly for now to fix lazy loading issues
 import AIChatScreen from '../screens/ai/AIChatScreen';
 import BrainDumpInputScreen from '../screens/brain/BrainDumpInputScreen';
 import BrainDumpRefinementScreen from '../screens/brain/BrainDumpRefinementScreen';
@@ -7,14 +15,9 @@ import BrainDumpOnboardingScreen from '../screens/brain/BrainDumpOnboardingScree
 import BrainDumpPrioritizationScreen from '../screens/brain/BrainDumpPrioritizationScreen';
 import BrainDumpEntryScreen from '../screens/brain/BrainDumpEntryScreen';
 import GoalsScreen from '../screens/goals/GoalsScreen';
-import { TasksScreen } from '../screens/tasks/TasksScreen';
+import TasksScreen from '../screens/tasks/TasksScreen';
 import CalendarScreen from '../screens/calendar/CalendarScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
-import { CustomTabBar } from '../components/common/CustomTabBar';
-import { MainTabParamList } from './types';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { BrainDumpProvider } from '../contexts/BrainDumpContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
