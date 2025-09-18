@@ -19,6 +19,7 @@ interface LazyListProps<T> {
   emptyComponent?: React.ComponentType;
   loadingComponent?: React.ComponentType;
   errorComponent?: React.ComponentType<{ error: string; onRetry: () => void }>;
+  extraFooterComponent?: React.ComponentType;
   style?: any;
   contentContainerStyle?: any;
   [key: string]: any;
@@ -49,6 +50,7 @@ export function LazyList<T>({
   emptyComponent: EmptyComponent,
   loadingComponent: LoadingComponent,
   errorComponent: ErrorComponent,
+  extraFooterComponent: ExtraFooterComponent,
   style,
   contentContainerStyle,
   ...props
@@ -147,18 +149,34 @@ export function LazyList<T>({
 
   // List footer component
   const ListFooterComponent = useMemo(() => {
-    if (error) {
-      const ErrorComp = ErrorComponent || DefaultErrorComponent;
-      return <ErrorComp error={error} onRetry={loadMore} />;
+    const internalFooter = (() => {
+      if (error) {
+        const ErrorComp = ErrorComponent || DefaultErrorComponent;
+        return <ErrorComp error={error} onRetry={loadMore} />;
+      }
+      
+      if (loading && hasMore) {
+        const LoadingComp = LoadingComponent || DefaultLoadingComponent;
+        return <LoadingComp />;
+      }
+      
+      return null;
+    })();
+
+    const extraFooter = ExtraFooterComponent ? <ExtraFooterComponent /> : null;
+
+    // Compose both footers - internal first, then extra
+    if (internalFooter && extraFooter) {
+      return (
+        <View>
+          {internalFooter}
+          {extraFooter}
+        </View>
+      );
     }
     
-    if (loading && hasMore) {
-      const LoadingComp = LoadingComponent || DefaultLoadingComponent;
-      return <LoadingComp />;
-    }
-    
-    return null;
-  }, [error, loading, hasMore, ErrorComponent, LoadingComponent, loadMore]);
+    return internalFooter || extraFooter;
+  }, [error, loading, hasMore, ErrorComponent, LoadingComponent, loadMore, ExtraFooterComponent]);
 
   // Empty component
   const EmptyComp = EmptyComponent || DefaultEmptyComponent;

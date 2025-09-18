@@ -17,6 +17,7 @@ import QuickScheduleRadial from '../../components/tasks/QuickScheduleRadial';
 import { TaskForm } from '../../components/tasks/TaskForm';
 import { AutoSchedulingPreferencesModal } from '../../components/tasks/AutoSchedulingPreferencesModal';
 import { SuccessToast } from '../../components/common/SuccessToast';
+import { LazyList } from '../../utils/lazyListUtils';
 import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { offlineService } from '../../services/offline';
@@ -1282,7 +1283,7 @@ const TasksScreen: React.FC = () => {
         emptyComponent={showInbox ? renderEmptyState : () => null}
         initialLoadSize={20}
         loadMoreSize={10}
-        ListFooterComponent={() => {
+        extraFooterComponent={() => {
           if (!showInbox) {return null;}
           const completedTasks = getCompletedTasks();
           if (completedTasks.length === 0) {return null;}
@@ -1290,7 +1291,7 @@ const TasksScreen: React.FC = () => {
           return (
             <View style={styles.completedSection}>
               <Text style={styles.completedSectionTitle}>Completed</Text>
-              {completedTasks.map(task => (
+              {completedTasks.slice(0, 10).map(task => (
                 <TaskCard
                   key={task.id}
                   task={task}
@@ -1305,6 +1306,16 @@ const TasksScreen: React.FC = () => {
                   onAIHelp={handleAIHelp}
                 />
               ))}
+              {completedTasks.length > 10 && (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('CompletedTasks')}
+                  accessibilityRole="button"
+                  accessibilityLabel="View all completed tasks"
+                  style={styles.showAllCompletedButton}
+                >
+                  <Text style={styles.showAllCompletedText}>Show all completed…</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         }}
@@ -1705,6 +1716,16 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     marginBottom: spacing.md,
     paddingHorizontal: spacing.md,
+  },
+  showAllCompletedButton: {
+    padding: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  showAllCompletedText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium as any,
   },
   eodOverlay: {
     flex: 1,
