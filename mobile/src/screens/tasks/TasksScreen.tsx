@@ -19,6 +19,7 @@ import QuickScheduleRadial from '../../components/tasks/QuickScheduleRadial';
 import { TaskForm } from '../../components/tasks/TaskForm';
 import { AutoSchedulingPreferencesModal } from '../../components/tasks/AutoSchedulingPreferencesModal';
 import { SuccessToast } from '../../components/common/SuccessToast';
+import { LazyList } from '../../utils/lazyListUtils';
 import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { offlineService } from '../../services/offline';
@@ -1272,22 +1273,18 @@ export const TasksScreen: React.FC = () => {
         })()}
       </View>
 
-      <FlatList
+      <LazyList
         data={showInbox ? getInboxTasks() : []}
         renderItem={renderTaskItem}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
-          />
-        }
-        ListEmptyComponent={showInbox ? renderEmptyState : undefined}
-        ListFooterComponent={() => {
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+        emptyComponent={showInbox ? renderEmptyState : () => null}
+        initialLoadSize={20}
+        loadMoreSize={10}
+        extraFooterComponent={() => {
           if (!showInbox) {return null;}
           const completedTasks = getCompletedTasks();
           if (completedTasks.length === 0) {return null;}
