@@ -475,31 +475,43 @@ export async function createTaskFromNextGoalStep(userId, token, args = {}) {
   const goal = Array.isArray(goals) && goals.length > 0 ? goals[0] : null;
   if (!goal) return { error: `No goal matched '${goal_title}'` };
 
-  // 2) Fetch milestones and steps for the goal
-  const { data: milestones, error: msErr } = await supabase
+  // 2) Optimized query: Fetch milestones with their steps in a single query
+  // This eliminates the N+1 query problem by using a single JOIN query
+  const { data: milestonesWithSteps, error: msErr } = await supabase
     .from('milestones')
-    .select('id, title, order')
+    .select(`
+      id,
+      title,
+      order,
+      steps (
+        id,
+        text,
+        completed,
+        order
+      )
+    `)
     .eq('goal_id', goal.id)
     .order('order', { ascending: true });
-  if (msErr) return { error: msErr.message };
-  if (!Array.isArray(milestones) || milestones.length === 0) return { error: 'Goal has no milestones' };
 
-  // Load steps for each milestone and find first unfinished
+  if (msErr) return { error: msErr.message };
+  if (!Array.isArray(milestonesWithSteps) || milestonesWithSteps.length === 0) {
+    return { error: 'Goal has no milestones' };
+  }
+
+  // 3) Find first unfinished step across all milestones
   let selectedStep = null;
-  for (const ms of milestones) {
-    const { data: steps } = await supabase
-      .from('steps')
-      .select('id, text, completed, order')
-      .eq('milestone_id', ms.id)
-      .order('order', { ascending: true });
-    if (Array.isArray(steps) && steps.length > 0) {
-      selectedStep = steps.find(s => !s.completed) || steps[0];
+  for (const milestone of milestonesWithSteps) {
+    if (milestone.steps && Array.isArray(milestone.steps)) {
+      // Sort steps by order and find first unfinished
+      const sortedSteps = milestone.steps.sort((a, b) => a.order - b.order);
+      selectedStep = sortedSteps.find(s => !s.completed) || sortedSteps[0];
       if (selectedStep) break;
     }
   }
+
   if (!selectedStep) return { error: 'No steps found for this goal' };
 
-  // 3) Create the task using tasks table, linking to goal
+  // 4) Create the task using tasks table, linking to goal
   const taskPayload = {
     user_id: userId,
     title: selectedStep.text,

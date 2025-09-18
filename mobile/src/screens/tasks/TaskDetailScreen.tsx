@@ -38,7 +38,7 @@ interface TaskDetailScreenProps {
   navigation: any;
 }
 
-export const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
+const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
   route,
   navigation,
 }) => {
@@ -364,3 +364,5 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
 });
+
+export default TaskDetailScreen;

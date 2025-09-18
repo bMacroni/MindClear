@@ -3,6 +3,7 @@
 // For physical device, use your computer's IP address (e.g., 192.168.1.100)
 import { configService } from './config';
 import { authService } from './auth';
+import logger from '../utils/logger';
 import {
   SchedulingPreferences,
   TaskSchedulingStatus,
@@ -90,7 +91,7 @@ export const goalsAPI = {
   createMilestone: async (
     goalId: string,
     payload: { title: string; order: number }
-  ): Promise<{ id: string; title: string; order: number; steps: any[] }> => {
+  ): Promise<{ id: string; title: string; order: number; steps: Array<{ id: string; text: string; completed: boolean; order: number }> }> => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${configService.getBaseUrl()}/goals/${goalId}/milestones`, {
@@ -984,7 +985,7 @@ export const autoSchedulingAPI = {
       }
 
       const data = await response.json();
-      return data.map((slot: any) => ({
+      return data.map((slot: { start_time: string; end_time: string; [key: string]: unknown }) => ({
         ...slot,
         start_time: new Date(slot.start_time),
         end_time: new Date(slot.end_time),
@@ -1049,16 +1050,16 @@ export const notificationsAPI = {
   getNotifications: async (status: 'all' | 'read' | 'unread' = 'unread'): Promise<any[]> => {
     const token = await getAuthToken();
     const url = `${configService.getBaseUrl()}/tasks/notifications?status=${status}`;
-    console.log('🔔 API: Making request to:', url);
-    console.log('🔔 API: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
+    logger.debug('🔔 API: Making request to:', url);
+    logger.debug('🔔 API: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
     
     const response = await fetch(url, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${token}` },
     });
     
-    console.log('🔔 API: Response status:', response.status);
-    console.log('🔔 API: Response ok:', response.ok);
+    logger.debug('🔔 API: Response status:', response.status);
+    logger.debug('🔔 API: Response ok:', response.ok);
     
     if (!response.ok) {
         const errorText = await response.text();
@@ -1132,7 +1133,7 @@ class WebSocketService {
       // Check if user is authenticated before attempting connection
       const { authService } = await import('./auth');
       if (!authService.isAuthenticated()) {
-        console.log('WebSocket: Skipping connection - user not authenticated');
+        logger.debug('WebSocket: Skipping connection - user not authenticated');
         return;
       }
 
@@ -1140,34 +1141,34 @@ class WebSocketService {
       try {
         const token = await getAuthToken();
         if (!token) {
-          console.log('WebSocket: Skipping connection - no valid token');
+          logger.debug('WebSocket: Skipping connection - no valid token');
           return;
         }
         
         // Check if token is expired by attempting to refresh it
         const isTokenValid = await authService.refreshToken();
         if (!isTokenValid) {
-          console.log('WebSocket: Skipping connection - token is invalid/expired');
+          logger.debug('WebSocket: Skipping connection - token is invalid/expired');
           return;
         }
       } catch (error) {
-        console.log('WebSocket: Skipping connection - token validation failed:', error);
+        logger.debug('WebSocket: Skipping connection - token validation failed:', error);
         return;
       }
 
       // Prevent multiple connections
       if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
-        console.log('WebSocket: Connection already exists, skipping');
+        logger.debug('WebSocket: Connection already exists, skipping');
         return;
       }
 
       const wsUrl = configService.getBaseUrl().replace(/^http/, 'ws') + '/ws/notifications';
-      console.log('WebSocket: Attempting to connect to:', wsUrl);
+      logger.debug('WebSocket: Attempting to connect to:', wsUrl);
       
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = async () => {
-        console.log('WebSocket: Connected successfully');
+        logger.debug('WebSocket: Connected successfully');
         this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
         
         try {
@@ -1175,7 +1176,7 @@ class WebSocketService {
           const token = await getAuthToken();
           if (token && this.ws) {
             this.ws.send(JSON.stringify({ type: 'auth', token }));
-            console.log('WebSocket: Authentication sent');
+            logger.debug('WebSocket: Authentication sent');
           }
         } catch (error) {
           console.error('WebSocket: Failed to authenticate:', error);
@@ -1214,24 +1215,24 @@ class WebSocketService {
       };
 
       this.ws.onclose = (event) => {
-        console.log('WebSocket: Connection closed', event.code, event.reason);
+        logger.debug('WebSocket: Connection closed', event.code, event.reason);
         
         // Don't retry if it was a manual disconnect or authentication failure
         if (event.code === 1000 || event.reason === 'Authentication failed') {
-          console.log('WebSocket: Not retrying - manual disconnect or auth failure');
+          logger.debug('WebSocket: Not retrying - manual disconnect or auth failure');
           return;
         }
         
         // Attempt to reconnect if it wasn't a manual disconnect
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
-          console.log(`WebSocket: Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+          logger.debug(`WebSocket: Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
           
           setTimeout(() => {
             this.connect();
           }, this.reconnectDelay * this.reconnectAttempts);
         } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-          console.log('WebSocket: Max reconnection attempts reached, giving up');
+          logger.debug('WebSocket: Max reconnection attempts reached, giving up');
         }
       };
 
@@ -1246,7 +1247,7 @@ class WebSocketService {
 
   disconnect() {
     if (this.ws) {
-      console.log('WebSocket: Manually disconnecting');
+      logger.debug('WebSocket: Manually disconnecting');
       this.ws.close(1000, 'Manual disconnect');
       this.ws = null;
     }
@@ -1259,7 +1260,7 @@ class WebSocketService {
 
   // Public method to force reconnection (useful after login)
   async forceReconnect(): Promise<void> {
-    console.log('WebSocket: Force reconnection requested');
+    logger.debug('WebSocket: Force reconnection requested');
     this.disconnect();
     this.reconnectAttempts = 0; // Reset retry counter
     await this.connect();

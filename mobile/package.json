@@ -8,7 +8,11 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "gen:android:icons": "node ./scripts/generate-android-icons.mjs"
+    "gen:android:icons": "node ./scripts/generate-android-icons.mjs",
+    "analyze-bundle": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android-bundle.js --assets-dest android-assets && npx react-native-bundle-visualizer --bundle android-bundle.js --out bundle-report.html",
+    "analyze-bundle-ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios-bundle.js --assets-dest ios-assets && npx react-native-bundle-visualizer --bundle ios-bundle.js --out bundle-report-ios.html",
+    "optimize-images": "node scripts/optimize-images.js",
+    "optimize-assets": "npm run optimize-images && npm run gen:android:icons"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
@@ -59,6 +63,11 @@
     "@types/react-test-renderer": "^19.1.0",
     "@typescript-eslint/eslint-plugin": "^8.39.1",
     "@typescript-eslint/parser": "^8.8.0",
+    "react-native-bundle-visualizer": "^2.0.0",
+    "imagemin": "^8.0.1",
+    "imagemin-pngquant": "^9.0.2",
+    "imagemin-mozjpeg": "^10.0.0",
+    "imagemin-svgo": "^10.0.1",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "jest": "^29.6.3",
