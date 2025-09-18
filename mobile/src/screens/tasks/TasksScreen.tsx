@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Modal,
   Alert,
-  RefreshControl,
   ActivityIndicator,
 } from 'react-native';
 import { useWindowDimensions } from 'react-native';
@@ -62,7 +61,7 @@ interface Goal {
 const TasksScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
-  const insets = useSafeAreaInsets();
+  const _insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -87,7 +86,7 @@ const TasksScreen: React.FC = () => {
   const [quickTaskId, setQuickTaskId] = useState<string | undefined>(undefined);
   const [momentumEnabled, setMomentumEnabled] = useState<boolean>(false);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
-  const [userNotificationPrefs, setUserNotificationPrefs] = useState<any | null>(null);
+  const [_userNotificationPrefs, _setUserNotificationPrefs] = useState<any | null>(null);
   const [userSchedulingPreferences, setUserSchedulingPreferences] = useState<any>(null);
 
   const getTasksHelpContent = React.useCallback((): HelpContent => ({
@@ -346,7 +345,7 @@ const TasksScreen: React.FC = () => {
         : 'none';
       const prompt = `Help me think through and schedule this task. Ask conversational clarifying questions if needed, then summarize final values and suggest one tiny micro-step.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Task ID: ${task.id}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}`;
       (navigation as any).navigate('AIChat', { initialMessage: prompt, taskTitle: task.title });
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to open AI assistant');
     }
   };
@@ -677,7 +676,7 @@ const TasksScreen: React.FC = () => {
     setEditingTask(undefined);
   };
 
-  const getActiveTasks = () => {
+  const _getActiveTasks = () => {
     return tasks.filter(task => task.status !== 'completed');
   };
 
@@ -816,7 +815,7 @@ const TasksScreen: React.FC = () => {
     />
   );
 
-  const renderHeaderActions = (compact?: boolean) => (
+  const _renderHeaderActions = (compact?: boolean) => (
     <View style={[styles.headerActions, compact && styles.headerRightRow]}>
       <View style={[styles.actionButtons, compact && { marginTop: 0 }]}>
         <TouchableOpacity
@@ -899,7 +898,7 @@ const TasksScreen: React.FC = () => {
       setToastMessage('Rolled over to today.');
       setToastCalendarEvent(false);
       setShowToast(true);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to roll over task');
     }
     setShowEodPrompt(false);
@@ -1002,12 +1001,12 @@ const TasksScreen: React.FC = () => {
           }
         }
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to complete focus task');
     }
   };
 
-  const handleFocusRollover = async (task: Task) => {
+  const _handleFocusRollover = async (task: Task) => {
     try {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1019,7 +1018,7 @@ const TasksScreen: React.FC = () => {
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to roll over task');
     }
   };

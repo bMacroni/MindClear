@@ -22,9 +22,9 @@ import { getCurrentRouteName } from './src/navigation/navigationRef';
 
 // Set Google client IDs immediately when the module loads
 configService.setGoogleClientIds({
-  web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Firebase-generated web client ID
-  android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Firebase-generated Android client ID
-  ios: '416233535798-...', // Firebase-generated iOS client ID (if you have one)
+  web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
+  android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
+  ios: '', // iOS client ID not needed for Android development
 });
 
 function App() {

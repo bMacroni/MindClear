@@ -7,7 +7,7 @@ import { typography } from '../themes/typography';
 interface LazyListProps<T> {
   data: T[];
   renderItem: ListRenderItem<T>;
-  keyExtractor: (item: T, index: number) => string;
+  keyExtractor: (_item: T, _index: number) => string;
   initialLoadSize?: number;
   loadMoreSize?: number;
   threshold?: number;
@@ -54,7 +54,7 @@ export function LazyList<T>({
   ...props
 }: LazyListProps<T>) {
   // Extract ListFooterComponent from props to prevent override
-  const { ListFooterComponent: propListFooterComponent, ...safeProps } = props;
+  const { ListFooterComponent: _propListFooterComponent, ...safeProps } = props;
   const [displayedData, setDisplayedData] = useState<T[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +68,9 @@ export function LazyList<T>({
 
   // Load more data when needed
   const loadMore = useCallback(async () => {
-    if (!hasMore || loading || currentIndex >= data.length) return;
+    if (!hasMore || loading || currentIndex >= data.length) {
+      return;
+    }
 
     try {
       setError(null);
@@ -243,10 +245,12 @@ export function useLazyList<T>(
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { initialLoadSize = 20, loadMoreSize = 10, onLoadMore, onRefresh } = options;
+  const { initialLoadSize: _initialLoadSize = 20, loadMoreSize: _loadMoreSize = 10, onLoadMore, onRefresh } = options;
 
   const handleLoadMore = useCallback(async () => {
-    if (!onLoadMore || loading || !hasMore) return;
+    if (!onLoadMore || loading || !hasMore) {
+      return;
+    }
 
     try {
       setLoading(true);
@@ -266,7 +270,9 @@ export function useLazyList<T>(
   }, [onLoadMore, loading, hasMore]);
 
   const handleRefresh = useCallback(async () => {
-    if (!onRefresh) return;
+    if (!onRefresh) {
+      return;
+    }
 
     try {
       setRefreshing(true);
