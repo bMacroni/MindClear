@@ -50,7 +50,7 @@ interface TaskCardProps {
   onAIHelp?: (task: Task) => void;
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({
+export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   task,
   onPress,
   onDelete,
@@ -143,7 +143,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     { useNativeDriver: false }
   );
 
-  const handleStateChange = (event: any) => {
+  const handleStateChange = (event: { nativeEvent: { state: number; translationX: number } }) => {
     if (event.nativeEvent.state === State.END) {
       const { translationX } = event.nativeEvent;
       
@@ -381,7 +381,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {
