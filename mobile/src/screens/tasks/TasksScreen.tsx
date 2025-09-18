@@ -1292,7 +1292,7 @@ export const TasksScreen: React.FC = () => {
           return (
             <View style={styles.completedSection}>
               <Text style={styles.completedSectionTitle}>Completed</Text>
-              {completedTasks.map(task => (
+              {completedTasks.slice(0, 10).map(task => (
                 <TaskCard
                   key={task.id}
                   task={task}
@@ -1307,6 +1307,16 @@ export const TasksScreen: React.FC = () => {
                   onAIHelp={handleAIHelp}
                 />
               ))}
+              {completedTasks.length > 10 && (
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('CompletedTasks')}
+                  accessibilityRole="button"
+                  accessibilityLabel="View all completed tasks"
+                  style={styles.showAllCompletedButton}
+                >
+                  <Text style={styles.showAllCompletedText}>Show all completed…</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         }}
@@ -1707,6 +1717,16 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     marginBottom: spacing.md,
     paddingHorizontal: spacing.md,
+  },
+  showAllCompletedButton: {
+    padding: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  showAllCompletedText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium as any,
   },
   eodOverlay: {
     flex: 1,
