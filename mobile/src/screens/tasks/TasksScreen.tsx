@@ -30,7 +30,6 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LazyList } from '../../utils/lazyListUtils';
 
 interface Task {
   id: string;
