@@ -1,6 +1,6 @@
 import express from 'express';
 import logger from '../utils/logger.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/enhancedAuth.js';
 import {
   listCalendarEvents,
   createCalendarEvent,

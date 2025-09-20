@@ -13,7 +13,7 @@ export const HelpIcon: React.FC = () => {
       accessibilityRole="button"
       accessibilityHint="Toggle help overlay"
       style={styles.button}
-      onPress={() => setIsHelpOverlayActive(prev => !prev)}
+      onPress={() => setIsHelpOverlayActive(!isHelpOverlayActive)}
       activeOpacity={0.7}
     >
       <Icon name="question" size={20} color={colors.text.secondary} />

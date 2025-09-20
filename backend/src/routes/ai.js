@@ -1,5 +1,5 @@
 import express from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/enhancedAuth.js';
 import GeminiService from '../utils/geminiService.js';
 // import AIService from '../utils/aiService.js';
 import { conversationController } from '../controllers/conversationController.js';

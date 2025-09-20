@@ -1,12 +1,19 @@
 import express from 'express';
 import logger from '../utils/logger.js';
 import { createClient } from '@supabase/supabase-js';
+import { body, validationResult } from 'express-validator';
+import { validateInput, commonValidations } from '../middleware/security.js';
+import { requireAuth, handleLogout } from '../middleware/enhancedAuth.js';
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-// Signup endpoint
-router.post('/signup', async (req, res) => {
+// Signup endpoint with input validation
+router.post('/signup', [
+  commonValidations.email,
+  commonValidations.password,
+  commonValidations.string('full_name', 1, 100)
+], validateInput, async (req, res) => {
   try {
     const { email, password, full_name } = req.body;
     logger.info('Signup attempt for email:', email);
@@ -94,8 +101,13 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-// Login endpoint
-router.post('/login', async (req, res) => {
+// Login endpoint with input validation
+router.post('/login', [
+  commonValidations.email,
+  body('password')
+    .isLength({ min: 1, max: 128 })
+    .withMessage('Password is required')
+], validateInput, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -137,34 +149,23 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Profile endpoint - get user info from JWT token
-router.get('/profile', async (req, res) => {
+// Profile endpoint - get user info from JWT token (using enhanced auth middleware)
+router.get('/profile', requireAuth, async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    
-    // Verify the token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    
-    if (error || !user) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-
     res.json({
-      id: user.id,
-      email: user.email,
-      email_confirmed_at: user.email_confirmed_at,
-      created_at: user.created_at,
-      updated_at: user.updated_at
+      id: req.user.id,
+      email: req.user.email,
+      email_confirmed_at: req.user.email_confirmed_at,
+      created_at: req.user.created_at,
+      updated_at: req.user.updated_at
     });
   } catch (error) {
     logger.error('Profile error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Logout endpoint with token blacklisting
+router.post('/logout', requireAuth, handleLogout);
 
 export default router; 
