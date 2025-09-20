@@ -38,6 +38,7 @@
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^6.10.1",
+    "react-native-ssl-pinning": "^1.6.0",
     "uuid": "^13.0.0",
     "ws": "^8.18.3"
   },

@@ -3,6 +3,8 @@
 // For physical device, use your computer's IP address (e.g., 192.168.1.100)
 import { configService } from './config';
 import { authService } from './auth';
+import { secureConfigService } from './secureConfig';
+import { sanitizeApiError, logErrorSecurely } from '../utils/errorSanitizer';
 import logger from '../utils/logger';
 import {
   SchedulingPreferences,
