@@ -81,14 +81,18 @@ class SecureConfigService {
   }
 
   private getDefaultApiUrl(environment: string): string {
-    switch (environment) {
-      case 'production':
-        return 'https://foci-production.up.railway.app/api';
-      case 'staging':
-        return 'https://foci-staging.up.railway.app/api';
-      default:
-        return 'http://localhost:5000/api';
+    try {
+      // Use configService as the primary source of truth
+      const configUrl = configService.getBaseUrl();
+      if (configUrl && this.isValidUrl(configUrl)) {
+        return configUrl;
+      }
+    } catch (error) {
+      logger.warn('ConfigService unavailable, falling back to local URL:', error);
     }
+    
+    // Only fall back to localhost if configService is unavailable
+    return 'http://localhost:5000/api';
   }
 
   private isValidUrl(url: string): boolean {

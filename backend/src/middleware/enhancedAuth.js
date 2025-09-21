@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 import logger from '../utils/logger.js';
 import { logSecurityEvent, SecurityEventTypes } from '../utils/securityMonitor.js';
-import crypto from 'crypto';
+import { encryptToken, decryptToken } from '../utils/tokenEncryption.js';
 
 /**
  * Enhanced Authentication Middleware with Security Improvements
@@ -11,43 +12,15 @@ import crypto from 'crypto';
 // In-memory token blacklist (in production, use Redis or database)
 const blacklistedTokens = new Set();
 
-// Token encryption/decryption utilities
-const ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || 'default-key-change-in-production';
-const ALGORITHM = 'aes-256-cbc';
+// Token encryption/decryption utilities are now imported from utils/tokenEncryption.js
 
 /**
- * Encrypt a token for secure storage
+ * Generate a secure short identifier for token logging
+ * Uses SHA-256 to create a consistent, non-reversible hash
  */
-export function encryptToken(token) {
-  try {
-    const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipher(ALGORITHM, key);
-    let encrypted = cipher.update(token, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
-  } catch (error) {
-    logger.error('Token encryption failed:', error);
-    throw new Error('Token encryption failed');
-  }
-}
-
-/**
- * Decrypt a token from secure storage
- */
-export function decryptToken(encryptedToken) {
-  try {
-    const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
-    const [ivHex, encrypted] = encryptedToken.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipher(ALGORITHM, key);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (error) {
-    logger.error('Token decryption failed:', error);
-    throw new Error('Token decryption failed');
-  }
+function generateTokenId(token) {
+  if (!token) return null;
+  return crypto.createHash('sha256').update(token).digest('hex').substring(0, 8);
 }
 
 /**
@@ -57,7 +30,9 @@ export function blacklistToken(token) {
   if (token) {
     blacklistedTokens.add(token);
     logger.info('Token blacklisted', { 
-      tokenPrefix: token.substring(0, 8) + '...',
+      hasToken: true,
+      tokenLength: token.length,
+      tokenId: generateTokenId(token),
       blacklistSize: blacklistedTokens.size 
     });
   }
@@ -84,7 +59,9 @@ export function extractTokenFromRequest(req) {
     logger.warn('Invalid authorization header format', {
       ip: req.ip,
       userAgent: req.get('User-Agent'),
-      header: authHeader.substring(0, 20) + '...'
+      hasAuth: true,
+      authLength: authHeader.length,
+      authId: generateTokenId(authHeader)
     });
     return null;
   }
@@ -114,18 +91,34 @@ export function sanitizeForLogging(data) {
   
   const sanitized = { ...data };
   
-  // Sanitize token fields
+  // Sanitize token fields with secure identifiers
   if (sanitized.token) {
-    sanitized.token = sanitized.token.substring(0, 8) + '...';
+    sanitized.token = {
+      hasToken: true,
+      length: sanitized.token.length,
+      id: generateTokenId(sanitized.token)
+    };
   }
   if (sanitized.access_token) {
-    sanitized.access_token = sanitized.access_token.substring(0, 8) + '...';
+    sanitized.access_token = {
+      hasToken: true,
+      length: sanitized.access_token.length,
+      id: generateTokenId(sanitized.access_token)
+    };
   }
   if (sanitized.refresh_token) {
-    sanitized.refresh_token = sanitized.refresh_token.substring(0, 8) + '...';
+    sanitized.refresh_token = {
+      hasToken: true,
+      length: sanitized.refresh_token.length,
+      id: generateTokenId(sanitized.refresh_token)
+    };
   }
   if (sanitized.authorization) {
-    sanitized.authorization = sanitized.authorization.substring(0, 20) + '...';
+    sanitized.authorization = {
+      hasAuth: true,
+      length: sanitized.authorization.length,
+      id: generateTokenId(sanitized.authorization)
+    };
   }
   
   return sanitized;
@@ -160,7 +153,9 @@ export async function requireAuth(req, res, next) {
         userAgent: req.get('User-Agent'),
         endpoint: req.path,
         method: req.method,
-        tokenPrefix: token.substring(0, 8) + '...'
+        hasToken: true,
+        tokenLength: token.length,
+        tokenId: generateTokenId(token)
       });
       logSecurityEvent(SecurityEventTypes.INVALID_TOKEN, 3, {
         reason: 'Token blacklisted',
@@ -181,7 +176,9 @@ export async function requireAuth(req, res, next) {
         endpoint: req.path,
         method: req.method,
         error: error?.message || 'No user data',
-        tokenPrefix: token.substring(0, 8) + '...'
+        hasToken: true,
+        tokenLength: token.length,
+        tokenId: generateTokenId(token)
       });
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
@@ -195,7 +192,9 @@ export async function requireAuth(req, res, next) {
         endpoint: req.path,
         method: req.method,
         userId: data.user.id,
-        tokenPrefix: token.substring(0, 8) + '...'
+        hasToken: true,
+        tokenLength: token.length,
+        tokenId: generateTokenId(token)
       });
       return res.status(401).json({ error: 'Token has expired' });
     }
@@ -211,7 +210,9 @@ export async function requireAuth(req, res, next) {
       ip: req.ip,
       endpoint: req.path,
       method: req.method,
-      tokenPrefix: token.substring(0, 8) + '...'
+      hasToken: true,
+      tokenLength: token.length,
+      tokenId: generateTokenId(token)
     });
 
     next();
@@ -254,7 +255,9 @@ export async function verifyJwt(token) {
   } catch (error) {
     logger.error('JWT verification failed:', {
       error: error.message,
-      tokenPrefix: token?.substring(0, 8) + '...'
+      hasToken: !!token,
+      tokenLength: token?.length || 0,
+      tokenId: generateTokenId(token)
     });
     throw new Error('JWT verification failed');
   }
@@ -273,7 +276,9 @@ export function handleLogout(req, res) {
     logger.info('User logged out', {
       userId: req.user?.id,
       ip: req.ip,
-      tokenPrefix: token?.substring(0, 8) + '...'
+      hasToken: !!token,
+      tokenLength: token?.length || 0,
+      tokenId: generateTokenId(token)
     });
     
     res.json({ message: 'Logged out successfully' });
@@ -289,7 +294,11 @@ export function handleLogout(req, res) {
 export function getBlacklistStats() {
   return {
     size: blacklistedTokens.size,
-    tokens: Array.from(blacklistedTokens).map(token => token.substring(0, 8) + '...')
+    tokens: Array.from(blacklistedTokens).map(token => ({
+      hasToken: true,
+      length: token.length,
+      id: generateTokenId(token)
+    }))
   };
 }
 
@@ -301,8 +310,6 @@ export default {
   extractTokenFromRequest,
   sanitizeForLogging,
   handleLogout,
-  getBlacklistStats,
-  encryptToken,
-  decryptToken
+  getBlacklistStats
 };
 

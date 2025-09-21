@@ -160,6 +160,27 @@ export const compressionConfig = compression({
     if (req.headers['cache-control'] && req.headers['cache-control'].includes('no-transform')) {
       return false;
     }
+    
+    // Don't compress authenticated endpoints (when req.user exists)
+    if (req.user) {
+      return false;
+    }
+    
+    // Don't compress sensitive endpoint patterns
+    const sensitivePatterns = [
+      /^\/api\/auth/,           // Authentication endpoints
+      /^\/api\/security/,       // Security endpoints
+      /^\/api\/protected/,      // Protected endpoints
+      /^\/api\/user\/tokens/,   // Token management
+      /^\/api\/user\/credentials/, // Credential management
+    ];
+    
+    for (const pattern of sensitivePatterns) {
+      if (pattern.test(req.path)) {
+        return false;
+      }
+    }
+    
     // Use the default compression filter
     return compression.filter(req, res);
   }

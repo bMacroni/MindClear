@@ -5,12 +5,14 @@
  * including Content Security Policy, XSS protection, and secure storage.
  */
 
+import DOMPurify from 'dompurify';
+
 /**
- * Content Security Policy configuration
+ * Base Content Security Policy configuration
  */
-export const CSP_CONFIG = {
+const BASE_CSP_CONFIG = {
   'default-src': ["'self'"],
-  'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Note: unsafe-eval needed for development
+  'script-src': ["'self'", "'unsafe-inline'"], // unsafe-eval added conditionally in development
   'style-src': ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   'font-src': ["'self'", "https://fonts.gstatic.com"],
   'img-src': ["'self'", "data:", "https:"],
@@ -24,10 +26,25 @@ export const CSP_CONFIG = {
 };
 
 /**
+ * Gets the Content Security Policy configuration based on environment
+ */
+export function getCSPConfig(): typeof BASE_CSP_CONFIG {
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
+  return {
+    ...BASE_CSP_CONFIG,
+    'script-src': isDevelopment 
+      ? [...BASE_CSP_CONFIG['script-src'], "'unsafe-eval'"] // Only in development
+      : BASE_CSP_CONFIG['script-src'] // Production: no unsafe-eval
+  };
+}
+
+/**
  * Generates Content Security Policy header value
  */
 export function generateCSP(): string {
-  return Object.entries(CSP_CONFIG)
+  const cspConfig = getCSPConfig();
+  return Object.entries(cspConfig)
     .map(([directive, sources]) => {
       if (sources.length === 0) {
         return directive;
@@ -41,9 +58,7 @@ export function generateCSP(): string {
  * Sanitizes HTML content to prevent XSS attacks
  */
 export function sanitizeHTML(html: string): string {
-  const div = document.createElement('div');
-  div.textContent = html;
-  return div.innerHTML;
+  return DOMPurify.sanitize(html);
 }
 
 /**
@@ -108,23 +123,27 @@ export function validatePassword(password: string): {
 }
 
 /**
- * Secure token storage with encryption
+ * Secure token storage - relies on HTTPS for transport security
+ * Base64 encoding provides no security and is removed per security audit
  */
 export class SecureTokenStorage {
   private static readonly TOKEN_KEY = 'jwt_token';
-  private static readonly ENCRYPTION_KEY = 'mindgarden_secure_key'; // In production, use a more secure key
 
   /**
    * Stores a token securely
+   * Note: Relies on HTTPS for transport security, not client-side obfuscation
    */
   static setToken(token: string): void {
     try {
-      // Simple base64 encoding (in production, use proper encryption)
-      const encodedToken = btoa(token);
-      localStorage.setItem(this.TOKEN_KEY, encodedToken);
-    } catch (error) {
-      // Fallback to regular storage
+      // Store token directly - rely on HTTPS for transport security
+      // Consider using sessionStorage for more sensitive scenarios
       localStorage.setItem(this.TOKEN_KEY, token);
+      
+      // Log token storage for security monitoring
+      logSecurityEvent('Token stored', { timestamp: Date.now() });
+    } catch (error) {
+      logSecurityEvent('Token storage failed', { error: error.message });
+      throw new Error('Failed to store authentication token');
     }
   }
 
@@ -133,16 +152,14 @@ export class SecureTokenStorage {
    */
   static getToken(): string | null {
     try {
-      const encodedToken = localStorage.getItem(this.TOKEN_KEY);
-      if (!encodedToken) {
-        return null;
+      const token = localStorage.getItem(this.TOKEN_KEY);
+      if (token) {
+        logSecurityEvent('Token retrieved', { timestamp: Date.now() });
       }
-      
-      // Decode the token
-      return atob(encodedToken);
+      return token;
     } catch (error) {
-      // Fallback to regular storage
-      return localStorage.getItem(this.TOKEN_KEY);
+      logSecurityEvent('Token retrieval failed', { error: error.message });
+      return null;
     }
   }
 
@@ -150,7 +167,12 @@ export class SecureTokenStorage {
    * Removes a token securely
    */
   static removeToken(): void {
-    localStorage.removeItem(this.TOKEN_KEY);
+    try {
+      localStorage.removeItem(this.TOKEN_KEY);
+      logSecurityEvent('Token removed', { timestamp: Date.now() });
+    } catch (error) {
+      logSecurityEvent('Token removal failed', { error: error.message });
+    }
   }
 
   /**
