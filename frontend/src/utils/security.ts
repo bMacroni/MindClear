@@ -190,12 +190,13 @@ export class CSRFProtection {
   private static readonly CSRF_TOKEN_KEY = 'csrf_token';
 
   /**
-   * Generates a CSRF token
+   * Generates a CSRF token using base64 encoding with URL-safe characters
+   * Provides better entropy and compatibility than hex encoding
    */
   static generateToken(): string {
     const array = new Uint8Array(32);
     crypto.getRandomValues(array);
-    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    return btoa(String.fromCharCode(...array)).replace(/[+/]/g, (c) => c === '+' ? '-' : '_').replace(/=+$/, '');
   }
 
   /**
@@ -254,6 +255,13 @@ export class RateLimiter {
 
   /**
    * Checks if a request is within rate limits
+   * Note: Client-side rate limiting only. Not suitable for security-critical operations.
+   * Use server-side rate limiting for actual protection.
+   * 
+   * Limitations:
+   * - Data persists only in memory and resets on page refresh
+   * - No coordination across browser tabs/windows
+   * - Could be bypassed by clearing browser data
    */
   static isAllowed(key: string, maxRequests: number = 10, windowMs: number = 60000): boolean {
     const now = Date.now();
@@ -283,18 +291,18 @@ export class RateLimiter {
 
 /**
  * Security event logging
+ * 
+ * Note: Console-based logging is insufficient for production security monitoring.
+ * Consider integrating with a proper logging service or security monitoring platform.
  */
 export function logSecurityEvent(event: string, details?: any): void {
   const isProduction = process.env.NODE_ENV === 'production';
   
   if (isProduction) {
-    // In production, this would integrate with a proper logging service
-    // For now, we'll use a minimal approach
-    if (details) {
-      console.warn('Security event:', event, 'Details available');
-    } else {
-      console.warn('Security event:', event);
-    }
+    // TODO: Integrate with proper security monitoring service
+    // Examples: Datadog, New Relic, custom security service
+    // securityMonitor.logEvent(event, details);
+    console.warn('Security event:', event, 'Details available');
   } else {
     // In development, log full details
     console.warn('Security event:', event, details);

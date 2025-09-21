@@ -43,13 +43,13 @@ class SecureConfigService {
       enableCertificatePinning: environment === 'production',
       maxRetryAttempts: environment === 'production' ? 3 : 1,
       requestTimeout: environment === 'production' ? 10000 : 5000,
-      enableOfflineMode: true
+      enableOfflineMode: this.getBooleanFlag('ENABLE_OFFLINE_MODE', environment !== 'production')
     };
   }
 
   private getEnvironment(): 'development' | 'staging' | 'production' {
-    // Check for environment variables first
-    const env = process.env.NODE_ENV || 'development';
+    // Check for environment variables first, with __DEV__ fallback for React Native
+    const env = process.env?.NODE_ENV ?? (__DEV__ ? 'development' : 'production');
     
     if (env === 'production') {
       return 'production';
@@ -60,7 +60,7 @@ class SecureConfigService {
     }
   }
 
-  private getSecureApiUrl(environment: string): string {
+  private getSecureApiUrl(environment: 'development' | 'staging' | 'production'): string {
     // Use environment variables for API URLs
     const envApiUrl = process.env.API_BASE_URL;
     
@@ -80,7 +80,7 @@ class SecureConfigService {
     return configApiUrl;
   }
 
-  private getDefaultApiUrl(environment: string): string {
+  private getDefaultApiUrl(environment: 'development' | 'staging' | 'production'): string {
     try {
       // Use configService as the primary source of truth
       const configUrl = configService.getBaseUrl();
@@ -88,11 +88,17 @@ class SecureConfigService {
         return configUrl;
       }
     } catch (error) {
-      logger.warn('ConfigService unavailable, falling back to local URL:', error);
+      logger.warn('ConfigService unavailable, falling back to local URL:', String((error as Error)?.message ?? error));
     }
     
     // Only fall back to localhost if configService is unavailable
     return 'http://localhost:5000/api';
+  }
+
+  private getBooleanFlag(name: string, defaultValue: boolean): boolean {
+    const raw = process.env?.[name];
+    if (raw == null) return defaultValue;
+    return raw === '1' || raw.toLowerCase() === 'true';
   }
 
   private isValidUrl(url: string): boolean {

@@ -322,7 +322,13 @@ describe('CSRFProtection', () => {
     
     expect(token).toBeDefined();
     expect(typeof token).toBe('string');
-    expect(token.length).toBe(64); // 32 bytes * 2 hex chars
+    // Base64 encoding of 32 bytes produces ~43 characters (URL-safe base64 without padding)
+    expect(token.length).toBeGreaterThan(40);
+    expect(token.length).toBeLessThan(50);
+    // Should not contain + or / characters (URL-safe base64)
+    expect(token).not.toMatch(/[+/]/);
+    // Should not end with padding characters
+    expect(token).not.toMatch(/=+$/);
   });
 
   it('should store and retrieve tokens', () => {

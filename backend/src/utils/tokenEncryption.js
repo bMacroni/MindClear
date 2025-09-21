@@ -29,7 +29,7 @@ export function encryptToken(token) {
 
     const key = getEncryptionKey();
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipher(ALGORITHM, key);
+    const cipher = crypto.createCipherGCM(ALGORITHM, key, iv);
     
     let encrypted = cipher.update(token, 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -75,7 +75,7 @@ export function decryptToken(encryptedToken) {
     const authTag = Buffer.from(parts[1], 'hex');
     const encrypted = parts[2];
     
-    const decipher = crypto.createDecipher(ALGORITHM, key);
+    const decipher = crypto.createDecipherGCM(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
     
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');

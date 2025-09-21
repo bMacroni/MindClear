@@ -16,60 +16,72 @@ describe('Compression Filter', () => {
     };
   });
 
-  it('should compress public endpoints without user authentication', () => {
-    mockReq.path = '/api/health';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(true);
-  });
+  // Table-driven tests for endpoint compression behavior
+  describe('endpoint compression behavior', () => {
+    const testCases = [
+      {
+        description: 'should compress public endpoints without user authentication',
+        path: '/api/health',
+        user: null,
+        expected: true
+      },
+      {
+        description: 'should not compress when user is authenticated',
+        path: '/api/health',
+        user: { id: '123', email: 'test@example.com' },
+        expected: false
+      },
+      {
+        description: 'should not compress authentication endpoints',
+        path: '/api/auth/login',
+        user: null,
+        expected: false
+      },
+      {
+        description: 'should not compress security endpoints',
+        path: '/api/security/summary',
+        user: null,
+        expected: false
+      },
+      {
+        description: 'should not compress protected endpoints',
+        path: '/api/protected',
+        user: null,
+        expected: false
+      },
+      {
+        description: 'should not compress user token endpoints',
+        path: '/api/user/tokens',
+        user: null,
+        expected: false
+      },
+      {
+        description: 'should not compress user credential endpoints',
+        path: '/api/user/credentials',
+        user: null,
+        expected: false
+      },
+      {
+        description: 'should compress regular public endpoints',
+        path: '/api/goals',
+        user: null,
+        expected: true
+      },
+      {
+        description: 'should compress tasks endpoints',
+        path: '/api/tasks',
+        user: null,
+        expected: true
+      }
+    ];
 
-  it('should not compress when user is authenticated', () => {
-    mockReq.path = '/api/health';
-    mockReq.user = { id: '123', email: 'test@example.com' };
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(false);
-  });
-
-  it('should not compress authentication endpoints', () => {
-    mockReq.path = '/api/auth/login';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(false);
-  });
-
-  it('should not compress security endpoints', () => {
-    mockReq.path = '/api/security/summary';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(false);
-  });
-
-  it('should not compress protected endpoints', () => {
-    mockReq.path = '/api/protected';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(false);
-  });
-
-  it('should not compress user token endpoints', () => {
-    mockReq.path = '/api/user/tokens';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(false);
-  });
-
-  it('should not compress user credential endpoints', () => {
-    mockReq.path = '/api/user/credentials';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(false);
+    it.each(testCases)('$description', ({ path, user, expected }) => {
+      mockReq.path = path;
+      mockReq.user = user;
+      
+      const result = compressionConfig.filter(mockReq, mockRes);
+      expect(result).toBe(expected);
+    });
   });
 
   it('should not compress when no-transform cache-control is present', () => {
@@ -81,19 +93,12 @@ describe('Compression Filter', () => {
     expect(result).toBe(false);
   });
 
-  it('should compress regular public endpoints', () => {
+  it('should not compress binary responses (e.g., images)', () => {
     mockReq.path = '/api/goals';
     mockReq.user = null;
+    mockRes.getHeader = (name) => (name.toLowerCase() === 'content-type' ? 'image/png' : undefined);
     
     const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(true);
-  });
-
-  it('should compress tasks endpoints', () => {
-    mockReq.path = '/api/tasks';
-    mockReq.user = null;
-    
-    const result = compressionConfig.filter(mockReq, mockRes);
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 });
