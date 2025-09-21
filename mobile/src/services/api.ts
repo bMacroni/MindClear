@@ -1,11 +1,20 @@
 // Real API implementation for backend integration
-// For Android emulator, use 10.0.2.2 instead of localhost
-// For physical device, use your computer's IP address (e.g., 192.168.1.100)
+// Uses secure configuration service for API base URL
 import { configService } from './config';
 import { authService } from './auth';
 import { secureConfigService } from './secureConfig';
 import { sanitizeApiError, logErrorSecurely } from '../utils/errorSanitizer';
 import logger from '../utils/logger';
+
+// Helper function to get secure API base URL
+const getSecureApiBaseUrl = (): string => {
+  try {
+    return secureConfigService.getApiBaseUrl();
+  } catch (error) {
+    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
+    return getSecureApiBaseUrl();
+  }
+};
 import {
   SchedulingPreferences,
   TaskSchedulingStatus,
@@ -49,7 +58,7 @@ export interface Goal {
 // Brain Dump API
 export const brainDumpAPI = {
   submit: async (text: string): Promise<{ threadId: string; items: Array<{ text: string; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' }>}> => {
-    const response = await fetch(`${configService.getBaseUrl()}/ai/braindump`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/ai/braindump`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -69,7 +78,7 @@ export const goalsAPI = {
   // Generate AI-powered goal breakdown using real backend
   generateBreakdown: async (data: GoalBreakdownRequest): Promise<GoalBreakdownResponse> => {
     try {
-      const response = await fetch(`${configService.getBaseUrl()}/goals/generate-breakdown`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/generate-breakdown`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -96,7 +105,7 @@ export const goalsAPI = {
   ): Promise<{ id: string; title: string; order: number; steps: Array<{ id: string; text: string; completed: boolean; order: number }> }> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/${goalId}/milestones`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/${goalId}/milestones`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -119,7 +128,7 @@ export const goalsAPI = {
   deleteMilestone: async (milestoneId: string): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/milestones/${milestoneId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -142,7 +151,7 @@ export const goalsAPI = {
   ): Promise<{ id: string; text: string; order: number }> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/milestones/${milestoneId}/steps`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}/steps`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -165,7 +174,7 @@ export const goalsAPI = {
   deleteStep: async (stepId: string): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/steps/${stepId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/steps/${stepId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -184,7 +193,7 @@ export const goalsAPI = {
   // Create a new goal using real backend
   createGoal: async (goalData: Goal): Promise<Goal> => {
     try {
-      const response = await fetch(`${configService.getBaseUrl()}/goals`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -209,7 +218,7 @@ export const goalsAPI = {
     try {
       const token = await getAuthToken();
       
-      const response = await fetch(`${configService.getBaseUrl()}/goals`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -255,7 +264,7 @@ export const goalsAPI = {
   getGoalById: async (goalId: string): Promise<Goal> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/${goalId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/${goalId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -280,7 +289,7 @@ export const goalsAPI = {
   updateMilestone: async (milestoneId: string, updates: { completed?: boolean; title?: string }): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/milestones/${milestoneId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -303,7 +312,7 @@ export const goalsAPI = {
   updateStep: async (stepId: string, updates: { completed?: boolean; text?: string }): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/steps/${stepId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/steps/${stepId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -326,7 +335,7 @@ export const goalsAPI = {
   updateGoal: async (goalId: string, goalData: Partial<Goal>): Promise<Goal> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/${goalId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/${goalId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -352,7 +361,7 @@ export const goalsAPI = {
   deleteGoal: async (goalId: string): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/goals/${goalId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/goals/${goalId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -395,7 +404,7 @@ export const tasksAPI = {
     try {
       const token = await getAuthToken();
       
-      const response = await fetch(`${configService.getBaseUrl()}/tasks`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -440,7 +449,7 @@ export const tasksAPI = {
   // Bulk create tasks (atomic insert)
   bulkCreateTasks: async (tasks: Partial<Task>[]): Promise<Task[]> => {
     try {
-      const response = await fetch(`${configService.getBaseUrl()}/tasks/bulk`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -463,7 +472,7 @@ export const tasksAPI = {
   getTaskById: async (taskId: string): Promise<Task> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/tasks/${taskId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -487,7 +496,7 @@ export const tasksAPI = {
   // Create a new task
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
     try {
-      const response = await fetch(`${configService.getBaseUrl()}/tasks`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -534,7 +543,7 @@ export const tasksAPI = {
   updateTask: async (taskId: string, taskData: Partial<Task>): Promise<Task> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/tasks/${taskId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -573,7 +582,7 @@ export const tasksAPI = {
   deleteTask: async (taskId: string): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/tasks/${taskId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -605,7 +614,7 @@ export const tasksAPI = {
   // Momentum Mode: Get next focus task
   focusNext: async (payload: { current_task_id?: string|null; travel_preference?: 'allow_travel'|'home_only'; exclude_ids?: string[] }): Promise<Task> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/tasks/focus/next`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/focus/next`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -634,7 +643,7 @@ export const calendarAPI = {
   getEvents: async (maxResults: number = 100): Promise<any> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/calendar/events?maxResults=${maxResults}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -673,7 +682,7 @@ export const calendarAPI = {
   getEventsForDate: async (date: string): Promise<any> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/calendar/events/date?date=${date}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/events/date?date=${date}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -702,7 +711,7 @@ export const calendarAPI = {
   }): Promise<any> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/calendar/events`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/events`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -749,7 +758,7 @@ export const calendarAPI = {
   }): Promise<any> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/calendar/events/${eventId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/events/${eventId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -789,7 +798,7 @@ export const calendarAPI = {
   deleteEvent: async (eventId: string): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/calendar/events/${eventId}?useSupabase=true`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/events/${eventId}?useSupabase=true`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -821,7 +830,7 @@ export const calendarAPI = {
   syncCalendar: async (): Promise<any> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/calendar/sync`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/sync`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -846,7 +855,7 @@ export const autoSchedulingAPI = {
   autoScheduleTasks: async (): Promise<AutoSchedulingResult> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/ai/auto-schedule-tasks`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/ai/auto-schedule-tasks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -872,7 +881,7 @@ export const autoSchedulingAPI = {
   getPreferences: async (): Promise<SchedulingPreferences> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/ai/scheduling-preferences`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/ai/scheduling-preferences`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -897,7 +906,7 @@ export const autoSchedulingAPI = {
   updatePreferences: async (preferences: Partial<SchedulingPreferences>): Promise<SchedulingPreferences> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/ai/scheduling-preferences`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/ai/scheduling-preferences`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -924,7 +933,7 @@ export const autoSchedulingAPI = {
   getTaskSchedulingStatus: async (taskId: string): Promise<TaskSchedulingStatus> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/tasks/${taskId}/scheduling-status`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}/scheduling-status`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -949,7 +958,7 @@ export const autoSchedulingAPI = {
   toggleTaskAutoScheduling: async (taskId: string, enabled: boolean): Promise<void> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/tasks/${taskId}/auto-schedule`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}/auto-schedule`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -973,7 +982,7 @@ export const autoSchedulingAPI = {
   getAvailableTimeSlots: async (taskId: string): Promise<TimeSlot[]> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${configService.getBaseUrl()}/ai/available-time-slots?taskId=${taskId}`, {
+      const response = await fetch(`${getSecureApiBaseUrl()}/ai/available-time-slots?taskId=${taskId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1014,7 +1023,7 @@ async function getAuthToken(): Promise<string> {
 export const usersAPI = {
   getMe: async (): Promise<any> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/user/me`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -1023,7 +1032,7 @@ export const usersAPI = {
   },
   updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light'|'dark'; notification_preferences: any; }>): Promise<any> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/user/me`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1036,7 +1045,7 @@ export const usersAPI = {
 export const notificationsAPI = {
   registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
     const authToken = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/user/device-token`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/user/device-token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1051,7 +1060,7 @@ export const notificationsAPI = {
 
   getNotifications: async (status: 'all' | 'read' | 'unread' = 'unread'): Promise<any[]> => {
     const token = await getAuthToken();
-    const url = `${configService.getBaseUrl()}/tasks/notifications?status=${status}`;
+    const url = `${getSecureApiBaseUrl()}/tasks/notifications?status=${status}`;
     logger.debug('🔔 API: Making request to:', url);
     logger.debug('🔔 API: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
     
@@ -1073,7 +1082,7 @@ export const notificationsAPI = {
 
   markAsRead: async (notificationId: string): Promise<void> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/tasks/notifications/${notificationId}/read`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/${notificationId}/read`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -1089,7 +1098,7 @@ export const notificationsAPI = {
 
   markAllAsRead: async (): Promise<void> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/tasks/notifications/read-all`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/read-all`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -1105,7 +1114,7 @@ export const notificationsAPI = {
 
   getUnreadCount: async (): Promise<number> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/tasks/notifications/unread-count`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/unread-count`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -1164,7 +1173,7 @@ class WebSocketService {
         return;
       }
 
-      const wsUrl = configService.getBaseUrl().replace(/^http/, 'ws') + '/ws/notifications';
+      const wsUrl = getSecureApiBaseUrl().replace(/^http/, 'ws') + '/ws/notifications';
       logger.debug('WebSocket: Attempting to connect to:', wsUrl);
       
       this.ws = new WebSocket(wsUrl);
@@ -1275,7 +1284,7 @@ export const webSocketService = new WebSocketService();
 export const appPreferencesAPI = {
   get: async (): Promise<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/user/app-preferences`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -1284,7 +1293,7 @@ export const appPreferencesAPI = {
   },
   update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {
     const token = await getAuthToken();
-    const response = await fetch(`${configService.getBaseUrl()}/user/app-preferences`, {
+    const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
       method: 'PUT',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {}),

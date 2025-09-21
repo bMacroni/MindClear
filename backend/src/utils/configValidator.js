@@ -1,4 +1,5 @@
 import logger from './logger.js';
+import crypto from 'crypto';
 
 /**
  * Configuration Validation Utility
@@ -61,7 +62,18 @@ const FORMAT_VALIDATORS = {
   SUPABASE_URL: (value) => value.startsWith('https://') && value.includes('supabase.co'),
   GOOGLE_CLIENT_ID: (value) => value.includes('.apps.googleusercontent.com'),
   FIREBASE_PROJECT_ID: (value) => /^[a-z0-9-]+$/.test(value),
-  ENCRYPTION_KEY: (value) => value.length >= 32
+  ENCRYPTION_KEY: (value) => {
+    if (!value || value.length < 32) {
+      return false;
+    }
+    try {
+      // Check if the key produces a 32-byte result when processed by scryptSync
+      const derivedKey = crypto.scryptSync(value, 'salt', 32);
+      return derivedKey.length === 32;
+    } catch (error) {
+      return false;
+    }
+  }
 };
 
 /**

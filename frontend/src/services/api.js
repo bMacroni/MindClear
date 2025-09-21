@@ -2,7 +2,7 @@ import axios from 'axios';
 import { SecureTokenStorage, getSecurityHeaders, logSecurityEvent } from '../utils/security';
 
 // Create axios instance with base configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -238,7 +238,7 @@ class WebSocketService {
       return;
     }
 
-    const wsUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+    const wsUrl = (import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
       .replace(/^http/, 'ws')
       .replace('/api', '/api/ws/notifications');
 

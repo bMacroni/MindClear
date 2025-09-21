@@ -6,13 +6,16 @@ import logger from './logger.js';
  * Encrypts sensitive tokens before storing in database
  */
 
-const ENCRYPTION_KEY = process.env.TOKEN_ENCRYPTION_KEY || 'default-key-change-in-production';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const ALGORITHM = 'aes-256-gcm';
 
 /**
  * Generate a secure encryption key from environment variable
  */
 function getEncryptionKey() {
+  if (!ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY environment variable is required but not set');
+  }
   return crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
 }
 

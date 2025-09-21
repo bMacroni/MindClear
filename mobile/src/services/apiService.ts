@@ -1,5 +1,17 @@
 import { configService } from './config';
 import { authService } from './auth';
+import { secureConfigService } from './secureConfig';
+import logger from '../utils/logger';
+
+// Helper function to get secure API base URL
+const getSecureApiBaseUrl = (): string => {
+  try {
+    return secureConfigService.getApiBaseUrl();
+  } catch (error) {
+    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
+    return configService.getBaseUrl();
+  }
+};
 
 export interface ApiError {
   error: string;
@@ -55,7 +67,7 @@ export async function apiFetch<T = any>(
       headers['Content-Type'] = 'application/json';
     }
     
-    const res = await fetch(`${configService.getBaseUrl()}${path}`, {
+    const res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
       ...init,
       signal: controller.signal,
       headers,

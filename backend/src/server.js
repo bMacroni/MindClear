@@ -509,8 +509,17 @@ webSocketManager.init(server);
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, '0.0.0.0', () => {
     logger.info(`🚀 Mind Clear API server running on port ${PORT}`);
-    logger.info(`📊 Health check: http://localhost:${PORT}/api/health`);
-    logger.info(`🌐 Network access: http://192.168.1.66:${PORT}/api/health`);
+    
+    // Use environment-based URLs for logging
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const host = process.env.API_HOST || 'localhost';
+    
+    logger.info(`📊 Health check: ${protocol}://${host}:${PORT}/api/health`);
+    
+    // Only log network access in development
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info(`🌐 Network access: ${protocol}://192.168.1.66:${PORT}/api/health`);
+    }
   });
 }
 
