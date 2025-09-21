@@ -23,6 +23,48 @@ function generateCodeChallenge(verifier) {
 
 // In-memory store for PKCE challenges (in production, use Redis or database)
 const pkceStore = new Map();
+const PKCE_EXPIRY = 10 * 60 * 1000; // 10 minutes
+
+// Helper function to store PKCE challenge with expiration
+function storePKCEChallenge(state, challenge) {
+  pkceStore.set(state, {
+    challenge,
+    timestamp: Date.now()
+  });
+  
+  // Clean up expired challenges periodically
+  if (pkceStore.size > 100) {
+    cleanupExpiredPKCE();
+  }
+}
+
+// Helper function to validate and retrieve PKCE challenge
+function validatePKCEChallenge(state) {
+  const stored = pkceStore.get(state);
+  if (!stored) return null;
+  
+  // Check if challenge has expired (handle both timestamp and expiresAt formats)
+  const isExpired = stored.timestamp ? 
+    (Date.now() - stored.timestamp > PKCE_EXPIRY) :
+    (stored.expiresAt && stored.expiresAt < Date.now());
+    
+  if (isExpired) {
+    pkceStore.delete(state);
+    return null;
+  }
+  
+  return stored;
+}
+
+// Clean up expired PKCE challenges
+function cleanupExpiredPKCE() {
+  const now = Date.now();
+  for (const [state, data] of pkceStore.entries()) {
+    if (now - data.timestamp > PKCE_EXPIRY) {
+      pkceStore.delete(state);
+    }
+  }
+}
 
 // Helper function to generate secure mobile state with PKCE
 function generateMobileState(userId) {
@@ -31,14 +73,7 @@ function generateMobileState(userId) {
   
   // Store the verifier temporarily (10 minutes TTL)
   const expiresAt = Date.now() + (10 * 60 * 1000);
-  pkceStore.set(codeChallenge, { userId, codeVerifier, expiresAt });
-  
-  // Clean up expired entries
-  for (const [challenge, data] of pkceStore.entries()) {
-    if (data.expiresAt < Date.now()) {
-      pkceStore.delete(challenge);
-    }
-  }
+  storePKCEChallenge(codeChallenge, { userId, codeVerifier, expiresAt });
   
   return { state: `mobile:${codeChallenge}`, codeVerifier, codeChallenge };
 }
@@ -76,7 +111,7 @@ function consumePkceChallenge(state) {
   }
   
   const codeChallenge = state.slice('mobile:'.length);
-  const pkceData = pkceStore.get(codeChallenge);
+  const pkceData = validatePKCEChallenge(codeChallenge);
   
   if (pkceData) {
     // Remove the challenge after use (one-time use)

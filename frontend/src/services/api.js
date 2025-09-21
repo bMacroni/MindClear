@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { SecureTokenStorage, getSecurityHeaders, logSecurityEvent } from '../utils/security';
 
 // Create axios instance with base configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -9,16 +10,22 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and security headers
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('jwt_token');
+    const token = SecureTokenStorage.getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Add security headers
+    const securityHeaders = getSecurityHeaders();
+    Object.assign(config.headers, securityHeaders);
+    
     return config;
   },
   (error) => {
+    logSecurityEvent('Request interceptor error', error);
     return Promise.reject(error);
   }
 );
@@ -29,8 +36,15 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Token expired or invalid
-      localStorage.removeItem('jwt_token');
+      logSecurityEvent('Authentication failed', { status: 401 });
+      SecureTokenStorage.removeToken();
       window.location.href = '/login';
+    } else if (error.response?.status >= 400) {
+      // Log other client/server errors
+      logSecurityEvent('API error', { 
+        status: error.response.status, 
+        url: error.config?.url 
+      });
     }
     return Promise.reject(error);
   }
@@ -224,7 +238,7 @@ class WebSocketService {
       return;
     }
 
-    const wsUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+    const wsUrl = (import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
       .replace(/^http/, 'ws')
       .replace('/api', '/api/ws/notifications');
 

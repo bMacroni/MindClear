@@ -12,6 +12,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { authService } from '../../services/auth';
 import { configService } from '../../services/config';
+import { secureConfigService } from '../../services/secureConfig';
+import logger from '../../utils/logger';
+
+// Helper function to get secure API base URL
+const getSecureApiBaseUrl = (): string => {
+  try {
+    return secureConfigService.getApiBaseUrl();
+  } catch (error) {
+    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
+    return configService.getBaseUrl();
+  }
+};
 import { SuccessToast } from '../../components/common/SuccessToast';
 import { ErrorToast } from '../../components/common/ErrorToast';
 import { useFocusEffect } from '@react-navigation/native';
@@ -186,7 +198,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       // Update conversation thread title to the goal text
       const token = await authService.getAuthToken();
       if (token) {
-        const baseUrl = configService.getBaseUrl();
+        const baseUrl = getSecureApiBaseUrl();
         
         // Create AbortController with 4 second timeout
         const controller = new AbortController();

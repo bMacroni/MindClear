@@ -16,11 +16,60 @@ export default function SignupScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  const validateInputs = () => {
+    if (!fullName.trim()) {
+      setError('Full name is required');
+      return false;
+    }
+    if (fullName.length > 100) {
+      setError('Full name must be less than 100 characters');
+      return false;
+    }
+    if (!email.trim()) {
+      setError('Email is required');
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address');
+      return false;
+    }
+    if (!password) {
+      setError('Password is required');
+      return false;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return false;
+    }
+    if (!/(?=.*[a-z])/.test(password)) {
+      setError('Password must contain at least one lowercase letter');
+      return false;
+    }
+    if (!/(?=.*[A-Z])/.test(password)) {
+      setError('Password must contain at least one uppercase letter');
+      return false;
+    }
+    if (!/(?=.*\d)/.test(password)) {
+      setError('Password must contain at least one number');
+      return false;
+    }
+    if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(password)) {
+      setError('Password must contain at least one special character (!@#$%^&*(),.?":{}|<>)');
+      return false;
+    }
+    return true;
+  };
+
   const handleSignup = async () => {
     setError('');
+    
+    if (!validateInputs()) {
+      return;
+    }
+    
     setLoading(true);
     try {
-      const result = await authService.signup({ email, password });
+      const result = await authService.signup({ email, password, fullName });
       
       if (result.success) {
         if (result.user) {
@@ -102,6 +151,15 @@ export default function SignupScreen({ navigation }: any) {
           value={password}
           onChangeText={setPassword}
         />
+        
+        <Text style={styles.requirements}>
+          Password must contain:
+          {'\n'}• At least 8 characters
+          {'\n'}• One uppercase letter
+          {'\n'}• One lowercase letter
+          {'\n'}• One number
+          {'\n'}• One special character (!@#$%^&*)
+        </Text>
         
         {error ? <Text style={styles.error}>{error}</Text> : null}
         
@@ -227,5 +285,13 @@ const styles = StyleSheet.create({
   error: {
     color: colors.error,
     marginBottom: spacing.sm,
+  },
+  requirements: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    alignSelf: 'flex-start',
+    lineHeight: 18,
   },
 });

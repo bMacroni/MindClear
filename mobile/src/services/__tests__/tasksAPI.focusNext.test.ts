@@ -1,5 +1,17 @@
 import { tasksAPI } from '../../services/api';
 import { configService } from '../../services/config';
+import { secureConfigService } from '../../services/secureConfig';
+import logger from '../../utils/logger';
+
+// Helper function to get secure API base URL
+const getSecureApiBaseUrl = (): string => {
+  try {
+    return secureConfigService.getApiBaseUrl();
+  } catch (error) {
+    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
+    return configService.getBaseUrl();
+  }
+};
 
 jest.mock('../../services/auth', () => ({
   authService: { getAuthToken: jest.fn(async () => 'test-token') }
@@ -21,7 +33,7 @@ describe('tasksAPI.focusNext', () => {
   });
 
   it('POSTs to /tasks/focus/next with provided payload', async () => {
-    const base = configService.getBaseUrl();
+    const base = getSecureApiBaseUrl();
     const payload = { current_task_id: 't1', travel_preference: 'allow_travel' as const, exclude_ids: ['t1'] };
     const result = await tasksAPI.focusNext(payload);
     expect(result).toHaveProperty('id');

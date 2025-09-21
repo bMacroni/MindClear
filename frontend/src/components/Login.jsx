@@ -40,7 +40,7 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
   };
 
   const handleGoogleLogin = () => {
-    const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const apiBaseUrl = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
     const backendUrl = apiBaseUrl.replace('/api', ''); // Remove /api to get the base backend URL
     const url = `${backendUrl}/api/auth/google/login`;
     window.location.href = url;

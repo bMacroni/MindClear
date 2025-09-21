@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { goalsAPI, tasksAPI } from '../services/api';
 import api from '../services/api';
+import { SecureTokenStorage, sanitizeInput, validateEmail } from '../utils/security';
 
 // API Base URL configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const AuthContext = createContext();
 
@@ -52,7 +53,7 @@ export const AuthProvider = ({ children }) => {
       await checkGoogleOAuthCallback();
       
       // Check if user is logged in on app start
-      const token = localStorage.getItem('jwt_token');
+      const token = SecureTokenStorage.getToken();
       if (token) {
         try {
           // Verify the token and get user info
@@ -64,11 +65,11 @@ export const AuthProvider = ({ children }) => {
             });
           } else {
             // Token is invalid, remove it
-            localStorage.removeItem('jwt_token');
+            SecureTokenStorage.removeToken();
           }
         } catch (error) {
           console.error('Error verifying token:', error);
-          localStorage.removeItem('jwt_token');
+          SecureTokenStorage.removeToken();
         }
       }
       
@@ -79,16 +80,27 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = (token) => {
-    localStorage.setItem('jwt_token', token);
+    SecureTokenStorage.setToken(token);
     setUser({ token });
   };
 
   const loginWithCredentials = async (email, password) => {
     try {
-      const response = await api.post('/auth/login', { email, password });
+      // Validate and sanitize input
+      const sanitizedEmail = sanitizeInput(email);
+      const sanitizedPassword = sanitizeInput(password);
+      
+      if (!validateEmail(sanitizedEmail)) {
+        return { success: false, error: 'Invalid email format' };
+      }
+      
+      const response = await api.post('/auth/login', { 
+        email: sanitizedEmail, 
+        password: sanitizedPassword 
+      });
       
       if (response.data.token) {
-        localStorage.setItem('jwt_token', response.data.token);
+        SecureTokenStorage.setToken(response.data.token);
         setUser({ 
           token: response.data.token,
           ...response.data.user 
@@ -108,12 +120,23 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (email, password) => {
     try {
-      const response = await api.post('/auth/signup', { email, password });
+      // Validate and sanitize input
+      const sanitizedEmail = sanitizeInput(email);
+      const sanitizedPassword = sanitizeInput(password);
+      
+      if (!validateEmail(sanitizedEmail)) {
+        return { success: false, error: 'Invalid email format' };
+      }
+      
+      const response = await api.post('/auth/signup', { 
+        email: sanitizedEmail, 
+        password: sanitizedPassword 
+      });
       const data = response.data;
       
       if (data.token) {
         // Auto-login succeeded
-        localStorage.setItem('jwt_token', data.token);
+        SecureTokenStorage.setToken(data.token);
         setUser({ 
           token: data.token,
           ...data.user 
@@ -135,7 +158,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
-    localStorage.removeItem('jwt_token');
+    SecureTokenStorage.removeToken();
     sessionStorage.removeItem('google_oauth_email');
     sessionStorage.removeItem('google_oauth_name');
     setUser(null);

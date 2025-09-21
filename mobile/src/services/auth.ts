@@ -61,6 +61,7 @@ export interface LoginCredentials {
 export interface SignupCredentials {
   email: string;
   password: string;
+  fullName: string;
 }
 
 class AuthService {
@@ -264,7 +265,11 @@ class AuthService {
 
       const { ok, status, data } = await apiFetch('/auth/signup', {
         method: 'POST',
-        body: JSON.stringify(credentials),
+        body: JSON.stringify({
+          email: credentials.email,
+          password: credentials.password,
+          full_name: credentials.fullName
+        }),
       });
 
       if (ok && data.token) {

@@ -1,15 +1,39 @@
 import dotenv from 'dotenv';
+import logger from './utils/logger.js';
+import { validateConfiguration, getConfigurationSummary } from './utils/configValidator.js';
+
 const env = process.env.NODE_ENV || 'development';
 // Load base, then local, then env-specific, then env-specific local (highest precedence)
 dotenv.config();
 dotenv.config({ path: `.env.local`, override: true });
 dotenv.config({ path: `.env.${env}`, override: true });
 dotenv.config({ path: `.env.${env}.local`, override: true });
+
+// Validate configuration on startup
+try {
+  validateConfiguration();
+  logger.info('Configuration summary:', getConfigurationSummary());
+} catch (error) {
+  logger.error('Configuration validation failed:', error.message);
+  process.exit(1);
+}
+
 import express from 'express'
 import http from 'http'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuth } from './middleware/auth.js'
+import { 
+  helmetConfig, 
+  globalRateLimit, 
+  authRateLimit, 
+  slowDownConfig, 
+  compressionConfig, 
+  requestSizeLimit, 
+  securityHeaders, 
+  securityLogging 
+} from './middleware/security.js'
+import { requestTracking, errorTracking } from './middleware/requestTracking.js'
 import goalsRouter from './routes/goals.js'
 import tasksRouter from './routes/tasks.js'
 import googleAuthRoutes from './routes/googleAuth.js'
@@ -25,16 +49,58 @@ import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
 import { sendNotification } from './services/notificationService.js';
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
-import logger from './utils/logger.js';
 
 
 const app = express()
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000
 
-// Middleware
-app.use(cors())
-app.use(express.json())
+// Security Middleware (applied in order)
+app.use(helmetConfig) // Security headers
+app.use(securityHeaders) // Additional custom security headers
+app.use(compressionConfig) // Response compression
+app.use(requestTracking) // Request ID tracking
+app.use(securityLogging) // Security request/response logging
+
+// CORS configuration with specific origins
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:8080',
+      process.env.FRONTEND_URL,
+      process.env.CORS_ORIGIN
+    ].filter(Boolean); // Remove undefined values
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Mood', 'X-User-Timezone'],
+  exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']
+};
+
+app.use(cors(corsOptions))
+
+// Request size limiting
+app.use(requestSizeLimit('10mb'))
+
+// Body parsing with size limits
+app.use(express.json({ limit: '10mb' }))
+app.use(express.urlencoded({ extended: true, limit: '10mb' }))
+
+// Rate limiting
+app.use(globalRateLimit) // Global rate limiting
+app.use(slowDownConfig) // Slow down suspicious activity
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL
@@ -72,6 +138,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Security monitoring endpoint (protected)
+app.get('/api/security/summary', requireAuth, async (req, res) => {
+  try {
+    const { getSecuritySummary } = await import('./utils/securityMonitor.js');
+    const summary = getSecuritySummary();
+    res.json(summary);
+  } catch (error) {
+    logger.error('Error getting security summary:', error);
+    res.status(500).json({ error: 'Failed to get security summary' });
+  }
+});
+
 // Basic API routes
 app.get('/api', (req, res) => {
   res.json({ 
@@ -93,9 +171,10 @@ app.use('/api/goals', goalsRouter);
 
 app.use('/api/tasks', tasksRouter);
 
-app.use('/api/auth', authRouter);
-app.use('/api/auth/google', googleAuthRoutes);
-app.use('/api/auth/google', googleMobileAuthRoutes);
+// Authentication routes with strict rate limiting
+app.use('/api/auth', authRateLimit, authRouter);
+app.use('/api/auth/google', authRateLimit, googleAuthRoutes);
+app.use('/api/auth/google', authRateLimit, googleMobileAuthRoutes);
 
 if (process.env.DEBUG_LOGS === 'true') logger.info('Registering calendar router...');
 app.use('/api/calendar', calendarRouter);
@@ -430,10 +509,22 @@ webSocketManager.init(server);
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, '0.0.0.0', () => {
     logger.info(`🚀 Mind Clear API server running on port ${PORT}`);
-    logger.info(`📊 Health check: http://localhost:${PORT}/api/health`);
-    logger.info(`🌐 Network access: http://192.168.1.66:${PORT}/api/health`);
+    
+    // Use environment-based URLs for logging
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const host = process.env.API_HOST || 'localhost';
+    
+    logger.info(`📊 Health check: ${protocol}://${host}:${PORT}/api/health`);
+    
+    // Only log network access in development
+    if (process.env.NODE_ENV !== 'production') {
+      logger.info(`🌐 Network access: ${protocol}://192.168.1.66:${PORT}/api/health`);
+    }
   });
 }
+
+// Error handling middleware
+app.use(errorTracking);
 
 // Add error handlers
 process.on('uncaughtException', (err) => {

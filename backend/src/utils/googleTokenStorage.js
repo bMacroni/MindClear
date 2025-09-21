@@ -1,3 +1,6 @@
+import { encryptGoogleTokens, decryptGoogleTokens } from './tokenEncryption.js';
+import logger from './logger.js';
+
 export async function storeGoogleTokens(userId, tokens) {
   try {
     // Storing tokens for user
@@ -8,10 +11,13 @@ export async function storeGoogleTokens(userId, tokens) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
     
+    // Encrypt sensitive tokens before storage
+    const encryptedTokens = encryptGoogleTokens(tokens);
+    
     const tokenData = {
       user_id: userId,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
+      access_token: encryptedTokens.access_token,
+      refresh_token: encryptedTokens.refresh_token,
       token_type: tokens.token_type,
       scope: tokens.scope,
       expiry_date: tokens.expiry_date,
@@ -27,14 +33,20 @@ export async function storeGoogleTokens(userId, tokens) {
       });
       
     if (error) {
-      console.error('[TokenStorage] Error storing Google tokens:', error);
+      logger.error('[TokenStorage] Error storing Google tokens:', error);
       throw error;
     }
+    
+    logger.info('[TokenStorage] Successfully stored encrypted Google tokens', {
+      userId,
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token
+    });
     
     // Successfully stored tokens for user
     return data;
   } catch (error) {
-    console.error('[TokenStorage] Failed to store Google tokens:', error);
+    logger.error('[TokenStorage] Failed to store Google tokens:', error);
     throw error;
   }
 }
@@ -59,15 +71,22 @@ export async function getGoogleTokens(userId) {
         // No tokens found for user
         return null;
       }
-      console.error(`[TokenStorage] Error retrieving tokens for user ${userId}:`, error);
+      logger.error(`[TokenStorage] Error retrieving tokens for user ${userId}:`, error);
       throw error;
     }
     
-    // Retrieved tokens for user
+    // Decrypt tokens before returning
+    const decryptedData = decryptGoogleTokens(data);
     
-    return data;
+    logger.info('[TokenStorage] Successfully retrieved and decrypted Google tokens', {
+      userId,
+      hasAccessToken: !!decryptedData.access_token,
+      hasRefreshToken: !!decryptedData.refresh_token
+    });
+    
+    return decryptedData;
   } catch (error) {
-    console.error('[TokenStorage] Failed to get Google tokens:', error);
+    logger.error('[TokenStorage] Failed to get Google tokens:', error);
     throw error;
   }
 }
@@ -86,9 +105,11 @@ export async function deleteGoogleTokens(userId) {
     if (error) {
       throw error;
     }
+    
+    logger.info('[TokenStorage] Successfully deleted Google tokens', { userId });
     return true;
   } catch (error) {
-    console.error('Failed to delete Google tokens:', error);
+    logger.error('Failed to delete Google tokens:', error);
     throw error;
   }
 } 

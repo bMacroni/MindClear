@@ -2,6 +2,18 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Platform } from 'react-native';
 import { configService } from './config';
 import { authService } from './auth';
+import { secureConfigService } from './secureConfig';
+import logger from '../utils/logger';
+
+// Helper function to get secure API base URL
+const getSecureApiBaseUrl = (): string => {
+  try {
+    return secureConfigService.getApiBaseUrl();
+  } catch (error) {
+    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
+    return configService.getBaseUrl();
+  }
+};
 
 export interface GoogleAuthResult {
   success: boolean;
@@ -162,7 +174,7 @@ class GoogleAuthService {
    */
   private async authenticateWithBackend(idToken: string, serverAuthCode: string): Promise<GoogleAuthResult> {
     try {
-      const baseUrl = configService.getBaseUrl();
+      const baseUrl = getSecureApiBaseUrl();
       const webClientId = configService.getGoogleWebClientId();
       
       console.log('[GoogleAuth] Authenticating with backend...');
@@ -273,7 +285,7 @@ class GoogleAuthService {
    */
   private async triggerCalendarOAuth(userId: string): Promise<void> {
     try {
-      const baseUrl = configService.getBaseUrl();
+      const baseUrl = getSecureApiBaseUrl();
       const oauthUrl = `${baseUrl}/auth/google/login?state=mobile:${userId}`;
       
       console.log('[GoogleAuth] Triggering calendar OAuth flow...');

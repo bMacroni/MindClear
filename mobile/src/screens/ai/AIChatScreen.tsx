@@ -13,6 +13,18 @@ import { OnboardingState, QuickAction } from '../../types/onboarding';
 import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
 import { authService } from '../../services/auth';
+import { secureConfigService } from '../../services/secureConfig';
+import logger from '../../utils/logger';
+
+// Helper function to get secure API base URL
+const getSecureApiBaseUrl = (): string => {
+  try {
+    return secureConfigService.getApiBaseUrl();
+  } catch (error) {
+    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
+    return configService.getBaseUrl();
+  }
+};
 import QuickActions from '../../components/ai/QuickActions';
 import ScheduleDisplay from '../../components/ai/ScheduleDisplay';
 import GoalBreakdownDisplay from '../../components/ai/GoalBreakdownDisplay';
@@ -458,7 +470,7 @@ export default function AIChatScreen({ navigation, route }: any) {
       const token = await authService.getAuthToken();
       
       const response = await axios.post(
-        `${configService.getBaseUrl()}/ai/chat`,
+        `${getSecureApiBaseUrl()}/ai/chat`,
         { message: userMessage, threadId: route.params?.threadId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -598,7 +610,7 @@ export default function AIChatScreen({ navigation, route }: any) {
            setError('');
            
            const response = await axios.post(
-             `${configService.getBaseUrl()}/ai/chat`,
+             `${getSecureApiBaseUrl()}/ai/chat`,
              { message: initialMessage, threadId: route.params?.threadId },
              { headers: { Authorization: `Bearer ${token}` } }
            );

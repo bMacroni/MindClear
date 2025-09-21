@@ -53,7 +53,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       const uiMilestones: Milestone[] = (goalData.milestones || []).map(milestone => ({
         id: milestone.id,
         title: milestone.title,
-        description: milestone.description || '', // Use actual description from backend
+        description: (milestone as any).description || '', // Use actual description from backend
         completed: milestone.completed,
         steps: milestone.steps,
       }));
