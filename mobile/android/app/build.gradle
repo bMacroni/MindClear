@@ -114,6 +114,29 @@ android {
             keyPassword 'android'
         }
         release {
+            storeFile file(System.getenv("KEYSTORE_PATH") ?: 'mindclear-release-key.keystore')
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+            keyAlias "mindclear-key-alias"  
+            keyPassword System.getenv("KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            // Speed up debug builds
+            minifyEnabled false
+            shrinkResources false
+            debuggable true
+            // Reduce build time by limiting architectures in debug
+            ndk {
+                abiFilters "arm64-v8a"
+                debugSymbolLevel 'none'
+            }
+            // Disable unnecessary features for faster debug builds
+            buildConfigField "boolean", "DEBUG_MODE", "true"
+            // Keep default CMake settings; we already limit ABIs to speed builds
+        }
+        release {
             // Validate required environment variables for release builds
             def keystorePath = System.getenv("KEYSTORE_PATH")
             def keystorePassword = System.getenv("KEYSTORE_PASSWORD")
@@ -137,29 +160,6 @@ android {
                 throw new GradleException("Keystore file not found at path: ${keystorePath}. Please check your KEYSTORE_PATH environment variable.")
             }
             
-            storeFile keystoreFile
-            storePassword keystorePassword
-            keyAlias "mindclear-key-alias"  
-            keyPassword keyPassword
-        }
-    }
-    buildTypes {
-        debug {
-            signingConfig signingConfigs.debug
-            // Speed up debug builds
-            minifyEnabled false
-            shrinkResources false
-            debuggable true
-            // Reduce build time by limiting architectures in debug
-            ndk {
-                abiFilters "arm64-v8a"
-                debugSymbolLevel 'none'
-            }
-            // Disable unnecessary features for faster debug builds
-            buildConfigField "boolean", "DEBUG_MODE", "true"
-            // Keep default CMake settings; we already limit ABIs to speed builds
-        }
-        release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
