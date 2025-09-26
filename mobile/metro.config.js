@@ -14,6 +14,10 @@ defaultConfig.resolver = {
   ...defaultConfig.resolver,
   assetExts: assetExts.filter(ext => ext !== 'svg'),
   sourceExts: [...sourceExts, 'svg'],
+  alias: {
+    '@assets': './assets',
+    '@src': './src',
+  },
 };
 
 module.exports = mergeConfig(getDefaultConfig(__dirname), defaultConfig);

@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import logger from './utils/logger.js';
 import { validateConfiguration, getConfigurationSummary } from './utils/configValidator.js';
+import { isIPInAnyCIDR, parseCIDRString, isValidCIDR } from './utils/cidrValidator.js';
 
 const env = process.env.NODE_ENV || 'development';
 // Load base, then local, then env-specific, then env-specific local (highest precedence)
@@ -52,6 +53,55 @@ import webSocketManager from './utils/webSocketManager.js';
 
 
 const app = express()
+
+// Secure proxy trust configuration - only trust Railway's ingress
+const configureTrustProxy = () => {
+  const railwayIngressCIDR = process.env.RAILWAY_INGRESS_CIDR;
+  
+  if (!railwayIngressCIDR) {
+    // No CIDR configured - don't trust any proxies (secure default)
+    logger.warn('RAILWAY_INGRESS_CIDR not configured. Not trusting any proxies.');
+    app.set('trust proxy', false);
+    return;
+  }
+  
+  // Parse and validate CIDR strings
+  const cidrs = parseCIDRString(railwayIngressCIDR);
+  const validCIDRs = cidrs.filter(cidr => {
+    if (!isValidCIDR(cidr)) {
+      logger.warn(`Invalid CIDR format: ${cidr}`);
+      return false;
+    }
+    return true;
+  });
+  
+  if (validCIDRs.length === 0) {
+    logger.warn('No valid CIDRs found in RAILWAY_INGRESS_CIDR. Not trusting any proxies.');
+    app.set('trust proxy', false);
+    return;
+  }
+  
+  logger.info(`Trusting proxies from CIDRs: ${validCIDRs.join(', ')}`);
+  
+  // Set up trust proxy callback that validates against configured CIDRs
+  app.set('trust proxy', (ip, hopIndex) => {
+    // Only trust the first hop (immediate upstream)
+    if (hopIndex !== 0) {
+      return false;
+    }
+    
+    const isTrusted = isIPInAnyCIDR(ip, validCIDRs);
+    
+    if (process.env.DEBUG_LOGS === 'true') {
+      logger.debug(`Trust proxy check: IP ${ip} ${isTrusted ? 'trusted' : 'rejected'}`);
+    }
+    
+    return isTrusted;
+  });
+};
+
+// Configure secure proxy trust
+configureTrustProxy();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000
 

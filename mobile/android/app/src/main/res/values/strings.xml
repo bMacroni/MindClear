@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Mind Clear</string>
-    <string name="default_notification_channel_id">fcm_default_channel</string>
+    <string name="default_notification_channel_id">mindclear_default_channel</string>
 </resources>

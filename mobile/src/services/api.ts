@@ -449,6 +449,23 @@ export const tasksAPI = {
   // Bulk create tasks (atomic insert)
   bulkCreateTasks: async (tasks: Partial<Task>[]): Promise<Task[]> => {
     try {
+      // Debug logging
+      // bulkCreateTasks called
+      
+      // Validate input before making API call
+      if (!Array.isArray(tasks)) {
+        throw new Error('Tasks must be an array');
+      }
+      if (tasks.length === 0) {
+        console.warn('bulkCreateTasks called with empty array, returning empty result');
+        return [];
+      }
+      if (tasks.length > 50) {
+        throw new Error('Cannot create more than 50 tasks at once');
+      }
+      
+      // Making API call with tasks
+      
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/bulk`, {
         method: 'POST',
         headers: {

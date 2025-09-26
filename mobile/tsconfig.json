@@ -1,7 +1,12 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@assets/*": ["assets/*"],
+      "@src/*": ["src/*"]
+    }
   },
   "exclude": [
     "**/__tests__/**",

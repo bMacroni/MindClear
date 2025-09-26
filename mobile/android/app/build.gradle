@@ -98,7 +98,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         
         // Optimize native builds - use only arm64 for faster builds
         ndk {
@@ -112,6 +112,12 @@ android {
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
+        }
+        release {
+            storeFile file(System.getenv("KEYSTORE_PATH") ?: 'mindclear-release-key.keystore')
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+            keyAlias System.getenv("KEY_ALIAS") ?: "mindclear-key-alias"  
+            keyPassword System.getenv("KEY_PASSWORD")
         }
     }
     buildTypes {
@@ -133,7 +139,7 @@ android {
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
@@ -143,6 +149,41 @@ android {
             }
             // Optimize release builds
             buildConfigField "boolean", "DEBUG_MODE", "false"
+        }
+    }
+}
+
+// Add validation task for release builds
+tasks.whenTaskAdded { task ->
+    if (task.name.contains('Release') && (task.name.contains('Bundle') || task.name.contains('Assemble'))) {
+        task.doFirst {
+            // Validate required environment variables for release builds
+            def keystorePath = System.getenv("KEYSTORE_PATH")
+            def keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            def keyPassword = System.getenv("KEY_PASSWORD")
+            def keyAlias = System.getenv("KEY_ALIAS")
+            
+            if (!keystorePath || keystorePath.trim().isEmpty()) {
+                throw new GradleException("KEYSTORE_PATH environment variable is required for release builds. Please set it to the path of your keystore file.")
+            }
+            
+            if (!keystorePassword || keystorePassword.trim().isEmpty()) {
+                throw new GradleException("KEYSTORE_PASSWORD environment variable is required for release builds.")
+            }
+            
+            if (!keyPassword || keyPassword.trim().isEmpty()) {
+                throw new GradleException("KEY_PASSWORD environment variable is required for release builds.")
+            }
+            
+            if (!keyAlias || keyAlias.trim().isEmpty()) {
+                throw new GradleException("KEY_ALIAS environment variable is required for release builds.")
+            }
+            
+            // Validate keystore file exists
+            def keystoreFile = file(keystorePath)
+            if (!keystoreFile.exists()) {
+                throw new GradleException("Keystore file not found at path: ${keystorePath}. Please check your KEYSTORE_PATH environment variable.")
+            }
         }
     }
 }

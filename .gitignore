@@ -106,6 +106,10 @@ get-jwt.js
 *.jwt
 *.token
 
+# Android keystore files (security)
+*.keystore
+!**/debug.keystore
+*.jks
 # Database files
 *.db
 *.sqlite

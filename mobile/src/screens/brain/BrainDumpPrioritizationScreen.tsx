@@ -353,14 +353,28 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
         }
       }
       
+      // Brain dump save - remainder tasks
+      
       if (remainder.length > 0) {
-        await tasksAPI.bulkCreateTasks(remainder.map(it => ({ 
+        const tasksToCreate = remainder.map(it => ({ 
           title: it.text, 
           description: '', 
           priority: it.priority, 
           category: it.category || undefined, 
           is_today_focus: false 
-        })) as any);
+        }));
+        
+        // Tasks to create
+        
+        // Only call bulkCreateTasks if we have valid tasks to create
+        if (tasksToCreate.length > 0) {
+          // Calling bulkCreateTasks
+          await tasksAPI.bulkCreateTasks(tasksToCreate as any);
+        } else {
+          // No valid tasks to create, skipping bulkCreateTasks
+        }
+      } else {
+        // No remainder tasks, skipping bulkCreateTasks
       }
       
       try { await AsyncStorage.multiRemove(['lastBrainDumpThreadId', 'lastBrainDumpItems', 'brainDumpPrioritizedTasks']); } catch {}
