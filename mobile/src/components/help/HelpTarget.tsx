@@ -18,12 +18,11 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
   const [lastRegisteredScope, setLastRegisteredScope] = useState<string | null>(null);
   const measureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMeasuringRef = useRef<boolean>(false);
+  const pendingMeasureRef = useRef<boolean>(false);
 
   // Debounced measure function to prevent excessive callbacks
   const measure = useCallback(() => {
-    // Ensure we don’t stomp on an in-flight measure; if one’s running, queue up a retry
-    const isMeasuringRef   = useRef<boolean>(false);
-    const pendingMeasureRef = useRef<boolean>(false);
+    // Ensure we don't stomp on an in-flight measure; if one's running, queue up a retry
 
     // …
 
