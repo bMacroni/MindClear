@@ -16,52 +16,80 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
   const ref = useRef<View>(null);
   const lastLayoutRef = useRef<{ x: number; y: number; width: number; height: number; pageX: number; pageY: number } | null>(null);
   const [lastRegisteredScope, setLastRegisteredScope] = useState<string | null>(null);
+  const measureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMeasuringRef = useRef<boolean>(false);
 
+  // Debounced measure function to prevent excessive callbacks
   const measure = useCallback(() => {
-    if (!ref.current) { return; }
+    if (!ref.current || isMeasuringRef.current) { 
+      return; 
+    }
     
-    ref.current.measure((x, y, width, height, pageX, pageY) => {
-      const next = { x: pageX, y: pageY, width, height, pageX, pageY };
-      const prev = lastLayoutRef.current;
-      const changed = !prev
-        || Math.abs(prev.x - next.x) > 0.5
-        || Math.abs(prev.y - next.y) > 0.5
-        || Math.abs(prev.width - next.width) > 0.5
-        || Math.abs(prev.height - next.height) > 0.5;
+    // Clear any pending measure calls
+    if (measureTimeoutRef.current) {
+      clearTimeout(measureTimeoutRef.current);
+    }
+    
+    // Debounce measure calls by 16ms (roughly 60fps)
+    measureTimeoutRef.current = setTimeout(() => {
+      if (!ref.current) { return; }
       
-      if (changed) {
-        lastLayoutRef.current = next;
-        const targetScope = localScope || 'default';
+      isMeasuringRef.current = true;
+      
+      ref.current.measure((x, y, width, height, pageX, pageY) => {
+        isMeasuringRef.current = false;
         
-        // Unregister from previous scope if it exists and is different
-        if (lastRegisteredScope && lastRegisteredScope !== targetScope) {
-          unregisterTargetLayout(helpId, lastRegisteredScope);
-        }
+        const next = { x: pageX, y: pageY, width, height, pageX, pageY };
+        const prev = lastLayoutRef.current;
+        const changed = !prev
+          || Math.abs(prev.x - next.x) > 0.5
+          || Math.abs(prev.y - next.y) > 0.5
+          || Math.abs(prev.width - next.width) > 0.5
+          || Math.abs(prev.height - next.height) > 0.5;
         
-        if (!localScope || localScope === (currentScope || 'default')) {
-          registerTargetLayout(helpId, next, targetScope);
-          setLastRegisteredScope(targetScope);
+        if (changed) {
+          lastLayoutRef.current = next;
+          const targetScope = localScope || 'default';
+          
+          // Unregister from previous scope if it exists and is different
+          if (lastRegisteredScope && lastRegisteredScope !== targetScope) {
+            unregisterTargetLayout(helpId, lastRegisteredScope);
+          }
+          
+          if (!localScope || localScope === (currentScope || 'default')) {
+            registerTargetLayout(helpId, next, targetScope);
+            setLastRegisteredScope(targetScope);
+          }
         }
-      }
-    });
+      });
+    }, 16);
   }, [helpId, registerTargetLayout, unregisterTargetLayout, currentScope, localScope, lastRegisteredScope]);
 
+  // Cleanup function
+  const cleanup = useCallback(() => {
+    if (measureTimeoutRef.current) {
+      clearTimeout(measureTimeoutRef.current);
+      measureTimeoutRef.current = null;
+    }
+    if (lastRegisteredScope) {
+      unregisterTargetLayout(helpId, lastRegisteredScope);
+    }
+  }, [helpId, unregisterTargetLayout, lastRegisteredScope]);
+
+  // Initial measure and cleanup on mount/unmount
   useEffect(() => {
     measure();
-    return () => { 
-      // Clean up from the last registered scope, not just the current local scope
-      if (lastRegisteredScope) {
-        unregisterTargetLayout(helpId, lastRegisteredScope);
-      }
-    };
-  }, [measure, helpId, unregisterTargetLayout, lastRegisteredScope]);
+    return cleanup;
+  }, []);
 
-  // Re-measure when help mode toggles to ensure accurate layout while overlay is active
+  // Re-measure when help mode toggles (debounced)
   useEffect(() => {
-    measure();
-  }, [measure, isHelpOverlayActive]);
+    if (isHelpOverlayActive) {
+      measure();
+    }
+  }, [isHelpOverlayActive, measure]);
 
-  // Re-measure when the help scope changes so targets register under the active screen
+  // Re-measure when the help scope changes (debounced)
   useEffect(() => {
     // Clean up from previous scope before changing
     if (lastRegisteredScope) {
@@ -70,7 +98,14 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
     }
     lastLayoutRef.current = null;
     measure();
-  }, [measure, currentScope, localScope, helpId, unregisterTargetLayout, lastRegisteredScope]);
+  }, [currentScope, localScope, helpId, unregisterTargetLayout, measure]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanup();
+    };
+  }, [cleanup]);
 
   const baseId = React.useMemo(() => {
     const idx = helpId.indexOf(':');
@@ -78,17 +113,22 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
   }, [helpId]);
   const content = helpContent?.[helpId] || helpContent?.[baseId] || '';
 
+  // Optimized onLayout handler
+  const handleLayout = useCallback(() => {
+    measure();
+  }, [measure]);
+
   // Do not alter layout when help mode is inactive
   if (!isHelpOverlayActive) {
     return (
-      <View ref={ref} onLayout={measure} style={style}>
+      <View ref={ref} onLayout={handleLayout} style={style}>
         {children}
       </View>
     );
   }
 
   return (
-    <View ref={ref} onLayout={measure} style={style}>
+    <View ref={ref} onLayout={handleLayout} style={style}>
       <Popable content={content} position="bottom" visible={isHelpOverlayActive ? undefined : false}>
         {/* Disable child interactions while help is active so only tooltip opens */}
         <View pointerEvents={isHelpOverlayActive ? 'none' : 'auto'}>
@@ -107,5 +147,3 @@ const styles = StyleSheet.create({
 });
 
 export default HelpTarget;
-
-

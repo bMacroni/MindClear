@@ -10,7 +10,6 @@
       android:name="com.foci.mobile.MainApplication"
       android:label="@string/app_name"
       android:icon="@mipmap/ic_mindclear"
-      android:roundIcon="@mipmap/ic_mindclear_round"
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:supportsRtl="true">

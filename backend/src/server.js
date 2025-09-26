@@ -52,6 +52,8 @@ import webSocketManager from './utils/webSocketManager.js';
 
 
 const app = express()
+// Trust Railway's proxy (fixes rate limiting issues)
+app.set('trust proxy', 1)
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000
 

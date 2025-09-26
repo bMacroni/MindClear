@@ -98,7 +98,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         
         // Optimize native builds - use only arm64 for faster builds
         ndk {
@@ -112,6 +112,12 @@ android {
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
+        }
+        release {
+            storeFile file('mindclear-release-key.keystore')
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+            keyAlias "mindclear-key-alias"  
+            keyPassword System.getenv("KEY_PASSWORD")
         }
     }
     buildTypes {
@@ -133,7 +139,7 @@ android {
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"

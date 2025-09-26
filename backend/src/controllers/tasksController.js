@@ -446,7 +446,7 @@ export async function getNextFocusTask(req, res) {
 }
 
 export async function bulkCreateTasks(req, res) {
-  const tasks = req.body;
+  const tasks = req.body.tasks;
   const user_id = req.user.id;
   const token = req.headers.authorization?.split(' ')[1];
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {

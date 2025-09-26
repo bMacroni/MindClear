@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -251,6 +251,24 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.rowValue}>{new Date(profile.last_login).toLocaleString()}</Text>
           </View>
         )}
+        <TouchableOpacity 
+          style={styles.row} 
+          onPress={() => Linking.openURL('https://your-privacy-policy-url.com')}
+        >
+          <Icon name="shield" size={18} color={colors.primary} />
+          <Text style={styles.rowLabel}>Privacy Policy</Text>
+          <Icon name="link-external" size={16} color={colors.text.secondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.row} 
+          onPress={() => Linking.openURL('https://your-terms-of-service-url.com')}
+        >
+          <Icon name="file-text" size={18} color={colors.primary} />
+          <Text style={styles.rowLabel}>Terms of Service</Text>
+          <Icon name="link-external" size={16} color={colors.text.secondary} />
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}
           onPress={async () => {

@@ -50,11 +50,7 @@ class GoogleAuthService {
       const androidClientId = configService.getGoogleAndroidClientId();
 
       // Log client ID configuration for debugging
-      console.log('[GoogleAuth] Configuring Google Sign-In...');
-      console.log(`[GoogleAuth] Web Client ID: ${webClientId ? `${webClientId.slice(0, 17)}...${webClientId.slice(-6)}` : 'NOT SET'}`);
-      console.log(`[GoogleAuth] iOS Client ID: ${iosClientId ? `${iosClientId.slice(0, 17)}...${iosClientId.slice(-6)}` : 'NOT SET'}`);
-      console.log(`[GoogleAuth] Android Client ID: ${androidClientId ? `${androidClientId.slice(0, 17)}...${androidClientId.slice(-6)}` : 'NOT SET'}`);
-      console.log(`[GoogleAuth] Platform: ${Platform.OS}`);
+      // Configuring Google Sign-In
 
       // Check if we have the required web client ID
       if (!webClientId) {

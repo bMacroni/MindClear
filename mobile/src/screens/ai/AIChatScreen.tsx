@@ -853,6 +853,7 @@ export default function AIChatScreen({ navigation, route }: any) {
           <TextInput
             style={styles.input}
             placeholder="Type a message..."
+            placeholderTextColor={colors.text.secondary}
             value={input}
             onChangeText={(text) => {
               setInput(text);
@@ -864,6 +865,8 @@ export default function AIChatScreen({ navigation, route }: any) {
             returnKeyType="send"
             editable={!loading}
             multiline
+            autoCorrect={false}
+            autoCapitalize="sentences"
           />
           <TouchableOpacity style={styles.sendBtn} onPress={handleSend} disabled={loading}>
             <Text style={styles.sendBtnText}>Send</Text>
@@ -998,6 +1001,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary,
     marginRight: spacing.sm,
     textAlignVertical: 'top',
+    color: '#000000', // Force black text to ensure visibility
+    fontSize: typography.fontSize.base,
   },
   headerActions: {
     flexDirection: 'row',

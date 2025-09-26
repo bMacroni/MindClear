@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Linking, Image, Modal, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -7,6 +7,7 @@ import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, PasswordInput, Button, ApiToggle, GoogleSignInButton } from '../../components/common';
 import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
+import Icon from 'react-native-vector-icons/Octicons';
 
 export default function SignupScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
@@ -15,6 +16,7 @@ export default function SignupScreen({ navigation }: any) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const validateInputs = () => {
     if (!fullName.trim()) {
@@ -114,9 +116,13 @@ export default function SignupScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {/* Logo placeholder */}
+        {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logoIcon}>📖</Text>
+          <Image 
+            source={require('../../../assets/icon.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.subtitle}>Sign up for a Mind Clear account</Text>
@@ -152,16 +158,25 @@ export default function SignupScreen({ navigation }: any) {
           onChangeText={setPassword}
         />
         
-        <Text style={styles.requirements}>
-          Password must contain:
-          {'\n'}• At least 8 characters
-          {'\n'}• One uppercase letter
-          {'\n'}• One lowercase letter
-          {'\n'}• One number
-          {'\n'}• One special character (!@#$%^&*)
-        </Text>
+        <TouchableOpacity 
+          style={styles.requirementsButton}
+          onPress={() => setShowPasswordModal(true)}
+        >
+          <Text style={styles.requirementsButtonText}>Password Requirements</Text>
+          <Icon name="info" size={16} color={colors.primary} />
+        </TouchableOpacity>
         
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        
+        <Text style={styles.legalText}>
+          By signing up, you agree to our{' '}
+          <Text 
+            style={styles.linkText} 
+            onPress={() => Linking.openURL('https://www.mind-clear.com/privacy.html')}
+          >
+            Privacy Policy
+          </Text>
+        </Text>
         
         <Button
           title="Sign Up"
@@ -193,6 +208,41 @@ export default function SignupScreen({ navigation }: any) {
         />
       </View>
 
+      {/* Password Requirements Modal */}
+      <Modal
+        visible={showPasswordModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPasswordModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Password Requirements</Text>
+              <TouchableOpacity 
+                onPress={() => setShowPasswordModal(false)}
+                style={styles.closeButton}
+              >
+                <Icon name="x" size={20} color={colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <Text style={styles.requirementItem}>• At least 8 characters</Text>
+              <Text style={styles.requirementItem}>• One uppercase letter</Text>
+              <Text style={styles.requirementItem}>• One lowercase letter</Text>
+              <Text style={styles.requirementItem}>• One number</Text>
+              <Text style={styles.requirementItem}>• One special character (!@#$%^&*)</Text>
+            </View>
+            
+            <Button
+              title="Got it"
+              onPress={() => setShowPasswordModal(false)}
+              style={styles.modalButton}
+            />
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -205,34 +255,37 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: spacing.md,
+    paddingTop: spacing.sm,
   },
   logoContainer: {
-    marginBottom: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.xl,
-    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  logo: {
+    width: 120,
+    height: 120,
   },
   logoIcon: {
     fontSize: 32,
     color: colors.secondary,
   },
   title: {
-    fontSize: typography.fontSize['3xl'],
+    fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
     marginBottom: spacing.xs,
     color: colors.text.primary,
   },
   subtitle: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+    textAlign: 'center',
   },
   tabContainer: {
     flexDirection: 'row',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   activeTab: {
     backgroundColor: colors.primary,
@@ -258,19 +311,33 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     maxWidth: 320,
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   signinButton: {
     width: '100%',
     maxWidth: 320,
+    marginBottom: spacing.sm,
+  },
+  legalText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+    lineHeight: 16,
+    width: '100%',
+    maxWidth: 320,
+  },
+  linkText: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
     maxWidth: 320,
-    marginVertical: spacing.lg,
+    marginVertical: spacing.sm,
   },
   dividerLine: {
     flex: 1,
@@ -278,20 +345,66 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border.medium,
   },
   dividerText: {
-    marginHorizontal: spacing.md,
+    marginHorizontal: spacing.sm,
     color: colors.text.secondary,
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.xs,
   },
   error: {
     color: colors.error,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
+    fontSize: typography.fontSize.sm,
   },
-  requirements: {
+  requirementsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  requirementsButtonText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    marginRight: spacing.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  modalContent: {
+    backgroundColor: colors.background.primary,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '100%',
+    maxWidth: 320,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  closeButton: {
+    padding: spacing.xs,
+  },
+  modalBody: {
+    marginBottom: spacing.lg,
+  },
+  requirementItem: {
     color: colors.text.secondary,
     fontSize: typography.fontSize.sm,
-    marginTop: spacing.xs,
-    marginBottom: spacing.sm,
-    alignSelf: 'flex-start',
-    lineHeight: 18,
+    marginBottom: spacing.xs,
+    lineHeight: 20,
+  },
+  modalButton: {
+    width: '100%',
   },
 });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -7,7 +7,7 @@ import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, PasswordInput, Button, ApiToggle, GoogleSignInButton } from '../../components/common';
 import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
-import OwlLogo from '../../assets/icon.svg';
+import { Image } from 'react-native';
 
 export default function LoginScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
@@ -62,7 +62,11 @@ export default function LoginScreen({ navigation }: any) {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <OwlLogo width={175} height={175} />
+          <Image 
+            source={require('../../../assets/icon.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.title}>Welcome Back</Text>
         <Text style={styles.subtitle}>Sign in to your Mind Clear account</Text>
@@ -94,6 +98,16 @@ export default function LoginScreen({ navigation }: any) {
         
         {error ? <Text style={styles.error}>{error}</Text> : null}
         
+        <Text style={styles.legalText}>
+          By signing in, you agree to our{' '}
+          <Text 
+            style={styles.linkText} 
+            onPress={() => Linking.openURL('https://www.mind-clear.com/privacy.html')}
+          >
+            Privacy Policy
+          </Text>
+        </Text>
+        
         <Button
           title="Sign In"
           onPress={handleLogin}
@@ -124,7 +138,7 @@ export default function LoginScreen({ navigation }: any) {
         />
         
         {/* Bottom spacing to ensure button is visible */}
-        <View style={{ height: spacing.xl }} />
+        <View style={{ height: spacing.sm }} />
       </View>
 
 
@@ -140,31 +154,36 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     alignItems: 'center',
-    padding: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    padding: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
   },
   logoContainer: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  logo: {
+    width: 120,
+    height: 120,
   },
   logoIcon: {
     fontSize: 32,
     color: colors.secondary,
   },
   title: {
-    fontSize: typography.fontSize['3xl'],
+    fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
     marginBottom: spacing.xs,
     color: colors.text.primary,
   },
   subtitle: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+    textAlign: 'center',
   },
   tabContainer: {
     flexDirection: 'row',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   activeTab: {
     backgroundColor: colors.primary,
@@ -190,19 +209,33 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     maxWidth: 320,
-    marginTop: spacing.sm,
-    marginBottom: spacing.md,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   signupButton: {
     width: '100%',
     maxWidth: 320,
+    marginBottom: spacing.sm,
+  },
+  legalText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+    lineHeight: 16,
+    width: '100%',
+    maxWidth: 320,
+  },
+  linkText: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
     maxWidth: 320,
-    marginVertical: spacing.lg,
+    marginVertical: spacing.sm,
   },
   dividerLine: {
     flex: 1,
@@ -210,12 +243,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border.medium,
   },
   dividerText: {
-    marginHorizontal: spacing.md,
+    marginHorizontal: spacing.sm,
     color: colors.text.secondary,
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.xs,
   },
   error: {
     color: colors.error,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
+    fontSize: typography.fontSize.sm,
   },
 });

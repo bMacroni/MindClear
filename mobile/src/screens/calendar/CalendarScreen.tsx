@@ -1297,7 +1297,7 @@ export default function CalendarScreen() {
           borderColor: colors.border.light,
         }}>
           <Text style={{ color: colors.text.primary, marginBottom: spacing.sm, fontSize: typography.fontSize.base }}>
-            Import your Google Calendar events into MindGarden?
+            Import your Google Calendar events into Mind Clear?
           </Text>
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <TouchableOpacity onPress={handleImportNow} disabled={importing} style={{

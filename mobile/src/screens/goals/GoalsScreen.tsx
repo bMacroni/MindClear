@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, StatusBar, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
@@ -53,6 +53,76 @@ interface Goal {
   milestones: Milestone[];
   targetDate?: Date;
 }
+
+// Memoized components moved outside the main component to avoid hooks issues
+const StepItem = React.memo(({ 
+  step, 
+  goalId, 
+  milestoneId, 
+  onToggle 
+}: { 
+  step: Step; 
+  goalId: string; 
+  milestoneId: string; 
+  onToggle: (goalId: string, milestoneId: string, stepId: string) => void;
+}) => (
+  <View style={styles.stepRow}>
+    <HelpTarget helpId={`goal-step-toggle:${goalId}:${step.id}`}>
+      <TouchableOpacity
+        style={styles.stepIconButton}
+        onPress={() => onToggle(goalId, milestoneId, step.id)}
+      >
+        <Icon 
+          name={step.completed ? 'check' : 'circle'} 
+          size={18} 
+          color={step.completed ? (colors.accent?.gold || colors.primary) : colors.text.secondary} 
+        />
+      </TouchableOpacity>
+    </HelpTarget>
+    <Text style={[styles.stepText, step.completed && styles.stepTextCompleted]}>
+      {step.title}
+    </Text>
+  </View>
+));
+
+const CircularProgress = React.memo(({ percentage, size = 56 }: { percentage: number; size?: number }) => {
+  const strokeWidth = 6;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, percentage));
+  const strokeDashoffset = circumference - (clamped / 100) * circumference;
+
+  return (
+    <View style={{ width: size, height: size }}>
+      <Svg width={size} height={size}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={colors.border.light}
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={colors.accent?.gold || colors.primary}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={`${circumference} ${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
+        />
+      </Svg>
+      <View style={styles.progressCenterTextContainer}>
+        <Text style={styles.progressCenterText}>{Math.round(clamped)}%</Text>
+      </View>
+    </View>
+  );
+});
 
 export default function GoalsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -362,9 +432,9 @@ export default function GoalsScreen({ navigation }: any) {
     }
   };
 
-  const toggleExpand = (goalId: string) => {
+  const toggleExpand = useCallback((goalId: string) => {
     setExpandedGoals((prev) => ({ ...prev, [goalId]: !prev[goalId] }));
-  };
+  }, []);
 
   const enterEditMode = (goal: Goal) => {
     setExpandedGoals((prev) => ({ ...prev, [goal.id]: true }));
@@ -441,30 +511,49 @@ export default function GoalsScreen({ navigation }: any) {
     }
   };
 
-  const toggleStepCompleted = async (goalId: string, milestoneId: string, stepId: string) => {
-    // Optimistic UI update
-    let newCompleted = false;
+  const toggleStepCompleted = useCallback(async (goalId: string, milestoneId: string, stepId: string) => {
+    // Find the goal and step first to get the current state
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal) return;
+    
+    const milestone = goal.milestones.find(m => m.id === milestoneId);
+    if (!milestone) return;
+    
+    const step = milestone.steps.find(s => s.id === stepId);
+    if (!step) return;
+    
+    const newCompleted = !step.completed;
+    
+    // Optimistic UI update - much more efficient
     setGoals((prev) => prev.map((g) => {
-      if (g.id !== goalId) {return g;}
-      let completedSteps = 0;
+      if (g.id !== goalId) return g;
+      
       const updatedMilestones = g.milestones.map((m) => {
-        if (m.id !== milestoneId) {
-          completedSteps += m.steps.filter((s) => s.completed).length;
-          return m;
-        }
+        if (m.id !== milestoneId) return m;
+        
         const updatedSteps = m.steps.map((s) => {
-          if (s.id !== stepId) {return s;}
-          newCompleted = !s.completed;
+          if (s.id !== stepId) return s;
           return { ...s, completed: newCompleted };
         });
-        completedSteps += updatedSteps.filter((s) => s.completed).length;
+        
         return { ...m, completed: updatedSteps.every((s) => s.completed), steps: updatedSteps };
       });
+      
+      // Recalculate only the necessary fields
       const totalSteps = updatedMilestones.reduce((acc, m) => acc + m.steps.length, 0);
+      const completedSteps = updatedMilestones.reduce((acc, m) => acc + m.steps.filter(s => s.completed).length, 0);
       const nextMilestoneObj = updatedMilestones.find((m) => m.steps.some((s) => !s.completed));
       const nextMilestone = nextMilestoneObj?.title || '';
       const nextStep = nextMilestoneObj?.steps?.find((s) => !s.completed)?.title || '';
-      return { ...g, milestones: updatedMilestones, completedSteps, totalSteps, nextMilestone, nextStep };
+      
+      return { 
+        ...g, 
+        milestones: updatedMilestones, 
+        completedSteps, 
+        totalSteps, 
+        nextMilestone, 
+        nextStep 
+      };
     }));
 
     try {
@@ -474,50 +563,12 @@ export default function GoalsScreen({ navigation }: any) {
       // Reload to reconcile from backend on failure
       try { await loadGoals(); } catch {}
     }
-  };
+  }, [goals, loadGoals]);
 
   const getProgressPercentage = (completed: number, total: number) => {
     return total > 0 ? (completed / total) * 100 : 0;
   };
 
-  const CircularProgress = ({ percentage, size = 56 }: { percentage: number; size?: number }) => {
-    const strokeWidth = 6;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = 2 * Math.PI * radius;
-    const clamped = Math.max(0, Math.min(100, percentage));
-    const strokeDashoffset = circumference - (clamped / 100) * circumference;
-
-    return (
-      <View style={{ width: size, height: size }}>
-        <Svg width={size} height={size}>
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke={colors.border.light}
-            strokeWidth={strokeWidth}
-            fill="none"
-          />
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            stroke={colors.accent?.gold || colors.primary}
-            strokeWidth={strokeWidth}
-            fill="none"
-            strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-            rotation="-90"
-            origin={`${size / 2}, ${size / 2}`}
-          />
-        </Svg>
-        <View style={styles.progressCenterTextContainer}>
-          <Text style={styles.progressCenterText}>{Math.round(clamped)}%</Text>
-        </View>
-      </View>
-    );
-  };
 
   const formatTargetDate = (date?: Date): { text: string; tone: 'muted' | 'warn' | 'danger' } => {
     if (!date) {return { text: 'No target', tone: 'muted' };}
@@ -548,7 +599,7 @@ export default function GoalsScreen({ navigation }: any) {
  
   
 
-  const renderGoalCard = (goal: Goal) => {
+  const renderGoalCard = useCallback((goal: Goal) => {
     const stepsPct = getProgressPercentage(goal.completedSteps, goal.totalSteps);
     const due = formatTargetDate(goal.targetDate);
     const currentMilestone = goal.milestones.find((m) => !m.completed);
@@ -703,19 +754,13 @@ export default function GoalsScreen({ navigation }: any) {
             {currentMilestone ? (
               <>
                 {currentSteps.map((step) => (
-                  <View key={step.id} style={styles.stepRow}>
-                    <HelpTarget helpId={`goal-step-toggle:${goal.id}:${step.id}`}>
-                      <TouchableOpacity
-                        style={styles.stepIconButton}
-                        onPress={() => toggleStepCompleted(goal.id, currentMilestone.id, step.id)}
-                      >
-                        <Icon name={step.completed ? 'check' : 'circle'} size={18} color={step.completed ? (colors.accent?.gold || colors.primary) : colors.text.secondary} />
-                      </TouchableOpacity>
-                    </HelpTarget>
-                    <Text style={[styles.stepText, step.completed && styles.stepTextCompleted]}>
-                      {step.title}
-                    </Text>
-                  </View>
+                  <StepItem
+                    key={step.id}
+                    step={step}
+                    goalId={goal.id}
+                    milestoneId={currentMilestone.id}
+                    onToggle={toggleStepCompleted}
+                  />
                 ))}
                 <Text style={styles.unlockNote}>More steps will unlock once you complete this milestone.</Text>
               </>
@@ -995,7 +1040,27 @@ export default function GoalsScreen({ navigation }: any) {
         </View>
       </View>
     );
-  };
+  }, [expandedGoals, editingGoals, editDrafts, editingDate, dateDrafts, androidDatePickerVisible, editMilestoneHeights, editStepHeights, loading, toggleStepCompleted, navigation]);
+
+  // Memoize expensive goal calculations - MUST be before any conditional returns
+  const { completedGoals, activeGoalsAll, overdueActiveGoals, nonOverdueActiveGoals, overallPct } = useMemo(() => {
+    const completed = sortGoalsByTargetDate(goals.filter((g) => isGoalCompleted(g)));
+    const active = goals.filter((g) => !isGoalCompleted(g));
+    const isOverdueGoal = (g: Goal) => !!g.targetDate && isPast(g.targetDate) && !isToday(g.targetDate);
+    const overdue = sortGoalsByTargetDate(active.filter((g) => isOverdueGoal(g)));
+    const nonOverdue = sortGoalsByTargetDate(active.filter((g) => !isOverdueGoal(g)));
+    const overallCompleted = active.reduce((sum, g) => sum + (g.completedSteps || 0), 0);
+    const overallTotal = active.reduce((sum, g) => sum + (g.totalSteps || 0), 0);
+    const overallPercentage = overallTotal > 0 ? (overallCompleted / overallTotal) * 100 : 0;
+    
+    return {
+      completedGoals: completed,
+      activeGoalsAll: active,
+      overdueActiveGoals: overdue,
+      nonOverdueActiveGoals: nonOverdue,
+      overallPct: overallPercentage
+    };
+  }, [goals]);
 
   // Show loading state while checking authentication
   if (authState.isLoading) {
@@ -1061,7 +1126,7 @@ export default function GoalsScreen({ navigation }: any) {
         <ScreenHeader title="Goals" withDivider />
         <View style={styles.authContainer}>
           <Text style={styles.authIcon}>🔐</Text>
-          <Text style={styles.authTitle}>Welcome to MindGarden</Text>
+          <Text style={styles.authTitle}>Welcome to Mind Clear</Text>
           <Text style={styles.authSubtitle}>
             Please log in to access your goals and use the AI assistant.
           </Text>
@@ -1091,15 +1156,6 @@ export default function GoalsScreen({ navigation }: any) {
       </SafeAreaView>
     );
   }
-
-  const completedGoals = sortGoalsByTargetDate(goals.filter((g) => isGoalCompleted(g)));
-  const activeGoalsAll = goals.filter((g) => !isGoalCompleted(g));
-  const isOverdueGoal = (g: Goal) => !!g.targetDate && isPast(g.targetDate) && !isToday(g.targetDate);
-  const overdueActiveGoals = sortGoalsByTargetDate(activeGoalsAll.filter((g) => isOverdueGoal(g)));
-  const nonOverdueActiveGoals = sortGoalsByTargetDate(activeGoalsAll.filter((g) => !isOverdueGoal(g)));
-  const overallCompleted = activeGoalsAll.reduce((sum, g) => sum + (g.completedSteps || 0), 0);
-  const overallTotal = activeGoalsAll.reduce((sum, g) => sum + (g.totalSteps || 0), 0);
-  const overallPct = overallTotal > 0 ? (overallCompleted / overallTotal) * 100 : 0;
 
   return (
     <HelpScope scope="goals">

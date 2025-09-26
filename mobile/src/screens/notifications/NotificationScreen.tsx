@@ -30,7 +30,7 @@ const NotificationScreen = ({ navigation }: any) => {
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
-        console.log('🔔 Fetching notifications...');
+        // Fetching notifications
         
         // Debug: Check if we have a token
         const { authService } = await import('../../services/auth');
@@ -40,14 +40,14 @@ const NotificationScreen = ({ navigation }: any) => {
           tokenLength: token?.length || 0,
           tokenStart: token?.substring(0, 20) + '...' || 'null'
         };
-        console.log('🔔 Auth token check:', tokenInfo);
+        // Auth token check
         setDebugInfo(`Token: ${tokenInfo.hasToken ? 'YES' : 'NO'} (${tokenInfo.tokenLength} chars)`);
         
         // Debug: Test if other API calls work
         try {
           const { tasksAPI } = await import('../../services/api');
           const tasks = await tasksAPI.getTasks();
-          console.log('🔔 Tasks API test successful, got', tasks.length, 'tasks');
+          // Tasks API test successful
           setDebugInfo(prev => prev + ` | Tasks: ${tasks.length} found`);
         } catch (taskError) {
           console.error('🔔 Tasks API test failed:', taskError);
@@ -56,7 +56,7 @@ const NotificationScreen = ({ navigation }: any) => {
         
         // The backend now supports fetching all notifications
         const response = await notificationsAPI.getNotifications('all');
-        console.log('🔔 Notifications fetched successfully:', response);
+        // Notifications fetched successfully
         setNotifications(response);
       } catch (e) {
         console.error('🔔 Notification fetch error:', e);
