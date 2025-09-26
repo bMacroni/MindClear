@@ -1,11 +1,11 @@
-# MindGarden Privacy Policy
+# Mind Clear Privacy Policy
 
 **Effective Date:** September 22 2025  
 **Last Updated:** September 22, 2025
 
 ## 1. Introduction
 
-MindGarden ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and related services (collectively, the "Service").
+Mind Clear ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and related services (collectively, the "Service").
 
 ## 2. Information We Collect
 
