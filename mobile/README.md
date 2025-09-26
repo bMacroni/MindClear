@@ -28,12 +28,14 @@ For Android release builds, you need to set the following environment variables:
 
 - `KEYSTORE_PATH`: Path to your keystore file (e.g., `/path/to/your-release-key.keystore`)
 - `KEYSTORE_PASSWORD`: Password for your keystore
+- `KEY_ALIAS`: Alias name for your key in the keystore
 - `KEY_PASSWORD`: Password for your key alias
 
 **Example (PowerShell):**
 ```powershell
 $env:KEYSTORE_PATH = "C:\path\to\your-release-key.keystore"
 $env:KEYSTORE_PASSWORD = "your_keystore_password"
+$env:KEY_ALIAS = "your_key_alias"
 $env:KEY_PASSWORD = "your_key_password"
 ```
 
@@ -41,6 +43,7 @@ $env:KEY_PASSWORD = "your_key_password"
 ```bash
 export KEYSTORE_PATH="/path/to/your-release-key.keystore"
 export KEYSTORE_PASSWORD="your_keystore_password"
+export KEY_ALIAS="your_key_alias"
 export KEY_PASSWORD="your_key_password"
 ```
 
