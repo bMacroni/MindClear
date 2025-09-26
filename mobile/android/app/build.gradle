@@ -114,10 +114,33 @@ android {
             keyPassword 'android'
         }
         release {
-            storeFile file('mindclear-release-key.keystore')
-            storePassword System.getenv("KEYSTORE_PASSWORD")
+            // Validate required environment variables for release builds
+            def keystorePath = System.getenv("KEYSTORE_PATH")
+            def keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+            def keyPassword = System.getenv("KEY_PASSWORD")
+            
+            if (!keystorePath || keystorePath.trim().isEmpty()) {
+                throw new GradleException("KEYSTORE_PATH environment variable is required for release builds. Please set it to the path of your keystore file.")
+            }
+            
+            if (!keystorePassword || keystorePassword.trim().isEmpty()) {
+                throw new GradleException("KEYSTORE_PASSWORD environment variable is required for release builds.")
+            }
+            
+            if (!keyPassword || keyPassword.trim().isEmpty()) {
+                throw new GradleException("KEY_PASSWORD environment variable is required for release builds.")
+            }
+            
+            // Validate keystore file exists
+            def keystoreFile = file(keystorePath)
+            if (!keystoreFile.exists()) {
+                throw new GradleException("Keystore file not found at path: ${keystorePath}. Please check your KEYSTORE_PATH environment variable.")
+            }
+            
+            storeFile keystoreFile
+            storePassword keystorePassword
             keyAlias "mindclear-key-alias"  
-            keyPassword System.getenv("KEY_PASSWORD")
+            keyPassword keyPassword
         }
     }
     buildTypes {

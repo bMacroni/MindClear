@@ -22,6 +22,30 @@ yarn start
 
 With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
 
+### Environment Variables for Release Builds
+
+For Android release builds, you need to set the following environment variables:
+
+- `KEYSTORE_PATH`: Path to your keystore file (e.g., `/path/to/your-release-key.keystore`)
+- `KEYSTORE_PASSWORD`: Password for your keystore
+- `KEY_PASSWORD`: Password for your key alias
+
+**Example (PowerShell):**
+```powershell
+$env:KEYSTORE_PATH = "C:\path\to\your-release-key.keystore"
+$env:KEYSTORE_PASSWORD = "your_keystore_password"
+$env:KEY_PASSWORD = "your_key_password"
+```
+
+**Example (Bash):**
+```bash
+export KEYSTORE_PATH="/path/to/your-release-key.keystore"
+export KEYSTORE_PASSWORD="your_keystore_password"
+export KEY_PASSWORD="your_key_password"
+```
+
+**Security Note:** Never commit your keystore file or passwords to version control. Store them securely in your CI/CD environment or local development environment.
+
 ### Android
 
 ```sh

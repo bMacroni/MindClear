@@ -222,6 +222,11 @@ export default function SignupScreen({ navigation }: any) {
               <TouchableOpacity 
                 onPress={() => setShowPasswordModal(false)}
                 style={styles.closeButton}
+                accessible={true}
+                accessibilityRole="button"
+                accessibilityLabel="Close modal"
+                accessibilityHint="Closes the sign up help modal"
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
                 <Icon name="x" size={20} color={colors.text.primary} />
               </TouchableOpacity>

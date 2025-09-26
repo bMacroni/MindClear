@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Linking } from 'react-native';
+import { View, Text, StyleSheet, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -14,6 +14,29 @@ export default function LoginScreen({ navigation }: any) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const handlePrivacyPolicyPress = async () => {
+    const privacyPolicyUrl = 'https://www.mind-clear.com/privacy.html';
+    
+    try {
+      const canOpen = await Linking.canOpenURL(privacyPolicyUrl);
+      if (canOpen) {
+        await Linking.openURL(privacyPolicyUrl);
+      } else {
+        Alert.alert(
+          'Unable to Open Link',
+          'Sorry, we cannot open the Privacy Policy link. Please visit our website directly at mind-clear.com',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        'Sorry, there was an error opening the Privacy Policy. Please try again later.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -102,7 +125,7 @@ export default function LoginScreen({ navigation }: any) {
           By signing in, you agree to our{' '}
           <Text 
             style={styles.linkText} 
-            onPress={() => Linking.openURL('https://www.mind-clear.com/privacy.html')}
+            onPress={handlePrivacyPolicyPress}
           >
             Privacy Policy
           </Text>
