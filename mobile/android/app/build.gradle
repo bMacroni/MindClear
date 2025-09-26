@@ -137,6 +137,26 @@ android {
             // Keep default CMake settings; we already limit ABIs to speed builds
         }
         release {
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
+            signingConfig signingConfigs.release
+            minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            // Workaround prefab packaging errors in Windows release builds for some native libs
+            packagingOptions {
+                exclude "**/prefab/**"
+            }
+            // Optimize release builds
+            buildConfigField "boolean", "DEBUG_MODE", "false"
+        }
+    }
+}
+
+// Add validation task for release builds
+tasks.whenTaskAdded { task ->
+    if (task.name.contains('Release') && (task.name.contains('Bundle') || task.name.contains('Assemble'))) {
+        task.doFirst {
             // Validate required environment variables for release builds
             def keystorePath = System.getenv("KEYSTORE_PATH")
             def keystorePassword = System.getenv("KEYSTORE_PASSWORD")
@@ -164,19 +184,6 @@ android {
             if (!keystoreFile.exists()) {
                 throw new GradleException("Keystore file not found at path: ${keystorePath}. Please check your KEYSTORE_PATH environment variable.")
             }
-            
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.release
-            minifyEnabled enableProguardInReleaseBuilds
-            shrinkResources enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
-            // Workaround prefab packaging errors in Windows release builds for some native libs
-            packagingOptions {
-                exclude "**/prefab/**"
-            }
-            // Optimize release builds
-            buildConfigField "boolean", "DEBUG_MODE", "false"
         }
     }
 }
