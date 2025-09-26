@@ -21,24 +21,43 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
 
   // Debounced measure function to prevent excessive callbacks
   const measure = useCallback(() => {
-    if (!ref.current || isMeasuringRef.current) { 
-      return; 
+    // Ensure we don’t stomp on an in-flight measure; if one’s running, queue up a retry
+    const isMeasuringRef   = useRef<boolean>(false);
+    const pendingMeasureRef = useRef<boolean>(false);
+
+    // …
+
+    // Debounced measurement entrypoint
+    if (!ref.current) {
+      return;
     }
-    
+
+    if (isMeasuringRef.current) {
+      // A measure is in flight – mark that we need to run again when it finishes
+      pendingMeasureRef.current = true;
+      return;
+    }
+
     // Clear any pending measure calls
     if (measureTimeoutRef.current) {
       clearTimeout(measureTimeoutRef.current);
     }
-    
+
     // Debounce measure calls by 16ms (roughly 60fps)
     measureTimeoutRef.current = setTimeout(() => {
       if (!ref.current) { return; }
-      
+
       isMeasuringRef.current = true;
-      
+
       ref.current.measure((x, y, width, height, pageX, pageY) => {
+        // Mark the timeout cleared and the in-flight flag reset
+        measureTimeoutRef.current = null;
         isMeasuringRef.current = false;
-        
+
+        // Capture whether we should immediately re-run
+        const shouldRetry = pendingMeasureRef.current;
+        pendingMeasureRef.current = false;
+
         const next = { x: pageX, y: pageY, width, height, pageX, pageY };
         const prev = lastLayoutRef.current;
         const changed = !prev
@@ -46,20 +65,25 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
           || Math.abs(prev.y - next.y) > 0.5
           || Math.abs(prev.width - next.width) > 0.5
           || Math.abs(prev.height - next.height) > 0.5;
-        
+
         if (changed) {
           lastLayoutRef.current = next;
           const targetScope = localScope || 'default';
-          
+
           // Unregister from previous scope if it exists and is different
           if (lastRegisteredScope && lastRegisteredScope !== targetScope) {
             unregisterTargetLayout(helpId, lastRegisteredScope);
           }
-          
+
           if (!localScope || localScope === (currentScope || 'default')) {
             registerTargetLayout(helpId, next, targetScope);
             setLastRegisteredScope(targetScope);
           }
+        }
+
+        // If any layout events fired while we were measuring, run again
+        if (shouldRetry) {
+          measure();
         }
       });
     }, 16);

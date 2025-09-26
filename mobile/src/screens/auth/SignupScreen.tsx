@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Linking, Image, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Linking, Image, Modal, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -60,6 +60,28 @@ export default function SignupScreen({ navigation }: any) {
       return false;
     }
     return true;
+  };
+
+  const handleOpenURL = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(
+          'Unable to Open Link',
+          'This link cannot be opened on your device. Please try again later.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error opening URL:', error);
+      Alert.alert(
+        'Error',
+        'Unable to open the link. Please try again later.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleSignup = async () => {
@@ -172,7 +194,7 @@ export default function SignupScreen({ navigation }: any) {
           By signing up, you agree to our{' '}
           <Text 
             style={styles.linkText} 
-            onPress={() => Linking.openURL('https://www.mind-clear.com/privacy.html')}
+            onPress={() => handleOpenURL('https://www.mind-clear.com/privacy.html')}
           >
             Privacy Policy
           </Text>

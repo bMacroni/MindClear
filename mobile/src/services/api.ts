@@ -472,7 +472,7 @@ export const tasksAPI = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
-        body: JSON.stringify({ tasks }),
+        body: JSON.stringify(tasks),
       });
       if (!response.ok) {
         const text = await response.text();

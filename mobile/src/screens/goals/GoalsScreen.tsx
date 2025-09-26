@@ -54,27 +54,33 @@ interface Goal {
   targetDate?: Date;
 }
 
+interface StepItemProps {
+  step: Step;
+  goalId: string;
+  milestoneId: string;
+  onToggle: (goalId: string, milestoneId: string, stepId: string) => void;
+}
+
 // Memoized components moved outside the main component to avoid hooks issues
 const StepItem = React.memo(({ 
   step, 
   goalId, 
   milestoneId, 
   onToggle 
-}: { 
-  step: Step; 
-  goalId: string; 
-  milestoneId: string; 
-  onToggle: (goalId: string, milestoneId: string, stepId: string) => void;
-}) => (
+}: StepItemProps) => (
   <View style={styles.stepRow}>
     <HelpTarget helpId={`goal-step-toggle:${goalId}:${step.id}`}>
       <TouchableOpacity
         style={styles.stepIconButton}
         onPress={() => onToggle(goalId, milestoneId, step.id)}
+        accessibilityRole="button"
+        accessibilityLabel={`Toggle step complete: ${step.title}`}
+        accessibilityState={{ checked: step.completed }}
+        accessibilityHint={step.completed ? "Tap to mark as incomplete" : "Tap to mark as complete"}
       >
         <Icon 
           name={step.completed ? 'check' : 'circle'} 
-          size={18} 
+          size={16} 
           color={step.completed ? (colors.accent?.gold || colors.primary) : colors.text.secondary} 
         />
       </TouchableOpacity>
@@ -85,7 +91,12 @@ const StepItem = React.memo(({
   </View>
 ));
 
-const CircularProgress = React.memo(({ percentage, size = 56 }: { percentage: number; size?: number }) => {
+interface CircularProgressProps {
+  percentage: number;
+  size?: number;
+}
+
+const CircularProgress = React.memo(({ percentage, size = 56 }: CircularProgressProps) => {
   const strokeWidth = 6;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -545,6 +556,8 @@ export default function GoalsScreen({ navigation }: any) {
       const nextMilestoneObj = updatedMilestones.find((m) => m.steps.some((s) => !s.completed));
       const nextMilestone = nextMilestoneObj?.title || '';
       const nextStep = nextMilestoneObj?.steps?.find((s) => !s.completed)?.title || '';
+      const updatedCompletedMilestones = updatedMilestones.filter((m) => m.completed).length;
+      const updatedTotalMilestones = updatedMilestones.length;
       
       return { 
         ...g, 
@@ -552,7 +565,9 @@ export default function GoalsScreen({ navigation }: any) {
         completedSteps, 
         totalSteps, 
         nextMilestone, 
-        nextStep 
+        nextStep, 
+        completedMilestones: updatedCompletedMilestones, 
+        totalMilestones: updatedTotalMilestones 
       };
     }));
 
@@ -1750,8 +1765,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   stepIconButton: {
-    padding: spacing.xs,
+    padding: 14, // 14px padding on each side = 28px + 16px icon = 44px minimum touch area
     marginRight: spacing.xs,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   stepText: {
     fontSize: typography.fontSize.sm,

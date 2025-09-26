@@ -109,7 +109,7 @@ get-jwt.js
 # Android keystore files (security)
 *.keystore
 !**/debug.keystore
-
+*.jks
 # Database files
 *.db
 *.sqlite

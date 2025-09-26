@@ -9,11 +9,28 @@
  * @returns {number[]} Array of octets
  */
 function parseIP(ip) {
-  const parts = ip.split('.').map(Number);
-  if (parts.length !== 4 || parts.some(part => isNaN(part) || part < 0 || part > 255)) {
+  if (typeof ip !== 'string') {
     throw new Error(`Invalid IP address: ${ip}`);
   }
-  return parts;
+
+  const parts = ip.trim().split('.');
+  if (parts.length !== 4) {
+    throw new Error(`Invalid IP address: ${ip}`);
+  }
+
+  const octets = parts.map(part => {
+    if (!/^\d+$/.test(part)) {
+      throw new Error(`Invalid IP address: ${ip}`);
+    }
+
+    const value = Number(part);
+    if (value < 0 || value > 255) {
+      throw new Error(`Invalid IP address: ${ip}`);
+    }
+    return value;
+  });
+
+  return octets;
 }
 
 /**

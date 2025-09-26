@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -111,6 +111,20 @@ export default function ProfileScreen({ navigation }: any) {
       setSavingPrefs(false);
     }
   }, [prefs]);
+
+  const handleExternalLink = useCallback(async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        Alert.alert('Unable to open link');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      console.error('Failed to open external link', error);
+      Alert.alert('Unable to open link');
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -253,7 +267,7 @@ export default function ProfileScreen({ navigation }: any) {
         )}
         <TouchableOpacity 
           style={styles.row} 
-          onPress={() => Linking.openURL('https://your-privacy-policy-url.com')}
+          onPress={() => handleExternalLink('https://your-privacy-policy-url.com')}
         >
           <Icon name="shield" size={18} color={colors.primary} />
           <Text style={styles.rowLabel}>Privacy Policy</Text>
@@ -262,7 +276,7 @@ export default function ProfileScreen({ navigation }: any) {
 
         <TouchableOpacity 
           style={styles.row} 
-          onPress={() => Linking.openURL('https://your-terms-of-service-url.com')}
+          onPress={() => handleExternalLink('https://your-terms-of-service-url.com')}
         >
           <Icon name="file-text" size={18} color={colors.primary} />
           <Text style={styles.rowLabel}>Terms of Service</Text>
