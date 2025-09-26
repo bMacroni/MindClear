@@ -98,7 +98,7 @@ Our Service integrates with:
 If you have any questions about this Privacy Policy, please contact us at:
 
 **Email:** mindclear.studio@gmail.com  
-**Website:** mind-clear.com
+**Website:** [mind-clear.com](https://mind-clear.com)
 
 ---
 
