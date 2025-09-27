@@ -7,6 +7,7 @@ export type RootStackParamList = {
   TaskForm: { taskId?: string } | undefined;
   TaskDetail: { taskId: string };
   Notifications: undefined;
+  AnalyticsDashboard: undefined;
 };
 
 export type MainTabParamList = {

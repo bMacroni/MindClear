@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { goalsAPI, aiAPI } from '../services/api';
+import analyticsService from '../services/analyticsService';
 
 const GoalForm = ({ goal = null, onSuccess, onCancel, isInline = false }) => {
   const [formData, setFormData] = useState({
@@ -115,6 +116,13 @@ const GoalForm = ({ goal = null, onSuccess, onCancel, isInline = false }) => {
       } else {
         // Create new goal
         const response = await goalsAPI.create(submitData);
+
+        // Track goal creation analytics
+        analyticsService.trackGoalCreated('manual', {
+          category: submitData.category,
+          hasDescription: !!submitData.description,
+          hasTargetDate: !!submitData.target_completion_date
+        });
       }
       onSuccess();
     } catch (err) {

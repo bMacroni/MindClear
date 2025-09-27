@@ -135,3 +135,30 @@ export async function apiFetch<T = any>(
     clearTimeout(id);
   }
 }
+
+// Convenience methods for common HTTP operations
+export const apiService = {
+  async get<T = any>(path: string, options: { params?: Record<string, any> } = {}): Promise<ApiResponse<T>> {
+    const url = options.params ? `${path}?${new URLSearchParams(options.params).toString()}` : path;
+    console.log('API GET request to:', url);
+    return apiFetch<T>(url, { method: 'GET' });
+  },
+
+  async post<T = any>(path: string, data?: any, options: { timeoutMs?: number } = {}): Promise<ApiResponse<T>> {
+    return apiFetch<T>(path, {
+      method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+    }, options.timeoutMs);
+  },
+
+  async put<T = any>(path: string, data?: any, options: { timeoutMs?: number } = {}): Promise<ApiResponse<T>> {
+    return apiFetch<T>(path, {
+      method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+    }, options.timeoutMs);
+  },
+
+  async delete<T = any>(path: string, options: { timeoutMs?: number } = {}): Promise<ApiResponse<T>> {
+    return apiFetch<T>(path, { method: 'DELETE' }, options.timeoutMs);
+  },
+};

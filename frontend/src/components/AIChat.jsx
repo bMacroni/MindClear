@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { aiAPI, goalsAPI, tasksAPI, conversationsAPI, calendarAPI } from '../services/api';
+import analyticsService from '../services/analyticsService';
 import BulkApprovalPanel from './BulkApprovalPanel';
 import { AIActionProvider, useAIAction } from '../contexts/AIActionContext';
 import CalendarEvents from './CalendarEvents';
@@ -523,6 +524,13 @@ You’re making great strides!
       const response = await aiAPI.sendMessage(messageContent, threadId);
       console.debug('✅ Received response from AI API');
       handleGeminiResponse(response);
+
+      // Track AI message sent analytics
+      analyticsService.trackAIMessageSent({
+        message: messageContent,
+        threadId,
+        messageLength: messageContent.length
+      });
       
     } catch (error) {
       console.error('Error sending message:', error);

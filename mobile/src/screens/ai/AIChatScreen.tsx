@@ -14,6 +14,7 @@ import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
 import { authService } from '../../services/auth';
 import { secureConfigService } from '../../services/secureConfig';
+import analyticsService from '../../services/analyticsService';
 import logger from '../../utils/logger';
 
 // Helper function to get secure API base URL
@@ -480,6 +481,15 @@ export default function AIChatScreen({ navigation, route }: any) {
       const message = responseData.message;
       const actions = responseData.actions || [];
       
+      // Track AI message sent analytics
+      analyticsService.trackAIMessageSent({
+        message: userMessage,
+        threadId: route.params?.threadId,
+        messageLength: userMessage.length
+      }).catch(error => {
+        logger.warn('Failed to track AI message analytics:', error);
+      });
+
       // Add AI response to conversation
       const aiMessage: Message = {
         id: Date.now() + 1,
@@ -674,6 +684,16 @@ export default function AIChatScreen({ navigation, route }: any) {
   useEffect(() => {
     initializeOnboarding();
   }, [initializeOnboarding]);
+
+  // Track screen view
+  useEffect(() => {
+    analyticsService.trackScreenView('ai_chat', {
+      threadId: route.params?.threadId,
+      hasInitialMessage: !!route.params?.initialMessage
+    }).catch(error => {
+      logger.warn('Failed to track screen view analytics:', error);
+    });
+  }, [route.params?.threadId, route.params?.initialMessage]);
 
   // Cleanup timer on unmount
   // Timer removed with deprecation of follow-up; nothing to clean up here

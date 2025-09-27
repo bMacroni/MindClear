@@ -9,6 +9,7 @@ import { Input, Button } from '../../components/common';
 import { goalsAPI } from '../../services/api';
 import { offlineService } from '../../services/offline';
 import { authService, AuthState } from '../../services/auth';
+import analyticsService from '../../services/analyticsService';
 import GoalsListModal from '../../components/goals/GoalsListModal';
 import AddGoalOptionsModal from '../../components/goals/AddGoalOptionsModal';
 import Svg, { Circle } from 'react-native-svg';
@@ -289,6 +290,16 @@ export default function GoalsScreen({ navigation }: any) {
 
       setGoals(transformedGoals);
       try { await offlineService.cacheGoals(fetchedGoals as any); } catch {}
+
+      // Track screen view analytics
+      analyticsService.trackScreenView('goals', {
+        goalCount: transformedGoals.length,
+        completedGoals: transformedGoals.filter(g => g.completedMilestones === g.totalMilestones).length,
+        totalMilestones: transformedGoals.reduce((sum, g) => sum + g.totalMilestones, 0),
+        completedMilestones: transformedGoals.reduce((sum, g) => sum + g.completedMilestones, 0)
+      }).catch(error => {
+        console.warn('Failed to track screen view analytics:', error);
+      });
     } catch (_error) {
       // error loading goals
       

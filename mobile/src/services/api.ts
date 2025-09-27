@@ -451,7 +451,7 @@ export const tasksAPI = {
     try {
       // Debug logging
       // bulkCreateTasks called
-      
+
       // Validate input before making API call
       if (!Array.isArray(tasks)) {
         throw new Error('Tasks must be an array');
@@ -463,16 +463,15 @@ export const tasksAPI = {
       if (tasks.length > 50) {
         throw new Error('Cannot create more than 50 tasks at once');
       }
-      
-      // Making API call with tasks
-      
+
+      // Making API call with tasks wrapped in tasks property
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
-        body: JSON.stringify(tasks),
+        body: JSON.stringify({ tasks }),
       });
       if (!response.ok) {
         const text = await response.text();

@@ -7,6 +7,7 @@ import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, Button } from '../../components/common';
 import { goalsAPI } from '../../services/api';
+import analyticsService from '../../services/analyticsService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
 
@@ -75,6 +76,16 @@ export default function GoalFormScreen({ navigation, route }: any) {
     }
   }, [goalId, isEditing, loadExistingGoal]);
 
+  // Track screen view
+  useEffect(() => {
+    analyticsService.trackScreenView('goal_form', {
+      isEditing,
+      goalId: goalId || null
+    }).catch(error => {
+      console.warn('Failed to track screen view analytics:', error);
+    });
+  }, [isEditing, goalId]);
+
   const handleSave = async () => {
     if (!title.trim()) {
       Alert.alert('Error', 'Please enter a goal title.');
@@ -106,8 +117,18 @@ export default function GoalFormScreen({ navigation, route }: any) {
         // Create new goal
         await goalsAPI.createGoal(goalData as any);
         Alert.alert('Success', 'Goal created successfully!');
+
+        // Track goal creation analytics
+        analyticsService.trackGoalCreated('manual', {
+          category: goalData.category || 'other',
+          hasDescription: !!goalData.description,
+          hasTargetDate: !!goalData.target_completion_date,
+          milestoneCount: goalData.milestones?.length || 0
+        }).catch(error => {
+          console.warn('Failed to track goal creation analytics:', error);
+        });
       }
-      
+
       navigation.goBack();
     } catch (error) {
       console.error('Error saving goal:', error);

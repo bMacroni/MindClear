@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { tasksAPI, goalsAPI } from '../services/api';
+import analyticsService from '../services/analyticsService';
 import TaskForm from './TaskForm';
 import InlineTaskEditor from './InlineTaskEditor';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -232,6 +233,18 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     // Send update to backend
     try {
       await tasksAPI.update(task.id, updated);
+
+      // Track task completion analytics if task was just completed
+      if (task.status !== 'completed' && newStatus === 'completed') {
+        analyticsService.trackTaskCompleted({
+          taskId: task.id,
+          taskTitle: task.title,
+          priority: task.priority,
+          hasLocation: !!task.location,
+          hasEstimatedDuration: !!task.estimated_duration_minutes,
+          autoScheduleEnabled: task.auto_schedule_enabled
+        });
+      }
     } catch (err) {
       // Revert local state if backend update fails
       setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? task : t));
