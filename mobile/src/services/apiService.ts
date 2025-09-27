@@ -139,7 +139,8 @@ export async function apiFetch<T = any>(
 // Convenience methods for common HTTP operations
 export const apiService = {
   async get<T = any>(path: string, options: { params?: Record<string, any> } = {}): Promise<ApiResponse<T>> {
-    const url = options.params ? `${path}?${new URLSearchParams(options.params).toString()}` : path;
+    const query = options.params ? new URLSearchParams(options.params).toString() : '';
+    const url = query ? `${path}${path.includes('?') ? '&' : '?'}${query}` : path;
     console.log('API GET request to:', url);
     return apiFetch<T>(url, { method: 'GET' });
   },

@@ -482,10 +482,11 @@ export default function AIChatScreen({ navigation, route }: any) {
       const actions = responseData.actions || [];
       
       // Track AI message sent analytics
+      // Track AI message sent analytics
       analyticsService.trackAIMessageSent({
-        message: userMessage,
+        message: message ?? '',
         threadId: route.params?.threadId,
-        messageLength: userMessage.length
+        messageLength: message ? message.length : 0,
       }).catch(error => {
         logger.warn('Failed to track AI message analytics:', error);
       });
@@ -686,10 +687,18 @@ export default function AIChatScreen({ navigation, route }: any) {
   }, [initializeOnboarding]);
 
   // Track screen view
+  const trackedThreadIdRef = useRef<string | null>(null);
+
   useEffect(() => {
+    const threadKey = route.params?.threadId ?? '__default__';
+    if (trackedThreadIdRef.current === threadKey) {
+      return;
+    }
+    trackedThreadIdRef.current = threadKey;
+
     analyticsService.trackScreenView('ai_chat', {
       threadId: route.params?.threadId,
-      hasInitialMessage: !!route.params?.initialMessage
+      hasInitialMessage: !!route.params?.initialMessage,
     }).catch(error => {
       logger.warn('Failed to track screen view analytics:', error);
     });

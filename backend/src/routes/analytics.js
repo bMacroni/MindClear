@@ -1,5 +1,5 @@
 import express from 'express';
-import { requireAuth } from '../middleware/enhancedAuth.js';
+import { requireAuth, ensureInternalStaff } from '../middleware/enhancedAuth.js';
 import { trackEvent, getDashboardData } from '../controllers/analyticsController.js';
 
 const router = express.Router();
@@ -10,6 +10,6 @@ const router = express.Router();
 router.post('/track', requireAuth, trackEvent);
 
 // Get analytics dashboard data (internal use)
-router.get('/dashboard', requireAuth, getDashboardData);
+router.get('/dashboard', requireAuth, ensureInternalStaff, getDashboardData);
 
 export default router;

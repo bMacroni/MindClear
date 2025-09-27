@@ -21,9 +21,12 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_user_created ON public.analytics
 ALTER TABLE public.analytics_events ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policy - users can only access their own events
-CREATE POLICY "Users can only access their own analytics events" ON public.analytics_events
-  FOR ALL USING (auth.uid() = user_id);
+-- SQL/migrations/2025-09-27_0022_analytics_events_table.sql
 
+CREATE POLICY "Users can only access their own analytics events" ON public.analytics_events
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 -- Add comments for documentation
 COMMENT ON TABLE public.analytics_events IS 'Stores user interaction events for analytics during closed beta';
 COMMENT ON COLUMN public.analytics_events.id IS 'Unique identifier for each analytics event';

@@ -120,7 +120,7 @@ const TasksScreen: React.FC = () => {
     }).catch(error => {
       console.warn('Failed to track screen view analytics:', error);
     });
-  }, [tasks.length]);
+  }, [tasks]);
 
   // Auto refresh whenever the Tasks tab/screen gains focus (silent background refresh)
   useFocusEffect(

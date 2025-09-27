@@ -32,6 +32,24 @@ router.post('/chat', requireAuth, async (req, res) => {
     // Process message with Gemini service, passing token and mood in userContext
     const response = await geminiService.processMessage(message, userId, { token, mood: moodHeader, timeZone: timeZoneHeader });
 
+    // Track AI message processing event
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await supabase
+      .from('analytics_events')
+      .insert({
+        user_id: userId,
+        event_name: 'ai_message_processed',
+        payload: {
+          has_actions: response.actions && response.actions.length > 0,
+          action_count: response.actions ? response.actions.length : 0,
+          message_length: message.length,
+          mood: moodHeader || null,
+          thread_id: threadId || null,
+          timestamp: new Date().toISOString()
+        }
+      });
+
     // Save conversation to database if threadId is provided
     if (threadId) {
       try {
@@ -43,22 +61,23 @@ router.post('/chat', requireAuth, async (req, res) => {
       }
     }
 
+    const safeMessage = typeof response.message === 'string' ? response.message : '';
     const finalResponse = {
-      message: response.message,
-      actions: response.actions || []
+      message: safeMessage,
+      actions: Array.isArray(response.actions) ? response.actions : []
     };
 
     // Send a notification to the user
     const notification = {
       notification_type: 'new_message',
       title: 'New message from your AI assistant',
-      message: response.message.substring(0, 100) + (response.message.length > 100 ? '...' : ''),
+      message: safeMessage.substring(0, 100) + (safeMessage.length > 100 ? '...' : ''),
       details: { threadId }
     };
     // Don't await this, let it run in the background
-    sendNotification(userId, notification).catch(err => 
+    sendNotification(userId, notification).catch(err =>
       logger.error('sendNotification failed', err)
-    );
+    );    );
     
     res.json(finalResponse);
 
@@ -121,13 +140,26 @@ router.post('/braindump', requireAuth, async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     // 1) Create a new conversation thread for this brain dump session and save raw text
-    const thread = await conversationController.createThread(userId, 'Brain Dump', null, token, [
-      { role: 'user', content: text }
-    ]);
-    await conversationController.addMessage(thread.id, text, 'user', { source: 'brain_dump' }, token);
-
-    // 2) Process with Gemini via service to parse items and classify
+    const thread = await conversationController.createThread(userId, 'Brain Dump', null, token);
+    await conversationController.addMessage(thread.id, text, 'user', { source: 'brain_dump' }, token);    // 2) Process with Gemini via service to parse items and classify
     const items = await geminiService.processBrainDump(text, userId);
+
+    // Track brain dump processing event
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await supabase
+      .from('analytics_events')
+      .insert({
+        user_id: userId,
+        event_name: 'brain_dump_processed',
+        payload: {
+          text_length: text.length,
+          items_count: items.length,
+          thread_id: thread.id,
+          timestamp: new Date().toISOString()
+        }
+      });
+
     return res.json({ threadId: thread.id, items });
   } catch (error) {
     logger.error('AI BrainDump Error:', error);

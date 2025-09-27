@@ -26,6 +26,7 @@ interface Milestone {
 
 export default function GoalFormScreen({ navigation, route }: any) {
   const goalId = route.params?.goalId;
+  const initialCategory = route.params?.category || '';
   const isEditing = !!goalId;
   
   const [title, setTitle] = useState('');
@@ -36,6 +37,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
   const [initialLoading, setInitialLoading] = useState(isEditing);
   const [targetDate, setTargetDate] = useState<Date | undefined>(undefined);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [category, setCategory] = useState<string>(initialCategory);
 
   const loadExistingGoal = useCallback(async () => {
     try {
@@ -44,6 +46,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       
       setTitle(goalData.title);
       setDescription(goalData.description);
+      setCategory(goalData.category || '');
       try {
         if (goalData.target_completion_date) {
           setTargetDate(new Date(goalData.target_completion_date));
@@ -98,6 +101,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       const goalData = {
         title: title.trim(),
         description: description.trim(),
+        category: category.trim() || undefined,
         milestones: milestones.map(m => ({
           id: m.id,
           title: m.title,
@@ -120,10 +124,10 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
         // Track goal creation analytics
         analyticsService.trackGoalCreated('manual', {
-          category: goalData.category || 'other',
-          hasDescription: !!goalData.description,
-          hasTargetDate: !!goalData.target_completion_date,
-          milestoneCount: goalData.milestones?.length || 0
+          category: category.trim() || 'other',
+          hasDescription: !!description.trim(),
+          hasTargetDate: !!targetDate,
+          milestoneCount: milestones.length
         }).catch(error => {
           console.warn('Failed to track goal creation analytics:', error);
         });

@@ -56,8 +56,6 @@ export default function ProfileScreen({ navigation }: any) {
     setLoading(true);
     try {
       const me = await usersAPI.getMe();
-      console.log('Profile data loaded:', me); // Debug log
-      console.log('Is admin:', me.is_admin); // Debug log
       setProfile(me);
       setFullName(me.full_name || '');
       setAvatarUrl(me.avatar_url || '');

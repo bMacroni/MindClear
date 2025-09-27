@@ -118,11 +118,21 @@ const GoalForm = ({ goal = null, onSuccess, onCancel, isInline = false }) => {
         const response = await goalsAPI.create(submitData);
 
         // Track goal creation analytics
-        analyticsService.trackGoalCreated('manual', {
-          category: submitData.category,
-          hasDescription: !!submitData.description,
-          hasTargetDate: !!submitData.target_completion_date
-        });
+        // Track goal creation analytics
+        try {
+          const trackingResult = analyticsService.trackGoalCreated('manual', {
+            category: submitData.category,
+            hasDescription: !!submitData.description,
+            hasTargetDate: !!submitData.target_completion_date
+          });
+          if (trackingResult && typeof trackingResult.catch === 'function') {
+            trackingResult.catch((analyticsError) => {
+              console.warn('Goal analytics tracking failed', analyticsError);
+            });
+          }
+        } catch (analyticsError) {
+          console.warn('Goal analytics tracking failed', analyticsError);
+        }
       }
       onSuccess();
     } catch (err) {

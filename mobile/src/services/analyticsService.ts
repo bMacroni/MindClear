@@ -73,7 +73,12 @@ class AnalyticsService {
     };
 
     if (this.isOnline && !this.syncInProgress) {
-      await this.sendEvent(event);
+      try {
+        await this.sendEvent(event);
+      } catch (error) {
+        // Preserve fire-and-forget contract - errors are logged in sendEvent
+        // but don't propagate to maintain non-blocking behavior
+      }
     } else {
       await this.queueEvent(event);
     }
@@ -98,6 +103,7 @@ class AnalyticsService {
     } catch (error) {
       logger.warn('Analytics: Failed to send event, queuing for later:', event.eventName, error);
       await this.queueEvent(event);
+      throw error; // Re-throw the error so callers can detect failure
     }
   }
 
@@ -170,9 +176,10 @@ class AnalyticsService {
       }
 
       // Update queue with only failed events
-      if (failedEvents.length !== queue.length) {
-        await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_EVENTS, JSON.stringify(failedEvents));
-      }
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.OFFLINE_EVENTS,
+        JSON.stringify(failedEvents)
+      );
 
       if (failedEvents.length > 0) {
         logger.info(`Analytics: ${failedEvents.length} events remain in queue after sync`);

@@ -4,8 +4,7 @@
 
 -- Add is_admin column to users table
 ALTER TABLE public.users
-ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
-
+ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 -- Add comment for documentation
 COMMENT ON COLUMN public.users.is_admin IS 'Flag indicating if user has admin privileges for accessing analytics dashboard';
 

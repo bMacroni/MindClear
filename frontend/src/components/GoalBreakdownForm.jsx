@@ -50,11 +50,15 @@ export default function GoalBreakdownForm({ goal, initialMilestones = [], onSave
       }
 
       // Track AI-generated goal creation analytics
-      analyticsService.trackGoalCreated('ai', {
-        goalTitle: goal.title,
-        milestoneCount: aiSuggestions.milestones.length,
-        totalStepCount: aiSuggestions.milestones.reduce((total, milestone) => total + milestone.steps.length, 0)
-      });
+      try {
+        await analyticsService.trackGoalCreated('ai', {
+          goalTitle: goal.title,
+          milestoneCount: aiSuggestions.milestones.length,
+          totalStepCount: aiSuggestions.milestones.reduce((total, milestone) => total + milestone.steps.length, 0)
+        });
+      } catch (analyticsErr) {
+        console.warn('Failed to track AI goal creation', analyticsErr);
+      }
 
       await reloadMilestones();
       setAiSuggestions(null); // Clear suggestions after accepting

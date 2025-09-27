@@ -9,11 +9,14 @@ const DEBUG = process.env.DEBUG_LOGS === 'true';
  * @param {Object} res - Express response object
  */
 export async function trackEvent(req, res) {
+  // Extract event details
   const { event_name, payload } = req.body;
-  const user_id = req.user.id;
-
-  // Get the JWT from the request
+  // Safely grab user ID, guard missing user context
+  const user_id = req.user?.id;
   const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Authorization token is required' });
+  }
 
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -110,9 +113,6 @@ export async function getDashboardData(req, res) {
         break;
       case '30d':
         startDate.setDate(now.getDate() - 30);
-        break;
-      case '90d':
-        startDate.setDate(now.getDate() - 90);
         break;
       default:
         startDate.setDate(now.getDate() - 7);
@@ -292,6 +292,109 @@ export async function getDashboardData(req, res) {
       return res.status(500).json({ error: 'Failed to get analytics data' });
     }
 
+    // Get AI token usage statistics
+    const { data: aiTokenEvents, error: aiTokenError } = await supabase
+      .from('analytics_events')
+      .select('user_id, payload')
+      .eq('event_name', 'ai_tokens_used')
+      .gte('created_at', startDate.toISOString());
+
+    if (aiTokenError) {
+      logger.error('Error getting AI token events:', aiTokenError);
+    }
+
+    // Calculate AI token usage per user
+    const tokenUsageByUser = {};
+    if (aiTokenEvents) {
+      aiTokenEvents.forEach(event => {
+        const userId = event.user_id;
+        const tokens = event.payload?.total_tokens || 0;
+        tokenUsageByUser[userId] = (tokenUsageByUser[userId] || 0) + tokens;
+      });
+    }
+
+    const totalTokensUsed = Object.values(tokenUsageByUser).reduce((sum, tokens) => sum + tokens, 0);
+    const avgTokensPerUser = Object.keys(tokenUsageByUser).length > 0
+      ? totalTokensUsed / Object.keys(tokenUsageByUser).length
+      : 0;
+
+    // Get goals created per user
+    const { data: goalCreationEvents, error: goalCreationError } = await supabase
+      .from('analytics_events')
+      .select('user_id')
+      .eq('event_name', 'goal_created')
+      .gte('created_at', startDate.toISOString());
+
+    if (goalCreationError) {
+      logger.error('Error getting goal creation events:', goalCreationError);
+    }
+
+    // Calculate goals created per user
+    const goalsByUser = {};
+    if (goalCreationEvents) {
+      goalCreationEvents.forEach(event => {
+        const userId = event.user_id;
+        goalsByUser[userId] = (goalsByUser[userId] || 0) + 1;
+      });
+    }
+
+    const totalGoalsCreated = Object.values(goalsByUser).reduce((sum, goals) => sum + goals, 0);
+    const avgGoalsPerUser = Object.keys(goalsByUser).length > 0
+      ? totalGoalsCreated / Object.keys(goalsByUser).length
+      : 0;
+
+    // Get tasks created per user
+    const { data: taskCreationEvents, error: taskCreationError } = await supabase
+      .from('analytics_events')
+      .select('user_id')
+      .eq('event_name', 'task_created')
+      .gte('created_at', startDate.toISOString());
+
+    if (taskCreationError) {
+      logger.error('Error getting task creation events:', taskCreationError);
+    }
+
+    // Calculate tasks created per user
+    const tasksByUser = {};
+    if (taskCreationEvents) {
+      taskCreationEvents.forEach(event => {
+        const userId = event.user_id;
+        tasksByUser[userId] = (tasksByUser[userId] || 0) + 1;
+      });
+    }
+
+    const totalTasksCreated = Object.values(tasksByUser).reduce((sum, tasks) => sum + tasks, 0);
+    const avgTasksPerUser = Object.keys(tasksByUser).length > 0
+      ? totalTasksCreated / Object.keys(tasksByUser).length
+      : 0;
+
+    // Get AI message processing statistics
+    const { data: aiMessageEvents, error: aiMessageError } = await supabase
+      .from('analytics_events')
+      .select('user_id, payload')
+      .eq('event_name', 'ai_message_processed')
+      .gte('created_at', startDate.toISOString());
+
+    if (aiMessageError) {
+      logger.error('Error getting AI message events:', aiMessageError);
+    }
+
+    // Calculate AI usage statistics
+    const aiUsageByUser = {};
+    let totalAiMessages = 0;
+    if (aiMessageEvents) {
+      aiMessageEvents.forEach(event => {
+        const userId = event.user_id;
+        const actionCount = event.payload?.action_count || 0;
+        totalAiMessages++;
+        aiUsageByUser[userId] = (aiUsageByUser[userId] || 0) + 1;
+      });
+    }
+
+    const avgAiMessagesPerUser = Object.keys(aiUsageByUser).length > 0
+      ? totalAiMessages / Object.keys(aiUsageByUser).length
+      : 0;
+
     // Return dashboard data
     res.json({
       timeframe,
@@ -302,7 +405,20 @@ export async function getDashboardData(req, res) {
       manualGoals,
       aiGoals,
       eventBreakdown: eventBreakdownArray,
-      recentEvents: recentEvents || []
+      recentEvents: recentEvents || [],
+      aiTokenUsage: {
+        totalTokensUsed,
+        avgTokensPerUser: Math.round(avgTokensPerUser),
+        usersWithTokens: Object.keys(tokenUsageByUser).length
+      },
+      perUserStats: {
+        avgGoalsPerUser: Math.round(avgGoalsPerUser * 10) / 10,
+        avgTasksPerUser: Math.round(avgTasksPerUser * 10) / 10,
+        avgAiMessagesPerUser: Math.round(avgAiMessagesPerUser * 10) / 10,
+        totalUsersWithGoals: Object.keys(goalsByUser).length,
+        totalUsersWithTasks: Object.keys(tasksByUser).length,
+        totalUsersWithAiUsage: Object.keys(aiUsageByUser).length
+      }
     });
 
   } catch (error) {

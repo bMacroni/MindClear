@@ -294,7 +294,11 @@ export default function GoalsScreen({ navigation }: any) {
       // Track screen view analytics
       analyticsService.trackScreenView('goals', {
         goalCount: transformedGoals.length,
-        completedGoals: transformedGoals.filter(g => g.completedMilestones === g.totalMilestones).length,
+        completedGoals: transformedGoals.filter(g => {
+          const hasMilestones = g.milestones.length > 0;
+          const milestonesComplete = hasMilestones && g.milestones.every(m => m.completed);
+          return g.status === 'completed' || milestonesComplete;
+        }).length,
         totalMilestones: transformedGoals.reduce((sum, g) => sum + g.totalMilestones, 0),
         completedMilestones: transformedGoals.reduce((sum, g) => sum + g.completedMilestones, 0)
       }).catch(error => {

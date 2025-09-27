@@ -236,14 +236,18 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
 
       // Track task completion analytics if task was just completed
       if (task.status !== 'completed' && newStatus === 'completed') {
-        analyticsService.trackTaskCompleted({
-          taskId: task.id,
-          taskTitle: task.title,
-          priority: task.priority,
-          hasLocation: !!task.location,
-          hasEstimatedDuration: !!task.estimated_duration_minutes,
-          autoScheduleEnabled: task.auto_schedule_enabled
-        });
+        try {
+          analyticsService.trackTaskCompleted({
+            taskId: task.id,
+            taskTitle: task.title,
+            priority: task.priority,
+            hasLocation: !!task.location,
+            hasEstimatedDuration: !!task.estimated_duration_minutes,
+            autoScheduleEnabled: task.auto_schedule_enabled
+          });
+        } catch (analyticsErr) {
+          console.warn('Failed to track task completion analytics', analyticsErr);
+        }
       }
     } catch (err) {
       // Revert local state if backend update fails

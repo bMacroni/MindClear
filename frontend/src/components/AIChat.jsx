@@ -523,13 +523,14 @@ You’re making great strides!
       console.debug('🚀 Sending message to AI API...');
       const response = await aiAPI.sendMessage(messageContent, threadId);
       console.debug('✅ Received response from AI API');
-      handleGeminiResponse(response);
+      const responseData = response.data || response;
+      handleGeminiResponse(responseData);
 
-      // Track AI message sent analytics
+      const aiMessage = responseData.message ?? '';
       analyticsService.trackAIMessageSent({
-        message: messageContent,
+        message: aiMessage,
         threadId,
-        messageLength: messageContent.length
+        messageLength: aiMessage.length
       });
       
     } catch (error) {

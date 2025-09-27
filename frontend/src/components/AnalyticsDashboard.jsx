@@ -147,17 +147,67 @@ const AnalyticsDashboard = () => {
         />
       </div>
 
+      {/* AI Token Usage Metrics */}
+      {analyticsData.aiTokenUsage && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <MetricCard
+            title="Total AI Tokens"
+            value={formatNumber(analyticsData.aiTokenUsage.totalTokensUsed)}
+            subtitle="Used in timeframe"
+            icon="🤖"
+          />
+          <MetricCard
+            title="Avg Tokens/User"
+            value={formatNumber(analyticsData.aiTokenUsage.avgTokensPerUser)}
+            subtitle="Per active user"
+            icon="📝"
+          />
+          <MetricCard
+            title="AI Users"
+            value={formatNumber(analyticsData.aiTokenUsage.usersWithTokens)}
+            subtitle="Users using AI"
+            icon="👤"
+          />
+        </div>
+      )}
+
+      {/* Per-User Statistics */}
+      {analyticsData.perUserStats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <MetricCard
+            title="Avg Goals/User"
+            value={analyticsData.perUserStats.avgGoalsPerUser}
+            subtitle="Goals created per user"
+            icon="🎯"
+          />
+          <MetricCard
+            title="Avg Tasks/User"
+            value={analyticsData.perUserStats.avgTasksPerUser}
+            subtitle="Tasks created per user"
+            icon="📋"
+          />
+          <MetricCard
+            title="AI Messages/User"
+            value={analyticsData.perUserStats.avgAiMessagesPerUser}
+            subtitle="AI interactions per user"
+            icon="💬"
+          />
+        </div>
+      )}
+
       {/* Event Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Event Types</h3>
           <div className="space-y-3">
-            {analyticsData.eventBreakdown?.map((event, index) => (
-              <div key={index} className="flex justify-between items-center">
-                <span className="text-gray-700">{event.event_name}</span>
-                <span className="font-semibold">{formatNumber(event.count)}</span>
-              </div>
-            )) || (
+            {analyticsData.eventBreakdown?.length ? (
+              analyticsData.eventBreakdown.map((event, index) => (
+                <div key={index} className="flex justify-between items-center">
+                  <span className="text-gray-700">{event.event_name}</span>
+                  <span className="font-semibold">{formatNumber(event.count)}</span>
+                </div>
+              ))
+            ) : (
               <div className="text-gray-500">No event data available</div>
             )}
           </div>
@@ -182,19 +232,21 @@ const AnalyticsDashboard = () => {
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
         <div className="space-y-2">
-          {analyticsData.recentEvents?.map((event, index) => (
-            <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100">
-              <div>
-                <span className="font-medium text-gray-900">{event.event_name}</span>
-                <span className="text-gray-500 text-sm ml-2">
-                  {new Date(event.created_at).toLocaleString()}
+          {analyticsData.recentEvents?.length ? (
+            analyticsData.recentEvents.map((event, index) => (
+              <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100">
+                <div>
+                  <span className="font-medium text-gray-900">{event.event_name}</span>
+                  <span className="text-gray-500 text-sm ml-2">
+                    {new Date(event.created_at).toLocaleString()}
+                  </span>
+                </div>
+                <span className="text-sm text-gray-600">
+                  User {event.user_id.slice(0, 8)}...
                 </span>
               </div>
-              <span className="text-sm text-gray-600">
-                User {event.user_id.slice(0, 8)}...
-              </span>
-            </div>
-          )) || (
+            ))
+          ) : (
             <div className="text-gray-500">No recent activity</div>
           )}
         </div>

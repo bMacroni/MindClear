@@ -14,7 +14,7 @@ import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import { apiService, ApiResponse } from '../../services/apiService';
+import { apiService, ApiResponse, ApiError } from '../../services/apiService';
 import ScreenHeader from '../common/ScreenHeader';
 
 const { width } = Dimensions.get('window');
@@ -29,6 +29,19 @@ interface AnalyticsData {
   aiGoals: number;
   eventBreakdown: Array<{ event_name: string; count: number }>;
   recentEvents: Array<{ event_name: string; created_at: string; user_id: string }>;
+  aiTokenUsage?: {
+    totalTokensUsed: number;
+    avgTokensPerUser: number;
+    usersWithTokens: number;
+  };
+  perUserStats?: {
+    avgGoalsPerUser: number;
+    avgTasksPerUser: number;
+    avgAiMessagesPerUser: number;
+    totalUsersWithGoals: number;
+    totalUsersWithTasks: number;
+    totalUsersWithAiUsage: number;
+  };
 }
 
 const MobileAnalyticsDashboard: React.FC = () => {
@@ -52,13 +65,13 @@ const MobileAnalyticsDashboard: React.FC = () => {
       });
 
       if (!response.ok) {
-        const errorMessage = typeof response.data === 'object' && response.data?.error
-          ? response.data.error
+        const errorMessage = typeof response.data === 'object' && response.data && 'error' in response.data
+          ? (response.data as ApiError).error
           : 'Failed to load analytics data';
         throw new Error(errorMessage);
       }
 
-      setAnalyticsData(response.data);
+      setAnalyticsData(response.data as AnalyticsData);
     } catch (err: any) {
       setError(err.message || 'Failed to load analytics data');
       console.error('Error loading analytics:', err);
@@ -96,7 +109,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
     title: string;
     value: string;
     subtitle: string;
-    icon: string;
+    icon: 'graph' | 'people' | 'goal' | 'checklist' | 'comment-discussion';
     color?: string;
   }) => (
     <View style={[styles.metricCard, { borderLeftColor: color, borderLeftWidth: 4 }]}>
@@ -105,7 +118,13 @@ const MobileAnalyticsDashboard: React.FC = () => {
         <Text style={styles.metricValue}>{value}</Text>
         <Text style={styles.metricSubtitle}>{subtitle}</Text>
       </View>
-      <Text style={[styles.metricIcon, { color }]}>{icon}</Text>
+      <Icon
+        name={icon}
+        size={24}
+        color={color}
+        style={styles.metricIcon}
+        accessibilityLabel={`metric-${title.toLowerCase().replace(/\s+/g, '-')}-icon`}
+      />
     </View>
   );
 
@@ -126,24 +145,18 @@ const MobileAnalyticsDashboard: React.FC = () => {
       <SafeAreaView style={styles.container}>
         <ScreenHeader title="Analytics" />
         <View style={styles.errorContainer}>
-          <Icon name="alert" size={48} color={colors.error} />
+          <Icon
+            name="alert"
+            size={24}
+            color={colors.error}
+            accessibilityRole="image"
+            accessibilityLabel="Analytics load error"
+          />
           <Text style={styles.errorTitle}>Error Loading Analytics</Text>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={() => loadAnalyticsData()}>
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!analyticsData) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <ScreenHeader title="Analytics" />
-        <View style={styles.emptyContainer}>
-          <Icon name="graph" size={48} color={colors.text.disabled} />
-          <Text style={styles.emptyText}>No analytics data available</Text>
         </View>
       </SafeAreaView>
     );
@@ -187,84 +200,146 @@ const MobileAnalyticsDashboard: React.FC = () => {
         </View>
 
         {/* Key Metrics */}
-        <View style={styles.metricsContainer}>
-          <MetricCard
-            title="Total Events"
-            value={formatNumber(analyticsData.totalEvents)}
-            subtitle={getTimeframeLabel(selectedTimeframe)}
-            icon="📊"
-            color={colors.primary}
-          />
-          <MetricCard
-            title="Active Users"
-            value={formatNumber(analyticsData.activeUsers)}
-            subtitle="Unique users"
-            icon="👥"
-            color={colors.success}
-          />
-          <MetricCard
-            title="Goal Creations"
-            value={formatNumber(analyticsData.goalCreations)}
-            subtitle="Manual + AI"
-            icon="🎯"
-            color={colors.warning}
-          />
-          <MetricCard
-            title="Task Completions"
-            value={formatNumber(analyticsData.taskCompletions)}
-            subtitle="Completed tasks"
-            icon="✅"
-            color={colors.info}
-          />
-        </View>
+        {analyticsData && (
+          <View style={styles.metricsContainer}>
+            <MetricCard
+              title="Total Events"
+              value={formatNumber(analyticsData.totalEvents)}
+              subtitle={getTimeframeLabel(selectedTimeframe)}
+              icon="graph"
+              color={colors.primary}
+            />
+            <MetricCard
+              title="Active Users"
+              value={formatNumber(analyticsData.activeUsers)}
+              subtitle="Unique users"
+              icon="people"
+              color={colors.success}
+            />
+            <MetricCard
+              title="Goal Creations"
+              value={formatNumber(analyticsData.goalCreations)}
+              subtitle="Manual + AI"
+              icon="goal"
+              color={colors.warning}
+            />
+            <MetricCard
+              title="Task Completions"
+              value={formatNumber(analyticsData.taskCompletions)}
+              subtitle="Completed tasks"
+              icon="checklist"
+              color={colors.info}
+            />
+          </View>
+        )}
+
+        {/* AI Token Usage Metrics */}
+        {analyticsData?.aiTokenUsage && (
+          <View style={styles.metricsContainer}>
+            <MetricCard
+              title="AI Tokens Used"
+              value={formatNumber(analyticsData.aiTokenUsage.totalTokensUsed)}
+              subtitle="Total tokens"
+              icon="graph"
+              color="#8B5CF6"
+            />
+            <MetricCard
+              title="Avg Tokens/User"
+              value={formatNumber(analyticsData.aiTokenUsage.avgTokensPerUser)}
+              subtitle="Per user"
+              icon="people"
+              color="#06B6D4"
+            />
+            <MetricCard
+              title="AI Users"
+              value={formatNumber(analyticsData.aiTokenUsage.usersWithTokens)}
+              subtitle="Using AI"
+              icon="checklist"
+              color="#10B981"
+            />
+          </View>
+        )}
+
+        {/* Per-User Statistics */}
+        {analyticsData?.perUserStats && (
+          <View style={styles.metricsContainer}>
+            <MetricCard
+              title="Avg Goals/User"
+              value={analyticsData.perUserStats.avgGoalsPerUser.toFixed(1)}
+              subtitle="Goals created"
+              icon="goal"
+              color="#F59E0B"
+            />
+            <MetricCard
+              title="Avg Tasks/User"
+              value={analyticsData.perUserStats.avgTasksPerUser.toFixed(1)}
+              subtitle="Tasks created"
+              icon="checklist"
+              color="#3B82F6"
+            />
+            <MetricCard
+              title="AI Messages/User"
+              value={analyticsData.perUserStats.avgAiMessagesPerUser.toFixed(1)}
+              subtitle="AI interactions"
+              icon="comment-discussion"
+              color="#8B5CF6"
+            />
+          </View>
+        )}
 
         {/* Event Breakdown */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Event Types</Text>
-          <View style={styles.breakdownContainer}>
-            {analyticsData.eventBreakdown.map((event, index) => (
-              <View key={index} style={styles.breakdownRow}>
-                <Text style={styles.breakdownLabel}>{event.event_name}</Text>
-                <Text style={styles.breakdownValue}>{formatNumber(event.count)}</Text>
-              </View>
-            ))}
+        {analyticsData && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Event Types</Text>
+            <View style={styles.breakdownContainer}>
+              {analyticsData.eventBreakdown.map((event, index) => (
+                <View key={index} style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>{event.event_name}</Text>
+                  <Text style={styles.breakdownValue}>{formatNumber(event.count)}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Goal Creation Sources */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Goal Creation Sources</Text>
-          <View style={styles.breakdownContainer}>
-            <View style={styles.breakdownRow}>
-              <Text style={styles.breakdownLabel}>Manual Goals</Text>
-              <Text style={styles.breakdownValue}>{formatNumber(analyticsData.manualGoals)}</Text>
-            </View>
-            <View style={styles.breakdownRow}>
-              <Text style={styles.breakdownLabel}>AI-Generated Goals</Text>
-              <Text style={styles.breakdownValue}>{formatNumber(analyticsData.aiGoals)}</Text>
+        {analyticsData && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Goal Creation Sources</Text>
+            <View style={styles.breakdownContainer}>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>Manual Goals</Text>
+                <Text style={styles.breakdownValue}>{formatNumber(analyticsData.manualGoals)}</Text>
+              </View>
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>AI-Generated Goals</Text>
+                <Text style={styles.breakdownValue}>{formatNumber(analyticsData.aiGoals)}</Text>
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Recent Activity */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
-          <View style={styles.activityContainer}>
-            {analyticsData.recentEvents.slice(0, 10).map((event, index) => (
-              <View key={index} style={styles.activityRow}>
-                <View style={styles.activityLeft}>
-                  <Text style={styles.activityEvent}>{event.event_name}</Text>
-                  <Text style={styles.activityTime}>
-                    {new Date(event.created_at).toLocaleString()}
+        {analyticsData && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            <View style={styles.activityContainer}>
+              {analyticsData.recentEvents.slice(0, 10).map((event, index) => (
+                <View key={index} style={styles.activityRow}>
+                  <View style={styles.activityLeft}>
+                    <Text style={styles.activityEvent}>{event.event_name}</Text>
+                    <Text style={styles.activityTime}>
+                      {new Date(event.created_at).toLocaleString()}
+                    </Text>
+                  </View>
+                  <Text style={styles.activityUser}>
+                    {event.user_id.slice(0, 8)}...
                   </Text>
                 </View>
-                <Text style={styles.activityUser}>
-                  {event.user_id.slice(0, 8)}...
-                </Text>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
-        </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -387,7 +462,6 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
   },
   metricIcon: {
-    fontSize: typography.fontSize.xxl,
     marginLeft: spacing.md,
   },
   section: {
