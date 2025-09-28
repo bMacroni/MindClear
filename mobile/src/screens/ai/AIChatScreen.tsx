@@ -486,7 +486,7 @@ export default function AIChatScreen({ navigation, route }: any) {
       analyticsService.trackAIMessageSent({
         message: message ?? '',
         threadId: route.params?.threadId,
-        messageLength: message ? message.length : 0,
+        context: null // No additional context available in this flow
       }).catch(error => {
         logger.warn('Failed to track AI message analytics:', error);
       });

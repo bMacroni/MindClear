@@ -11,8 +11,22 @@ const DEBUG = process.env.DEBUG_LOGS === 'true';
 export async function trackEvent(req, res) {
   // Extract event details
   const { event_name, payload } = req.body;
-  // Safely grab user ID, guard missing user context
-  const user_id = req.user?.id;
+
+  // Validate user authentication
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      error: 'Authentication required. User context is missing.'
+    });
+  }
+
+  // Validate user ID is a string or number
+  if (typeof req.user.id !== 'string' && typeof req.user.id !== 'number') {
+    return res.status(401).json({
+      error: 'Invalid user ID format in authentication context'
+    });
+  }
+
+  const user_id = req.user.id;
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
     return res.status(401).json({ error: 'Authorization token is required' });
@@ -42,11 +56,11 @@ export async function trackEvent(req, res) {
   }
 
   try {
-    // Insert the analytics event
+    // Insert the analytics event with validated user_id
     const { data, error } = await supabase
       .from('analytics_events')
       .insert([{
-        user_id,
+        user_id: String(user_id), // Ensure user_id is stored as string
         event_name,
         payload: payload || null
       }])
@@ -70,7 +84,6 @@ export async function trackEvent(req, res) {
       event_id: data.id,
       message: 'Event tracked successfully'
     });
-
   } catch (error) {
     logger.error('Unexpected error tracking analytics event:', error);
     res.status(500).json({
@@ -87,17 +100,43 @@ export async function trackEvent(req, res) {
 export async function getDashboardData(req, res) {
   const { timeframe = '7d' } = req.query;
 
+  // Validate user authentication for dashboard access
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      error: 'Authentication required to access analytics dashboard.'
+    });
+  }
+
+  // Validate user ID is a string or number
+  if (typeof req.user.id !== 'string' && typeof req.user.id !== 'number') {
+    return res.status(401).json({
+      error: 'Invalid user ID format in authentication context'
+    });
+  }
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
 
-  // Create Supabase client with the JWT
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+  // Guard: Check if Bearer token is present
+  if (!token) {
+    return res.status(401).json({ error: 'Missing or invalid token' });
+  }
+
+  // Create Supabase client conditionally based on admin status
+  let supabase;
+  if (req.user && req.user.is_admin) {
+    // Use service-role key for admin users (no JWT header needed)
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  } else {
+    // Use anon key with JWT for regular users
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
       }
-    }
-  });
+    });
+  }
 
   try {
     // Calculate date range based on timeframe
@@ -121,12 +160,8 @@ export async function getDashboardData(req, res) {
         startDate.setDate(now.getDate() - 7);
     }
 
-    // …rest of analytics logic…
-  } catch (err) {
-    // error handling…
-  }
     // Get total events count
-    const { data: totalEvents, error: eventsError } = await supabase
+    const { count: totalEventsCount, error: eventsError } = await supabase
       .from('analytics_events')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startDate.toISOString());
@@ -208,10 +243,10 @@ export async function getDashboardData(req, res) {
     const manualGoals = goalEvents?.filter(event => event.payload?.source === 'manual').length || 0;
     const aiGoals = goalEvents?.filter(event => event.payload?.source === 'ai').length || 0;
 
-    // Get task completion events
-    const { data: taskEvents, error: taskError } = await supabase
+    // Get task completion count
+    const { count: taskCompletionsCount, error: taskError } = await supabase
       .from('analytics_events')
-      .select('id')
+      .select('id', { count: 'exact', head: true })
       .eq('event_name', 'task_completed')
       .gte('created_at', startDate.toISOString());
 
@@ -234,10 +269,10 @@ export async function getDashboardData(req, res) {
       return res.status(500).json({ error: 'Failed to get analytics data' });
     }
 
-    const taskCompletions = taskEvents?.length || 0;
+    const taskCompletions = taskCompletionsCount || 0;
 
-    // Get event breakdown
-    const { data: eventBreakdown, error: breakdownError } = await supabase
+    // Get event breakdown by type
+    const { data: eventBreakdownData, error: breakdownError } = await supabase
       .from('analytics_events')
       .select('event_name')
       .gte('created_at', startDate.toISOString());
@@ -263,7 +298,7 @@ export async function getDashboardData(req, res) {
 
     // Count events by type
     const eventCounts = {};
-    eventBreakdown?.forEach(event => {
+    eventBreakdownData?.forEach(event => {
       eventCounts[event.event_name] = (eventCounts[event.event_name] || 0) + 1;
     });
 
@@ -378,8 +413,8 @@ export async function getDashboardData(req, res) {
     // Get AI message processing statistics
     const { data: aiMessageEvents, error: aiMessageError } = await supabase
       .from('analytics_events')
-      .select('user_id, payload')
-      .eq('event_name', 'ai_message_processed')
+      .select('event_name, user_id, payload')
+      .in('event_name', ['ai_message_sent', 'ai_message_processed'])
       .gte('created_at', startDate.toISOString());
 
     if (aiMessageError) {
@@ -388,12 +423,21 @@ export async function getDashboardData(req, res) {
 
     // Calculate AI usage statistics
     const aiUsageByUser = {};
+    const aiUsageByEventType = {};
     let totalAiMessages = 0;
     if (aiMessageEvents) {
       aiMessageEvents.forEach(event => {
         const userId = event.user_id;
-        const actionCount = event.payload?.action_count || 0;
-        totalAiMessages++;
+        const eventName = event.event_name;
+        const actionCount = event.payload?.action_count || 1; // Treat missing action_count as 1
+
+        // Sum action_count instead of just counting rows
+        totalAiMessages += actionCount;
+
+        // Track by event type
+        aiUsageByEventType[eventName] = (aiUsageByEventType[eventName] || 0) + actionCount;
+
+        // Track per user (using message count, not action_count for user stats)
         aiUsageByUser[userId] = (aiUsageByUser[userId] || 0) + 1;
       });
     }
@@ -402,10 +446,16 @@ export async function getDashboardData(req, res) {
       ? totalAiMessages / Object.keys(aiUsageByUser).length
       : 0;
 
+    // Create AI message event breakdown
+    const aiMessageEventBreakdown = Object.entries(aiUsageByEventType).map(([event_name, total_action_count]) => ({
+      event_name,
+      total_action_count
+    })).sort((a, b) => b.total_action_count - a.total_action_count);
+
     // Return dashboard data
     res.json({
       timeframe,
-      totalEvents: totalEvents?.length || 0,
+      totalEvents: totalEventsCount || 0,
       activeUsers: activeUsersCount,
       goalCreations,
       taskCompletions,
@@ -418,6 +468,11 @@ export async function getDashboardData(req, res) {
         avgTokensPerUser: Math.round(avgTokensPerUser),
         usersWithTokens: Object.keys(tokenUsageByUser).length
       },
+      aiMessageStats: {
+        totalAiMessages: Math.round(totalAiMessages),
+        aiMessageEventBreakdown,
+        usersWithAiMessages: Object.keys(aiUsageByUser).length
+      },
       perUserStats: {
         avgGoalsPerUser: Math.round(avgGoalsPerUser * 10) / 10,
         avgTasksPerUser: Math.round(avgTasksPerUser * 10) / 10,
@@ -427,7 +482,6 @@ export async function getDashboardData(req, res) {
         totalUsersWithAiUsage: Object.keys(aiUsageByUser).length
       }
     });
-
   } catch (error) {
     logger.error('Unexpected error getting analytics dashboard data:', error);
     res.status(500).json({

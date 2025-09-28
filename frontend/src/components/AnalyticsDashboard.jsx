@@ -171,6 +171,30 @@ const AnalyticsDashboard = () => {
         </div>
       )}
 
+      {/* AI Message Statistics */}
+      {analyticsData.aiMessageStats && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <MetricCard
+            title="Total AI Messages"
+            value={formatNumber(analyticsData.aiMessageStats.totalAiMessages)}
+            subtitle="AI interactions (with action count)"
+            icon="💬"
+          />
+          <MetricCard
+            title="AI Message Users"
+            value={formatNumber(analyticsData.aiMessageStats.usersWithAiMessages)}
+            subtitle="Users with AI interactions"
+            icon="👤"
+          />
+          <MetricCard
+            title="Avg AI Messages/User"
+            value={analyticsData.perUserStats?.avgAiMessagesPerUser || 0}
+            subtitle="AI interactions per user"
+            icon="📊"
+          />
+        </div>
+      )}
+
       {/* Per-User Statistics */}
       {analyticsData.perUserStats && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -212,6 +236,25 @@ const AnalyticsDashboard = () => {
             )}
           </div>
         </div>
+
+        {/* AI Message Event Breakdown */}
+        {analyticsData.aiMessageStats?.aiMessageEventBreakdown && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">AI Message Events</h3>
+            <div className="space-y-3">
+              {analyticsData.aiMessageStats.aiMessageEventBreakdown.length ? (
+                analyticsData.aiMessageStats.aiMessageEventBreakdown.map((event, index) => (
+                  <div key={index} className="flex justify-between items-center">
+                    <span className="text-gray-700">{event.event_name}</span>
+                    <span className="font-semibold">{formatNumber(event.total_action_count)}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-gray-500">No AI message event data available</div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Goal Creation Sources</h3>

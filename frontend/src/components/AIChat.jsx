@@ -530,7 +530,7 @@ You’re making great strides!
       analyticsService.trackAIMessageSent({
         message: aiMessage,
         threadId,
-        messageLength: aiMessage.length
+        context: null // No additional context available in this flow
       });
       
     } catch (error) {

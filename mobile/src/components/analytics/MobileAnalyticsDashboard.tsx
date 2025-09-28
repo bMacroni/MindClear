@@ -34,6 +34,11 @@ interface AnalyticsData {
     avgTokensPerUser: number;
     usersWithTokens: number;
   };
+  aiMessageStats?: {
+    totalAiMessages: number;
+    aiMessageEventBreakdown: Array<{ event_name: string; total_action_count: number }>;
+    usersWithAiMessages: number;
+  };
   perUserStats?: {
     avgGoalsPerUser: number;
     avgTasksPerUser: number;
@@ -260,6 +265,33 @@ const MobileAnalyticsDashboard: React.FC = () => {
           </View>
         )}
 
+        {/* AI Message Statistics */}
+        {analyticsData?.aiMessageStats && (
+          <View style={styles.metricsContainer}>
+            <MetricCard
+              title="AI Messages"
+              value={formatNumber(analyticsData.aiMessageStats.totalAiMessages)}
+              subtitle="Total interactions"
+              icon="comment-discussion"
+              color="#8B5CF6"
+            />
+            <MetricCard
+              title="AI Users"
+              value={formatNumber(analyticsData.aiMessageStats.usersWithAiMessages)}
+              subtitle="Active users"
+              icon="people"
+              color="#06B6D4"
+            />
+            <MetricCard
+              title="Avg Messages/User"
+              value={analyticsData.perUserStats?.avgAiMessagesPerUser?.toFixed(1) || '0'}
+              subtitle="Per user"
+              icon="graph"
+              color="#10B981"
+            />
+          </View>
+        )}
+
         {/* Per-User Statistics */}
         {analyticsData?.perUserStats && (
           <View style={styles.metricsContainer}>
@@ -296,6 +328,21 @@ const MobileAnalyticsDashboard: React.FC = () => {
                 <View key={index} style={styles.breakdownRow}>
                   <Text style={styles.breakdownLabel}>{event.event_name}</Text>
                   <Text style={styles.breakdownValue}>{formatNumber(event.count)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* AI Message Event Breakdown */}
+        {analyticsData?.aiMessageStats?.aiMessageEventBreakdown && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>AI Message Events</Text>
+            <View style={styles.breakdownContainer}>
+              {analyticsData.aiMessageStats.aiMessageEventBreakdown.map((event, index) => (
+                <View key={index} style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>{event.event_name}</Text>
+                  <Text style={styles.breakdownValue}>{formatNumber(event.total_action_count)}</Text>
                 </View>
               ))}
             </View>
