@@ -61,7 +61,7 @@ class AnalyticsService {
       thread_id: data.threadId,
       has_context: !!data.context
     });
-  }  }
+  }
 
   trackScreenView(screenName, additionalData = {}) {
     const extras = additionalData && typeof additionalData === 'object' ? additionalData : {};
@@ -78,7 +78,7 @@ class AnalyticsService {
       action,
       ...meta
     });
-  }  }
+  }
 }
 
 // Export singleton instance
