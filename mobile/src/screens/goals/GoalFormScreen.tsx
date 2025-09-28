@@ -7,6 +7,7 @@ import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, Button } from '../../components/common';
 import { goalsAPI } from '../../services/api';
+import analyticsService from '../../services/analyticsService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
 
@@ -25,6 +26,7 @@ interface Milestone {
 
 export default function GoalFormScreen({ navigation, route }: any) {
   const goalId = route.params?.goalId;
+  const initialCategory = route.params?.category || '';
   const isEditing = !!goalId;
   
   const [title, setTitle] = useState('');
@@ -35,6 +37,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
   const [initialLoading, setInitialLoading] = useState(isEditing);
   const [targetDate, setTargetDate] = useState<Date | undefined>(undefined);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [category, setCategory] = useState<string>(initialCategory);
 
   const loadExistingGoal = useCallback(async () => {
     try {
@@ -43,6 +46,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       
       setTitle(goalData.title);
       setDescription(goalData.description);
+      setCategory(goalData.category || '');
       try {
         if (goalData.target_completion_date) {
           setTargetDate(new Date(goalData.target_completion_date));
@@ -75,6 +79,16 @@ export default function GoalFormScreen({ navigation, route }: any) {
     }
   }, [goalId, isEditing, loadExistingGoal]);
 
+  // Track screen view
+  useEffect(() => {
+    analyticsService.trackScreenView('goal_form', {
+      isEditing,
+      goalId: goalId || null
+    }).catch(error => {
+      console.warn('Failed to track screen view analytics:', error);
+    });
+  }, [isEditing, goalId]);
+
   const handleSave = async () => {
     if (!title.trim()) {
       Alert.alert('Error', 'Please enter a goal title.');
@@ -87,6 +101,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
       const goalData = {
         title: title.trim(),
         description: description.trim(),
+        category: category.trim() || undefined,
         milestones: milestones.map(m => ({
           id: m.id,
           title: m.title,
@@ -106,8 +121,18 @@ export default function GoalFormScreen({ navigation, route }: any) {
         // Create new goal
         await goalsAPI.createGoal(goalData as any);
         Alert.alert('Success', 'Goal created successfully!');
+
+        // Track goal creation analytics
+        analyticsService.trackGoalCreated('manual', {
+          category: category.trim() || 'other',
+          hasDescription: !!description.trim(),
+          hasTargetDate: !!targetDate,
+          milestoneCount: milestones.length
+        }).catch(error => {
+          console.warn('Failed to track goal creation analytics:', error);
+        });
       }
-      
+
       navigation.goBack();
     } catch (error) {
       console.error('Error saving goal:', error);

@@ -70,7 +70,7 @@ Respond ONLY with a JSON array.`;
           { role: 'user', parts: [{ text: prompt }] },
           { role: 'user', parts: [{ text }] }
         ]
-      });
+      }, 1, userId);
       const raw = response.text ? await response.text() : '';
       let items = [];
       try {
@@ -100,19 +100,26 @@ Respond ONLY with a JSON array.`;
   /**
    * Wrapper around model.generateContent with retries and model fallback.
    */
-  async _generateContentWithRetry(request, attempt = 1) {
+  async _generateContentWithRetry(request, attempt = 1, userId = null) {
     const maxAttempts = 3;
     const baseDelayMs = 400;
     try {
       const result = await this.model.generateContent(request);
-      return await result.response;
+      const response = await result.response;
+
+      // Track token usage if available
+      if (result.response.usageMetadata) {
+        this._trackTokenUsage(result.response.usageMetadata, request, userId);
+      }
+
+      return response;
     } catch (err) {
       const isServerError = err && (err.status === 500 || err.status === 502 || err.status === 503 || err.status === 504);
       if (attempt < maxAttempts && isServerError) {
         const delay = baseDelayMs * Math.pow(2, attempt - 1);
         if (this.DEBUG) logger.warn(`Gemini generateContent failed (attempt ${attempt}). Retrying in ${delay}ms...`);
         await new Promise(res => setTimeout(res, delay));
-        return this._generateContentWithRetry(request, attempt + 1);
+        return this._generateContentWithRetry(request, attempt + 1, userId);
       }
       // Fallback to a lighter model once before giving up
       if (attempt === maxAttempts) {
@@ -120,12 +127,15 @@ Respond ONLY with a JSON array.`;
           if (this.DEBUG) logger.warn('Primary model failed after retries. Falling back to gemini-1.5-flash');
           const fallbackModel = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
           const result = await fallbackModel.generateContent(request);
-          return await result.response;
+          const fallbackResponse = await result.response;
+          if (result.response?.usageMetadata) {
+            this._trackTokenUsage(result.response.usageMetadata, request, userId);
+          }
+          return fallbackResponse;
         } catch (fallbackErr) {
           if (this.DEBUG) logger.error('Fallback model failed:', fallbackErr);
         }
-      }
-      throw err;
+      }      throw err;
     }
   }
 
@@ -320,7 +330,7 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
       const response = await this._generateContentWithRetry({
         contents,
         tools: [{ functionDeclarations: allGeminiFunctionDeclarations }]
-      });
+      }, 1, userId);
       
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Received response from Gemini');
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Response has function calls:', !!response.functionCalls);
@@ -494,7 +504,7 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
           const finalResponse = await this._generateContentWithRetry({
             contents: followupContents,
             tools: [{ functionDeclarations: allGeminiFunctionDeclarations }]
-          });
+          }, 1, userId);
           
           if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Received final response from Gemini');
           if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Final response has function calls:', !!finalResponse.functionCalls);
@@ -1212,6 +1222,100 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
    */
   getHistory(userId) {
     return this.conversationHistory.get(userId) || [];
+  }
+
+  /**
+   * Track AI token usage for analytics
+   */
+  async _trackTokenUsage(usageMetadata, request, userId) {
+    try {
+      if (!usageMetadata || typeof usageMetadata !== 'object') {
+        return;
+      }
+
+      // Extract token counts
+      const promptTokenCount = usageMetadata.promptTokenCount || 0;
+      const candidatesTokenCount = usageMetadata.candidatesTokenCount || 0;
+      const totalTokenCount = usageMetadata.totalTokenCount || 0;
+
+      // Track the token usage event
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+      );
+
+      if (userId) {
+        const { error: insertError } = await supabase
+          .from('analytics_events')
+          .insert({
+            user_id: userId,
+            event_name: 'ai_tokens_used',
+            payload: {
+              prompt_tokens: promptTokenCount,
+              response_tokens: candidatesTokenCount,
+              total_tokens: totalTokenCount,
+              model: 'gemini-2.5-flash',
+              request_type: this._getRequestType(request),
+              timestamp: new Date().toISOString()
+            }
+          });
+        if (insertError) {
+          throw insertError;
+        }
+
+        if (this.DEBUG) {
+          console.log('🔍 [GEMINI DEBUG] Tracked token usage:', {
+            userId,
+            promptTokens: promptTokenCount,
+            responseTokens: candidatesTokenCount,
+            totalTokens: totalTokenCount
+          });
+        }
+      }    } catch (error) {
+      if (this.DEBUG) {
+        console.error('🔍 [GEMINI DEBUG] Failed to track token usage:', error);
+      }
+    }
+  }
+
+  /**
+   * Get current user ID from conversation history (simple implementation)
+   */
+  _getCurrentUserIdFromHistory() {
+    // This is a simplified approach - in a real implementation,
+    // we'd want to track the current user context more explicitly
+    // For now, return null and let the calling code handle user tracking
+    return null;
+  }
+
+  /**
+   * Determine the type of request for analytics
+   */
+  _getRequestType(request) {
+    try {
+      if (request.contents && Array.isArray(request.contents)) {
+        const lastContent = request.contents[request.contents.length - 1];
+        if (lastContent.parts && Array.isArray(lastContent.parts)) {
+          const lastPart = lastContent.parts[lastContent.parts.length - 1];
+          if (lastPart && lastPart.text) {
+            const text = lastPart.text.toLowerCase();
+            if (text.includes('brain dump') || text.includes('extract') || text.includes('parse')) {
+              return 'brain_dump_processing';
+            } else if (text.includes('function') || text.includes('tool')) {
+              return 'function_calling';
+            } else if (text.includes('title') || text.includes('summarize')) {
+              return 'title_generation';
+            } else {
+              return 'general_chat';
+            }
+          }
+        }
+      }
+      return 'unknown';
+    } catch (error) {
+      return 'unknown';
+    }
   }
 }
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import MilestoneRow from './MilestoneRow';
 import { milestonesAPI, stepsAPI, aiAPI } from '../services/api';
+import analyticsService from '../services/analyticsService';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
@@ -47,7 +48,18 @@ export default function GoalBreakdownForm({ goal, initialMilestones = [], onSave
           }, token);
         }
       }
-      
+
+      // Track AI-generated goal creation analytics
+      try {
+        await analyticsService.trackGoalCreated('ai', {
+          goalTitle: goal.title,
+          milestoneCount: aiSuggestions.milestones.length,
+          totalStepCount: aiSuggestions.milestones.reduce((total, milestone) => total + milestone.steps.length, 0)
+        });
+      } catch (analyticsErr) {
+        console.warn('Failed to track AI goal creation', analyticsErr);
+      }
+
       await reloadMilestones();
       setAiSuggestions(null); // Clear suggestions after accepting
     } catch (err) {

@@ -43,9 +43,33 @@ export async function createTask(req, res) {
     category
   } = req.body;
   const user_id = req.user.id;
-  
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
+
+  // Track analytics event
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await supabase
+      .from('analytics_events')
+      .insert({
+        user_id,
+        event_name: 'task_created',
+        payload: {
+          source: 'manual',
+          priority: priority || 'medium',
+          has_due_date: !!due_date,
+          has_goal_id: !!goal_id,
+          has_category: !!category,
+          estimated_duration: buffer_time_minutes || null,
+          is_today_focus: !!is_today_focus,
+          timestamp: new Date().toISOString()
+        }
+      });
+  } catch (analyticsError) {
+    // Don't fail the request if analytics fails
+    logger.warn('Failed to track task creation analytics:', analyticsError);
+  }
   
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -395,9 +419,11 @@ export async function getNextFocusTask(req, res) {
     if (validExcludeIds.length > 0) {
       // Use Supabase's parameterized not method with in operator for security
       // Pass the array directly to avoid string interpolation
-      query = query.not('id', 'in', validExcludeIds);
+      const exclusionList = `(${validExcludeIds
+        .map((id) => (typeof id === 'number' ? id : `"${id}"`))
+        .join(',')})`;
+      query = query.not('id', 'in', exclusionList);
     }
-
     // Apply travel preference filter in SQL
     if (travel_preference === 'home_only') {
       query = query.or('location.is.null,location.eq.');
@@ -512,6 +538,28 @@ export async function bulkCreateTasks(req, res) {
 export async function createTaskFromAI(args, userId, userContext) {
   const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes } = args;
   const token = userContext?.token;
+
+  // Track analytics event for AI-created tasks
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await supabase
+      .from('analytics_events')
+      .insert({
+        user_id: userId,
+        event_name: 'task_created',
+        payload: {
+          source: 'ai',
+          priority: priority || 'medium',
+          has_due_date: !!due_date,
+          has_related_goal: !!related_goal,
+          preferred_time_of_day: preferred_time_of_day || null,
+          timestamp: new Date().toISOString()
+        }
+      });
+  } catch (analyticsError) {
+    // Don't fail the request if analytics fails
+    logger.warn('Failed to track AI task creation analytics:', analyticsError);
+  }
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
       headers: {
@@ -541,7 +589,10 @@ export async function createTaskFromAI(args, userId, userContext) {
       const currentYear = new Date().getFullYear();
       
       if (parseInt(year, 10) < currentYear) {
-        parsedDueDate = `${currentYear}-${month}-${day}`;
+        const rolloverCandidate = new Date(`${currentYear}-${month}-${day}T12:00:00Z`);
+        parsedDueDate = Number.isNaN(rolloverCandidate.getTime())
+          ? due_date
+          : `${currentYear}-${month}-${day}`;
       } else {
         parsedDueDate = due_date;
       }
@@ -554,11 +605,13 @@ export async function createTaskFromAI(args, userId, userContext) {
         const currentYear = new Date().getFullYear();
         
         if (parseInt(year, 10) < currentYear) {
-          parsedDueDate = `${currentYear}-${month}-${day}`;
+          const rolloverCandidate = new Date(`${currentYear}-${month}-${day}T12:00:00Z`);
+          if (!Number.isNaN(rolloverCandidate.getTime())) {
+            parsedDueDate = `${currentYear}-${month}-${day}`;
+          }
         }
       }
-    }
-  }
+    }  }
 
   // Ensure due_date is stored as a proper date string to avoid timezone conversion
   let finalDueDate = parsedDueDate;

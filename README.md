@@ -12,6 +12,7 @@ Mind Clear is an intelligent productivity platform designed to support users wit
 - **Natural Language Interface**: Chat with AI to create goals, tasks, and calendar events
 - **Conversation Management**: Thread-based conversations with AI for better context retention
 - **Notification System**: Comprehensive notification center with email and in-app notifications
+- **Help System**: Interactive help overlays and guidance throughout the mobile app
 
 ### Auto-Scheduling Features
 - **Weather-Aware Scheduling**: Outdoor tasks automatically scheduled based on weather conditions
@@ -28,6 +29,8 @@ Mind Clear is an intelligent productivity platform designed to support users wit
 - **Error Handling**: Graceful error handling with user-friendly messages
 - **Loading States**: Smooth loading indicators throughout the app
 - **Drag & Drop**: Intuitive drag-and-drop for calendar events and task management
+- **Haptic Feedback**: Touch feedback for mobile interactions
+- **Offline Support**: Mobile app works offline with sync when connection restored
 
 ## 📁 Project Structure
 
@@ -64,20 +67,47 @@ mindgarden/
 │   │   │   ├── googleTokenStorage.js    # Google token management (2.1KB)
 │   │   │   ├── syncService.js           # Calendar sync service (3.6KB)
 │   │   │   ├── firebaseAdmin.js         # Firebase Admin SDK setup (2.1KB)
+│   │   │   ├── cacheService.js          # Caching service (2.1KB)
+│   │   │   ├── cidrValidator.js         # CIDR validation utility (1.8KB)
+│   │   │   ├── configValidator.js       # Configuration validation (1.5KB)
+│   │   │   ├── logger.js                # Logging service (1.2KB)
+│   │   │   ├── securityMonitor.js       # Security monitoring (1.1KB)
+│   │   │   ├── tokenEncryption.js       # Token encryption utility (0.9KB)
+│   │   │   ├── webSocketManager.js      # WebSocket management (0.8KB)
 │   │   │   ├── googleAuth.js            # Google auth utilities (351B)
 │   │   │   └── jwtUtils.js              # JWT utilities (456B)
 │   │   ├── 📁 services/                 # Business services
 │   │   │   └── notificationService.js   # Email & in-app notifications (15KB)
 │   │   ├── 📁 middleware/               # Express middleware
-│   │   │   └── auth.js                  # Authentication middleware (539B)
+│   │   │   ├── auth.js                  # Authentication middleware (539B)
+│   │   │   ├── enhancedAuth.js          # Enhanced authentication (1.2KB)
+│   │   │   ├── requestTracking.js       # Request tracking middleware (0.8KB)
+│   │   │   └── security.js              # Security middleware (0.6KB)
 │   │   └── server.js                    # Main server file (7.9KB)
 │   ├── 📁 tests/                        # Backend test files
+│   │   ├── AI_FUNCTION_TEST_LIST.md     # AI function test documentation
+│   │   ├── calendarEvents.test.js       # Calendar events tests
+│   │   ├── calendarUpdateTimeOnly.test.js # Calendar update tests
+│   │   ├── compressionFilter.test.js    # Compression filter tests
+│   │   ├── dateParser.test.js           # Date parser tests
+│   │   ├── dateParsing.test.js          # Date parsing tests
+│   │   ├── geminiService.test.js        # AI service tests
+│   │   ├── goalTitles.endpoint.test.js  # Goal titles endpoint tests
+│   │   ├── googleAuth.mobile.test.js    # Google auth mobile tests
+│   │   ├── responseLanguage.test.js     # Response language tests
+│   │   ├── serverHealth.test.js         # Server health tests
+│   │   ├── travelTimeService.test.js    # Travel time service tests
+│   │   ├── weatherService.test.js       # Weather service tests
+│   │   └── setup.js                     # Test setup configuration
 │   ├── package.json                     # Backend dependencies
 │   ├── env.example                      # Environment variables template
+│   ├── env.development.example          # Development environment template
+│   ├── env.production.example           # Production environment template
 │   ├── vitest.config.js                 # Test configuration
 │   ├── GOAL_HIERARCHY_API.md           # Goal API documentation
-│   ├── SECURITY_FIXES.md               # Security documentation
-│   └── FIREBASE_SETUP_INSTRUCTIONS.md  # Firebase setup guide
+│   ├── GOAL_TITLES_API.md              # Goal titles API documentation
+│   ├── TRUST_PROXY_SECURITY.md         # Trust proxy security documentation
+│   └── deploy-logging-fix.md           # Deployment logging fix documentation
 │
 ├── 📁 frontend/                         # React frontend application
 │   ├── 📁 src/
@@ -110,46 +140,63 @@ mindgarden/
 │   │   │   ├── AuthContext.jsx          # Authentication context (4.7KB)
 │   │   │   └── AIActionContext.jsx      # AI action context (1.1KB)
 │   │   ├── 📁 utils/                    # Frontend utilities
-│   │   │   └── timezones.js             # Timezone utilities (4.7KB)
+│   │   │   ├── timezones.js             # Timezone utilities (4.7KB)
+│   │   │   ├── dateUtils.ts             # Date manipulation utilities (2.2KB)
+│   │   │   ├── validation.ts            # Form validation utilities (1.1KB)
+│   │   │   └── errorHandling.ts         # Error handling utilities (0.8KB)
 │   │   ├── 📁 pages/                    # Page components
 │   │   │   └── Dashboard.jsx            # Main dashboard (11KB)
 │   │   ├── 📁 assets/                   # Static assets
 │   │   ├── 📁 tests/                    # Frontend test files
+│   │   │   └── App.test.js              # App component tests
 │   │   ├── App.jsx                      # Main app component (1.7KB)
 │   │   ├── App.css                      # App styles (3.6KB)
 │   │   ├── index.css                    # Global styles (2.2KB)
 │   │   └── main.jsx                     # App entry point (244B)
+│   ├── 📁 dist/                         # Built frontend assets
 │   ├── package.json                     # Frontend dependencies
 │   ├── vite.config.js                   # Vite configuration
 │   ├── tailwind.config.js               # Tailwind CSS configuration
 │   ├── postcss.config.js                # PostCSS configuration
 │   ├── vitest.config.js                 # Test configuration
 │   ├── vercel.json                      # Vercel deployment config
+│   ├── test-csp.js                      # CSP testing script
+│   ├── verify-csp-production.js         # CSP verification script
 │   └── index.html                       # HTML template
 │
 ├── 📁 SQL/                              # Database schema & migrations
-│   ├── database_schema.sql              # Main database schema (9.9KB)
-│   ├── automatic_task_scheduling_migration.sql # Auto-scheduling migration (7.2KB)
-│   ├── notifications_table_migration.sql # Notifications migration (3.5KB)
-│   ├── milestones_steps_rls_policies.sql # RLS policies (3.0KB)
-│   ├── automatic_task_scheduling_rollback.sql # Rollback script (2.3KB)
-│   ├── fix_dashboard_view.sql           # Dashboard view fix (1.2KB)
-│   ├── step_completed_migration.sql     # Step completion migration (256B)
-│   └── automatic_task_scheduling_database_docs.md # Database documentation (5.7KB)
+│   ├── 📁 migrations/                   # Database migrations
+│   │   ├── 2025-08-15_add_event_type_goal_id_all_day_to_calendar_events.sql
+│   │   ├── 2025-08-16_0001_guided_brain_dump_today_focus.sql
+│   │   ├── 2025-08-16_0002_user_profile_fields_and_enums.sql
+│   │   ├── 2025-08-16_0003_steps_add_completed.sql
+│   │   ├── 2025-08-16_0004_auto_task_scheduling_core.sql
+│   │   ├── 2025-08-16_0005_notifications_table.sql
+│   │   ├── 2025-08-16_0006_milestones_steps_rls_policies.sql
+│   │   ├── 2025-08-16_0007_fix_auto_scheduling_dashboard_view.sql
+│   │   ├── 2025-08-16_0008_calendar_events_add_event_type_goal_id_all_day.sql
+│   │   ├── 2025-08-16_0009_add_conversations_and_google_tokens.sql
+│   │   ├── 2025-08-22_0010_add_missing_task_columns.sql
+│   │   ├── 2025-08-22_0011_sync_task_status_completed.sql
+│   │   ├── 2025-08-22_0012_drop_completed_from_tasks.sql
+│   │   ├── 2025-08-24_0013_user_app_preferences.sql
+│   │   ├── 2025-08-26_0014_add_subscription_tier_to_users.sql
+│   │   ├── 2025-08-27_0015_calendar_first_import_and_index.sql
+│   │   ├── 2025-09-05_0016_notification_preferences_and_devices.sql
+│   │   ├── 2025-09-05_0017_add_reminder_sent_to_tasks.sql
+│   │   ├── 2025-09-05_0018_add_completed_to_milestones.sql
+│   │   ├── 2025-09-05_0019_archived_notifications.sql
+│   │   ├── 2025-09-15_0020_add_description_to_milestones.sql
+│   │   ├── 2025-09-16_0021_performance_optimization_indexes.sql
+│   │   └── README.md                    # Migration documentation
+│   ├── 📁 rollbacks/                    # Migration rollback scripts
+│   │   ├── 2025-08-16_0004_auto_task_scheduling_core.rollback.sql
+│   │   └── README.md                    # Rollback documentation
+│   ├── 📁 schema/                       # Database schema snapshots
+│   │   └── 000_full_schema_snapshot.sql # Full database schema
+│   └── README.md                        # Database documentation
 │
-├── 📁 documentation/                    # Project documentation
-│   ├── AUTO_SCHEDULING_API.md          # Auto-scheduling API docs (6.2KB)
-│   ├── api_endpoints.md                 # API endpoint documentation (5.9KB)
-│   ├── DEPLOYMENT.md                    # Deployment guide (4.5KB)
-│   ├── MVP_DEPLOYMENT_CHECKLIST.md     # MVP deployment checklist (3.3KB)
-│   └── DEPLOYMENT_CHECKLIST.md         # General deployment checklist (1.5KB)
-│
-├── 📁 ServerUtilities/                  # Development utilities
-│   ├── start-all-servers.ps1           # PowerShell server startup (3.1KB)
-│   ├── setup-bugbot.ps1                # BugBot setup script (3.1KB)
-│   └── start-all-servers.bat           # Batch server startup (1.4KB)
-│
-├── 📁 mobile/                           # React Native mobile app (in development)
+├── 📁 mobile/                           # React Native mobile app
 │   ├── 📁 src/                          # Mobile app source
 │   │   ├── 📁 components/               # Reusable React Native components
 │   │   │   ├── 📁 common/               # Common UI components
@@ -169,11 +216,15 @@ mindgarden/
 │   │   │   │   ├── GoalsListModal.tsx   # Goals list modal component (12KB)
 │   │   │   │   ├── GoalCard.tsx         # Goal card display component (0B)
 │   │   │   │   └── GoalForm.tsx         # Goal form component (0B)
-│   │   │   └── 📁 tasks/                # Task-related components
-│   │   │       ├── TaskForm.tsx         # Task form component (27KB)
-│   │   │       ├── TaskCard.tsx         # Task card display component (13KB)
-│   │   │       ├── AutoSchedulingPreferencesModal.tsx # Auto-scheduling preferences (14KB)
-│   │   │       └── 📁 __tests__/        # Task component tests
+│   │   │   ├── 📁 tasks/                # Task-related components
+│   │   │   │   ├── TaskForm.tsx         # Task form component (27KB)
+│   │   │   │   ├── TaskCard.tsx         # Task card display component (13KB)
+│   │   │   │   ├── AutoSchedulingPreferencesModal.tsx # Auto-scheduling preferences (14KB)
+│   │   │   │   └── 📁 __tests__/        # Task component tests
+│   │   │   └── 📁 help/                 # Help system components
+│   │   │       ├── HelpIcon.tsx         # Help icon component (0B)
+│   │   │       ├── HelpOverlay.tsx      # Help overlay component (0B)
+│   │   │       └── HelpTarget.tsx       # Help target component (0B)
 │   │   ├── 📁 screens/                  # Screen components
 │   │   │   ├── 📁 auth/                 # Authentication screens
 │   │   │   │   ├── LoginScreen.tsx      # Login screen (4.5KB)
@@ -181,34 +232,87 @@ mindgarden/
 │   │   │   ├── 📁 ai/                   # AI chat screens
 │   │   │   │   └── AIChatScreen.tsx     # AI chat interface (24KB)
 │   │   │   ├── 📁 calendar/             # Calendar screens
-│   │   │   │   └── CalendarScreen.tsx   # Calendar view screen (0B)
+│   │   │   │   ├── CalendarScreen.tsx   # Calendar view screen (0B)
+│   │   │   │   └── README.md            # Calendar screen documentation
 │   │   │   ├── 📁 goals/                # Goal management screens
 │   │   │   │   ├── GoalsScreen.tsx      # Goals list screen (32KB)
 │   │   │   │   ├── GoalDetailScreen.tsx # Goal detail view (16KB)
 │   │   │   │   └── GoalFormScreen.tsx   # Goal creation/editing (18KB)
-│   │   │   └── 📁 tasks/                # Task management screens
-│   │   │       ├── TasksScreen.tsx      # Tasks list screen (18KB)
-│   │   │       ├── TaskDetailScreen.tsx # Task detail view (9.8KB)
-│   │   │       └── TaskFormScreen.tsx   # Task creation/editing (2.8KB)
+│   │   │   ├── 📁 tasks/                # Task management screens
+│   │   │   │   ├── TasksScreen.tsx      # Tasks list screen (18KB)
+│   │   │   │   ├── TaskDetailScreen.tsx # Task detail view (9.8KB)
+│   │   │   │   └── TaskFormScreen.tsx   # Task creation/editing (2.8KB)
+│   │   │   └── 📁 profile/              # Profile management screens
+│   │   │       └── ProfileScreen.tsx    # User profile screen (0B)
 │   │   ├── 📁 navigation/               # Navigation configuration
 │   │   │   ├── AppNavigator.tsx         # Main app navigation (2.1KB)
 │   │   │   ├── TabNavigator.tsx         # Tab navigation setup (1.8KB)
 │   │   │   └── types.ts                 # Navigation type definitions (423B)
 │   │   ├── 📁 services/                 # API and business services
 │   │   │   ├── api.ts                   # API client and endpoints (18KB)
+│   │   │   ├── apiService.ts            # Enhanced API service (12KB)
 │   │   │   ├── auth.ts                  # Authentication service (12KB)
 │   │   │   ├── googleAuth.ts            # Google Sign-In service (8.1KB)
 │   │   │   ├── config.ts                # Configuration service (2.3KB)
-│   │   │   └── storage.ts               # Local storage service (0B)
+│   │   │   ├── enhancedApi.ts           # Enhanced API client (1.8KB)
+│   │   │   ├── errorHandling.ts         # Error handling service (1.5KB)
+│   │   │   ├── notificationService.ts   # Notification service (1.2KB)
+│   │   │   ├── offline.ts               # Offline support service (1.1KB)
+│   │   │   ├── onboarding.ts            # Onboarding service (0.9KB)
+│   │   │   ├── secureConfig.ts          # Secure configuration (0.8KB)
+│   │   │   ├── secureStorage.ts         # Secure storage service (0.7KB)
+│   │   │   ├── storage.ts               # Local storage service (0B)
+│   │   │   ├── storageMigration.ts      # Storage migration service (0B)
+│   │   │   ├── 📁 __tests__/            # Service tests
+│   │   │   │   └── tasksAPI.focusNext.test.ts # Tasks API tests
+│   │   │   └── README.md                # Services documentation
 │   │   ├── 📁 themes/                   # Design system and theming
 │   │   │   ├── colors.ts                # Color palette definitions (628B)
 │   │   │   ├── spacing.ts               # Spacing and layout constants (235B)
 │   │   │   └── typography.ts            # Typography definitions (723B)
 │   │   ├── 📁 types/                    # TypeScript type definitions
-│   │   │   └── autoScheduling.ts        # Auto-scheduling type definitions (2.3KB)
-│   │   └── 📁 utils/                    # Utility functions
-│   │       ├── dateUtils.ts             # Date manipulation utilities (2.2KB)
-│   │       └── validation.ts            # Form validation utilities (0B)
+│   │   │   ├── autoScheduling.ts        # Auto-scheduling type definitions (2.3KB)
+│   │   │   ├── api.ts                   # API type definitions (1.8KB)
+│   │   │   ├── auth.ts                  # Authentication types (1.2KB)
+│   │   │   └── navigation.ts            # Navigation types (0.9KB)
+│   │   ├── 📁 utils/                    # Utility functions
+│   │   │   ├── dateUtils.ts             # Date manipulation utilities (2.2KB)
+│   │   │   ├── validation.ts            # Form validation utilities (0B)
+│   │   │   ├── animations.ts            # Animation utilities (0B)
+│   │   │   ├── errorRecovery.ts         # Error recovery utilities (0B)
+│   │   │   ├── errorSanitizer.ts        # Error sanitization utilities (0B)
+│   │   │   ├── hapticFeedback.ts        # Haptic feedback utilities (0B)
+│   │   │   ├── lazyListUtils.tsx        # Lazy list utilities (0B)
+│   │   │   ├── lazyLoading.tsx          # Lazy loading utilities (0B)
+│   │   │   ├── logger.ts                # Logging utilities (0B)
+│   │   │   ├── robustLazyLoading.tsx    # Robust lazy loading utilities (0B)
+│   │   │   ├── screenPreloader.ts       # Screen preloader utilities (0B)
+│   │   │   └── 📁 gsignin-assets/       # Google Sign-In assets
+│   │   │       ├── 📁 dark/             # Dark theme assets
+│   │   │       ├── 📁 light/            # Light theme assets
+│   │   │       └── 📁 neutral/          # Neutral theme assets
+│   │   ├── 📁 hooks/                    # Custom React hooks (empty)
+│   │   ├── 📁 contexts/                 # React contexts
+│   │   │   ├── AuthContext.tsx          # Authentication context (4.7KB)
+│   │   │   └── AIActionContext.tsx      # AI action context (1.1KB)
+│   │   ├── 📁 assets/                   # Static assets
+│   │   │   └── mindclear-logo.svg       # Mind Clear logo
+│   │   ├── 📁 test/                     # Test utilities
+│   │   │   └── 📁 __mocks__/            # Test mocks
+│   │   ├── App.tsx                      # Mobile app entry point
+│   │   └── index.js                     # Mobile app entry point
+│   ├── 📁 android/                      # Android configuration
+│   │   └── 📁 app/
+│   │       └── google-services.json     # Firebase Android config
+│   ├── 📁 android-assets/               # Android-specific assets
+│   ├── 📁 ios/                          # iOS configuration
+│   ├── 📁 build/                        # Build artifacts
+│   ├── 📁 docs/                         # Mobile documentation
+│   │   └── ENHANCED_ERROR_HANDLING.md   # Error handling documentation
+│   ├── 📁 scripts/                      # Build and utility scripts
+│   │   ├── analyze-bundle.js            # Bundle analysis script
+│   │   ├── generate-android-icons.mjs   # Android icon generation
+│   │   └── optimize-images.js           # Image optimization script
 │   ├── package.json                     # Mobile dependencies
 │   ├── App.tsx                          # Mobile app entry point
 │   ├── README.md                        # Mobile app documentation
@@ -216,27 +320,30 @@ mindgarden/
 │   ├── app.json                         # Expo configuration
 │   ├── babel.config.js                  # Babel configuration
 │   ├── metro.config.js                  # Metro bundler config
+│   ├── react-native.config.js           # React Native configuration
 │   ├── jest.config.js                   # Test configuration
+│   ├── jest.setup.js                    # Jest setup configuration
 │   ├── tsconfig.json                    # TypeScript configuration
-│   ├── .eslintrc.js                     # ESLint configuration
-│   ├── .prettierrc.js                   # Prettier configuration
-│   ├── .watchmanconfig                  # Watchman configuration
+│   ├── eslint.config.js                 # ESLint configuration
 │   ├── Gemfile                          # Ruby dependencies
 │   ├── index.js                         # Mobile app entry point
-│   ├── 📁 android/                      # Android configuration
-│   │   └── 📁 app/
-│   │       └── google-services.json     # Firebase Android config
-│   ├── 📁 ios/                          # iOS configuration
+│   ├── fix-encoding.ps1                 # Encoding fix script
 │   └── 📁 __tests__/                    # Mobile test files
+│       └── App.test.tsx                 # App component tests
 │
-├── 📁 FeaturePRDs/                      # Product Requirements Documents
-│   └── PRD_ Foci Mobile Calendar Page.md # Mobile calendar PRD (legacy filename)
+├── 📁 jules-scratch/                    # Development and testing utilities
+│   └── 📁 verification/                 # Verification scripts
+│       ├── error.png                    # Error screenshot
+│       └── verify_notifications.py      # Notification verification script
 │
 ├── 📁 .github/                          # GitHub configuration
 ├── 📁 .cursor/                          # Cursor IDE configuration
 ├── .cursorrules                         # Cursor IDE rules (2.1KB)
 ├── .gitignore                           # Git ignore rules (1.4KB)
-└── README.md                            # This file (8.4KB)
+├── start-all-servers.bat               # Windows server startup script
+├── build-release.log                   # Build release log
+├── lint . --ext .ts,.tsx,.js,.jsx      # Lint configuration
+└── README.md                            # This file
 ```
 
 ## 🛠️ Tech Stack
@@ -259,6 +366,8 @@ mindgarden/
 - **GraphHopper API** for travel time calculations (1000 free requests/day)
 - **Nodemailer** for email notifications
 - **Node-cron** for background job scheduling
+- **WebSocket** for real-time communication
+- **Redis** for caching (via cacheService)
 
 ### Mobile
 - **React Native** with Expo
@@ -270,6 +379,8 @@ mindgarden/
 - **React Native Gesture Handler** for touch interactions
 - **@react-native-google-signin/google-signin** for Google Sign-In
 - **@react-native-firebase/auth** for Firebase authentication
+- **React Native Haptic Feedback** for touch feedback
+- **React Native Reanimated** for animations
 
 ### Database Schema
 - **Users**: Extended Supabase auth with timezone and preferences
@@ -279,11 +390,14 @@ mindgarden/
 - **Chat History**: AI conversation tracking with intent classification
 - **Auto-Scheduling**: User preferences, scheduling history, and task scheduling preferences
 - **Notifications**: Comprehensive notification system with read/unread tracking
+- **Conversations**: Thread-based AI conversation management
+- **Google Tokens**: Secure Google OAuth token storage
 
 ### Infrastructure
 - **Railway** for backend deployment
 - **Vercel** for frontend deployment
 - **Supabase** for database hosting
+- **Firebase** for mobile authentication
 
 ## 📋 Prerequisites
 
@@ -297,8 +411,8 @@ Before running this application, you'll need:
 4. **Firebase** project with:
    - Firebase Admin SDK service account
    - Google Sign-In configuration
-4. **Railway** account (for backend deployment)
-5. **Vercel** account (for frontend deployment)
+5. **Railway** account (for backend deployment)
+6. **Vercel** account (for frontend deployment)
 
 ## 🔧 Environment Variables
 
@@ -324,6 +438,11 @@ FIREBASE_AUTH_URI=https://accounts.google.com/o/oauth2/auth
 FIREBASE_TOKEN_URI=https://oauth2.googleapis.com/token
 FIREBASE_AUTH_PROVIDER_X509_CERT_URL=https://www.googleapis.com/oauth2/v1/certs
 FIREBASE_CLIENT_X509_CERT_URL=your_firebase_client_x509_cert_url
+
+# Security and Monitoring
+TRUST_PROXY=true
+SECURITY_MONITORING_ENABLED=true
+CACHE_ENABLED=true
 ```
 
 ### Frontend (.env)
@@ -345,8 +464,8 @@ GOOGLE_IOS_CLIENT_ID=your_google_ios_client_id
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/foci.git
-   cd foci
+   git clone https://github.com/yourusername/mindclear.git
+   cd mindclear
    ```
 
 2. **Backend Setup**
@@ -367,16 +486,25 @@ GOOGLE_IOS_CLIENT_ID=your_google_ios_client_id
    npm run dev
    ```
 
-### Database Setup
-
-1. **Run the database schema** in your Supabase SQL Editor:
-   ```sql
-   -- Run the contents of SQL/database_schema.sql
+4. **Mobile Setup**
+   ```bash
+   cd mobile
+   npm install
+   # Configure Firebase and Google Sign-In
+   npx expo start
    ```
 
-2. **Apply auto-scheduling migration** (if not already included):
+### Database Setup
+
+1. **Run the database migrations** in your Supabase SQL Editor:
    ```sql
-   -- Run the contents of SQL/automatic_task_scheduling_migration.sql
+   -- Run migrations in order from SQL/migrations/
+   -- Start with the earliest timestamp and work forward
+   ```
+
+2. **Apply the full schema** (if starting fresh):
+   ```sql
+   -- Run the contents of SQL/schema/000_full_schema_snapshot.sql
    ```
 
 ### Production Deployment
@@ -421,17 +549,24 @@ GOOGLE_IOS_CLIENT_ID=your_google_ios_client_id
 - **User Preferences**: Comprehensive scheduling preferences
 - **Background Jobs**: Automated scheduling runs
 - **Error Handling**: Comprehensive error handling and fallbacks
+- **Security Features**: Enhanced authentication, request tracking, and security monitoring
+- **Caching System**: Redis-based caching for improved performance
+- **Mobile App**: Complete React Native app with offline support
+- **Help System**: Interactive help overlays and guidance
+- **Profile Management**: User profile screens and settings
 
 ### 🔄 In Progress
 - **Performance Optimization**: Ongoing optimization of auto-scheduling algorithms
-- **Mobile Responsiveness**: Further mobile UI improvements
+- **Mobile UI Polish**: Further mobile UI improvements and animations
 - **Testing**: Comprehensive API and frontend testing
+- **Error Recovery**: Enhanced error recovery and offline capabilities
 
 ### ⏳ Planned Features
 - **Email Digest System**: Daily/weekly email summaries
-- **Mobile App**: Native mobile application
 - **Advanced Analytics**: User productivity insights
 - **Team Collaboration**: Shared goals and tasks
+- **Voice Commands**: Voice-activated task creation
+- **Smart Notifications**: AI-powered notification timing
 
 ## 🧪 Testing
 
@@ -444,6 +579,12 @@ npm test
 ### Frontend Testing
 ```bash
 cd frontend
+npm test
+```
+
+### Mobile Testing
+```bash
+cd mobile
 npm test
 ```
 
@@ -468,11 +609,28 @@ npm run test:ai
 - **User Preferences**: Personalized scheduling based on user preferences
 - **Recurring Tasks**: Automatic handling of daily, weekly, and monthly tasks
 
+### Security & Performance
+- **Enhanced Authentication**: Multi-layer authentication with Firebase integration
+- **Request Tracking**: Comprehensive request monitoring and logging
+- **Security Monitoring**: Real-time security threat detection
+- **Caching**: Redis-based caching for improved performance
+- **Token Encryption**: Secure token storage and encryption
+- **CIDR Validation**: Network security validation
+
 ### Database Design
 - **Row Level Security**: Comprehensive RLS policies for data protection
 - **Indexing**: Optimized database indexes for performance
 - **Triggers**: Automatic timestamp updates and user preference initialization
 - **Views**: Dashboard views for analytics and reporting
+- **Migration System**: Comprehensive migration and rollback system
+
+### Mobile Features
+- **Offline Support**: Full offline functionality with sync
+- **Haptic Feedback**: Touch feedback for better user experience
+- **Lazy Loading**: Optimized loading for better performance
+- **Error Recovery**: Robust error handling and recovery
+- **Help System**: Interactive help and guidance
+- **Secure Storage**: Encrypted local storage for sensitive data
 
 ## 🤝 Contributing
 
@@ -488,10 +646,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆘 Support
 
-For support, email support@foci.app or create an issue in this repository.
+For support, email mindclear-studio@gmail.com or create an issue in this repository.
 
 ---
 
 **Mind Clear** - Empowering productivity through intelligent assistance. 
 
-*Built with ❤️ for users managing anxiety and depression through structured productivity.* 
+*Built with ❤️ for users managing anxiety and depression through structured productivity.*

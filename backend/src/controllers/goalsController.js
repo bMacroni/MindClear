@@ -6,9 +6,29 @@ const DEBUG = process.env.DEBUG_LOGS === 'true';
 export async function createGoal(req, res) {
   const { title, description, target_completion_date, category, milestones } = req.body;
   const user_id = req.user.id;
-  
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
+
+  // Track analytics event
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await supabase
+      .from('analytics_events')
+      .insert({
+        user_id,
+        event_name: 'goal_created',
+        payload: {
+          source: 'manual',
+          has_milestones: milestones && milestones.length > 0,
+          category: category || 'other',
+          timestamp: new Date().toISOString()
+        }
+      });
+  } catch (analyticsError) {
+    // Don't fail the request if analytics fails
+    logger.warn('Failed to track goal creation analytics:', analyticsError);
+  }
   
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -504,14 +524,15 @@ export async function createTaskFromNextGoalStep(userId, token, args = {}) {
     if (milestone.steps && Array.isArray(milestone.steps)) {
       // Sort steps by order and find first unfinished
       const sortedSteps = milestone.steps.sort((a, b) => a.order - b.order);
-      selectedStep = sortedSteps.find(s => !s.completed) || sortedSteps[0];
-      if (selectedStep) break;
+      const incompleteStep = sortedSteps.find(s => !s.completed);
+      if (incompleteStep) {
+        selectedStep = incompleteStep;
+        break;
+      }
     }
   }
 
-  if (!selectedStep) return { error: 'No steps found for this goal' };
-
-  // 4) Create the task using tasks table, linking to goal
+  if (!selectedStep) return { error: 'All steps for this goal are already completed' };  // 4) Create the task using tasks table, linking to goal
   const taskPayload = {
     user_id: userId,
     title: selectedStep.text,
@@ -559,7 +580,7 @@ export async function lookupGoalbyTitle(userId, token, args = {}) {
     query = query.eq('category', args.category);
   }
   if (args.priority) {
-    query = query.eq('priority', args.priority);
+    query = query.eq('category', args.priority);
   }
   if (args.status) {
     query = query.eq('status', args.status);
@@ -589,6 +610,26 @@ export async function lookupGoalbyTitle(userId, token, args = {}) {
 export async function createGoalFromAI(args, userId, userContext) {
   const { title, description, due_date, priority, milestones } = args;
   const token = userContext?.token;
+
+  // Track analytics event for AI-created goals
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await supabase
+      .from('analytics_events')
+      .insert({
+        user_id: userId,
+        event_name: 'goal_created',
+        payload: {
+          source: 'ai',
+          has_milestones: milestones && milestones.length > 0,
+          priority: priority || 'medium',
+          timestamp: new Date().toISOString()
+        }
+      });
+  } catch (analyticsError) {
+    // Don't fail the request if analytics fails
+    logger.warn('Failed to track AI goal creation analytics:', analyticsError);
+  }
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
       headers: {

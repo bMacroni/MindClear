@@ -9,6 +9,7 @@ import { usersAPI } from '../../services/api';
 import { SuccessToast } from '../../components/common/SuccessToast';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
 import { authService } from '../../services/auth';
+import MobileAnalyticsDashboard from '../../components/analytics/MobileAnalyticsDashboard';
 
 type Profile = {
   id: string;
@@ -21,6 +22,7 @@ type Profile = {
   theme_preference?: 'light'|'dark';
   notification_preferences?: any;
   geographic_location?: string;
+  is_admin?: boolean;
 };
 
 type Prefs = {
@@ -165,6 +167,11 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.statusText}>{profile.account_status}</Text>
           </View>
         )}
+        {profile.is_admin && (
+          <View style={styles.adminBadge}>
+            <Text style={styles.adminBadgeText}>ADMIN</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -255,6 +262,26 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={styles.ctaText}>{savingProfile ? 'Saving…' : 'Save Changes'}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Admin Section - Only visible to admin users */}
+      {profile?.is_admin && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Admin</Text>
+          <View style={styles.rowStatic}>
+            <Icon name="shield-check" size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Admin Access</Text>
+            <Text style={styles.rowValue}>Enabled</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => navigation.navigate('AnalyticsDashboard' as never)}
+          >
+            <Icon name="graph" size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Analytics Dashboard</Text>
+            <Icon name="chevron-right" size={16} color={colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Security</Text>
@@ -357,6 +384,20 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: typography.fontSize.xs,
     textTransform: 'capitalize',
+  },
+  adminBadge: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    marginTop: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  adminBadgeText: {
+    color: colors.secondary,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold as any,
+    textTransform: 'uppercase',
   },
   section: {
     marginBottom: spacing.lg,

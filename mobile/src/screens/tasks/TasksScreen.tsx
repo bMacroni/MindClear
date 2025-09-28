@@ -21,6 +21,7 @@ import { LazyList } from '../../utils/lazyListUtils';
 import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { offlineService } from '../../services/offline';
+import analyticsService from '../../services/analyticsService';
 import Icon from 'react-native-vector-icons/Octicons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -109,6 +110,17 @@ const TasksScreen: React.FC = () => {
     loadData();
     loadSchedulingPreferences();
   }, []);
+
+  // Track screen view
+  useEffect(() => {
+    analyticsService.trackScreenView('tasks', {
+      taskCount: tasks.length,
+      completedCount: tasks.filter(t => t.status === 'completed').length,
+      focusTaskCount: tasks.filter(t => t.is_today_focus).length
+    }).catch(error => {
+      console.warn('Failed to track screen view analytics:', error);
+    });
+  }, [tasks]);
 
   // Auto refresh whenever the Tasks tab/screen gains focus (silent background refresh)
   useFocusEffect(
@@ -267,9 +279,27 @@ const TasksScreen: React.FC = () => {
   const handleToggleStatus = async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
     try {
       const updatedTask = await tasksAPI.updateTask(taskId, { status: newStatus });
-      setTasks(prev => prev.map(task => 
+      setTasks(prev => prev.map(task =>
         task.id === taskId ? updatedTask : task
       ));
+
+      // Track task completion analytics
+      if (newStatus === 'completed') {
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+          analyticsService.trackTaskCompleted({
+            taskId: task.id,
+            taskTitle: task.title,
+            priority: task.priority,
+            hasLocation: !!task.location,
+            hasEstimatedDuration: !!task.estimated_duration_minutes,
+            autoScheduleEnabled: task.auto_schedule_enabled,
+            isTodayFocus: task.is_today_focus
+          }).catch(error => {
+            console.warn('Failed to track task completion analytics:', error);
+          });
+        }
+      }
     } catch (error) {
       console.error('Error updating task status:', error);
       Alert.alert('Error', 'Failed to update task status');

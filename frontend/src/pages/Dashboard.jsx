@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import GoalList from '../components/GoalList'
 import TaskList from '../components/TaskList'
 import TasksPage from '../components/TasksPage'
@@ -7,11 +7,17 @@ import CalendarEvents from '../components/CalendarEvents'
 import AIChat from '../components/AIChat'
 import FeedbackModal from '../components/FeedbackModal';
 import SidebarNav from '../components/SidebarNav';
+import analyticsService from '../services/analyticsService';
 
 function Dashboard({ showSuccess }) {
   const [activeTab, setActiveTab] = useState('ai');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+
+  // Track screen views
+  useEffect(() => {
+    analyticsService.trackScreenView('dashboard', { tab: activeTab });
+  }, [activeTab]);
 
   // Logout handler
   const handleLogout = () => {

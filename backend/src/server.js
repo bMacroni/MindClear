@@ -44,6 +44,7 @@ import calendarRouter from './routes/calendar.js'
 import aiRouter from './routes/ai.js'
 import conversationsRouter from './routes/conversations.js'
 import userRouter from './routes/user.js'
+import analyticsRouter from './routes/analytics.js'
 import cron from 'node-cron';
 import { syncGoogleCalendarEvents } from './utils/syncService.js';
 import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
@@ -239,6 +240,10 @@ app.use('/api/conversations', conversationsRouter);
 if (process.env.DEBUG_LOGS === 'true') logger.info('Conversations router registered');
 
 app.use('/api/user', userRouter);
+
+if (process.env.DEBUG_LOGS === 'true') logger.info('Registering analytics router...');
+app.use('/api/analytics', analyticsRouter);
+if (process.env.DEBUG_LOGS === 'true') logger.info('Analytics router registered');
 
 async function getAllUserIds() {
   // Check if Supabase is initialized

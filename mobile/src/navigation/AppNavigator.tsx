@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar, View, ActivityIndicator } from 'react-native';
@@ -16,6 +16,7 @@ import GoalDetailScreen from '../screens/goals/GoalDetailScreen';
 import TaskFormScreen from '../screens/tasks/TaskFormScreen';
 import TaskDetailScreen from '../screens/tasks/TaskDetailScreen';
 import NotificationScreen from '../screens/notifications/NotificationScreen';
+import MobileAnalyticsDashboard from '../components/analytics/MobileAnalyticsDashboard';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -113,9 +114,13 @@ export default function AppNavigator() {
           name="TaskDetail" 
           component={TaskDetailScreen} 
         />
-        <Stack.Screen 
-          name="Notifications" 
-          component={NotificationScreen} 
+        <Stack.Screen
+          name="Notifications"
+          component={NotificationScreen}
+        />
+        <Stack.Screen
+          name="AnalyticsDashboard"
+          component={MobileAnalyticsDashboard}
         />
       </Stack.Navigator>
     </NavigationContainer>

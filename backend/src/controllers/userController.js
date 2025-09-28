@@ -75,6 +75,7 @@ export async function getUserProfile(req, res) {
       notification_preferences: data.notification_preferences,
       geographic_location: data.geographic_location,
       timezone: data.timezone,
+      is_admin: data.is_admin,
     });
   } catch (_) {
     res.json(data);

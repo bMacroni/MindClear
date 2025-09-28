@@ -344,8 +344,109 @@ export function getDetailedBlacklistStats() {
   };
 }
 
+/**
+ * Middleware to ensure user has internal/admin privileges
+ * Checks if the user has admin privileges for accessing internal endpoints
+ */
+export async function ensureInternalStaff(req, res, next) {
+  try {
+    // User should already be authenticated by requireAuth middleware
+    if (!req.user || !req.user.id) {
+      logger.warn('Authorization failed: User not authenticated', {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        endpoint: req.path,
+        method: req.method
+      });
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Create Supabase client with the JWT to access user profile data
+    const token = req.token || extractTokenFromRequest(req);
+    if (!token) {
+      logger.warn('Authorization failed: No token available for profile lookup', {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        endpoint: req.path,
+        method: req.method,
+        userId: req.user.id
+      });
+      return res.status(401).json({ error: 'Authentication token required' });
+    }
+
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+
+    // Get user profile data including admin flag
+    const { data: userProfile, error } = await supabase
+      .from('users')
+      .select('is_admin')
+      .eq('id', req.user.id)
+      .maybeSingle();
+
+    if (error) {
+      logger.error('Error fetching user profile for admin check:', {
+        error: error.message,
+        userId: req.user.id,
+        endpoint: req.path,
+        method: req.method
+      });
+      return res.status(500).json({ error: 'Failed to verify user permissions' });
+    }
+    // Check if user is admin
+    if (!userProfile?.is_admin) {
+      logger.warn('Authorization failed: User lacks admin privileges', {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        endpoint: req.path,
+        method: req.method,
+        userId: req.user.id,
+        isAdmin: userProfile?.is_admin || false
+      });
+
+      logSecurityEvent(SecurityEventTypes.AUTH_FAILURE, 3, {
+        reason: 'Insufficient privileges',
+        endpoint: req.path,
+        method: req.method,
+        userId: req.user.id
+      }, req);
+
+      return res.status(403).json({ error: 'Insufficient privileges. Admin access required.' });
+    }
+
+    // Add admin flag to user object for convenience
+    req.user.is_admin = userProfile.is_admin;
+
+    // Log successful authorization
+    logger.info('Admin authorization successful', {
+      userId: req.user.id,
+      isAdmin: req.user.is_admin,
+      endpoint: req.path,
+      method: req.method
+    });
+
+    next();
+  } catch (error) {
+    logger.error('Admin authorization error:', {
+      error: error.message,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      endpoint: req.path,
+      method: req.method,
+      userId: req.user?.id
+    });
+    return res.status(500).json({ error: 'Authorization service error' });
+  }
+}
+
 export default {
   requireAuth,
+  ensureInternalStaff,
   verifyJwt,
   blacklistToken,
   isTokenBlacklisted,
