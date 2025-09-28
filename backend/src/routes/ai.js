@@ -77,7 +77,7 @@ router.post('/chat', requireAuth, async (req, res) => {
     // Don't await this, let it run in the background
     sendNotification(userId, notification).catch(err =>
       logger.error('sendNotification failed', err)
-    );    );
+    );
     
     res.json(finalResponse);
 

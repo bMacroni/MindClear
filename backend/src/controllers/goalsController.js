@@ -580,10 +580,10 @@ export async function lookupGoalbyTitle(userId, token, args = {}) {
     query = query.eq('category', args.category);
   }
   if (args.priority) {
-  if (args.priority) {
     query = query.eq('category', args.priority);
   }
-  if (args.status) {    query = query.eq('status', args.status);
+  if (args.status) {
+    query = query.eq('status', args.status);
   }
   if (args.due_date) {
     query = query.eq('target_completion_date', args.due_date);
