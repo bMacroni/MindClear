@@ -114,10 +114,17 @@ export async function getDashboardData(req, res) {
       case '30d':
         startDate.setDate(now.getDate() - 30);
         break;
+      case '90d':
+        startDate.setDate(now.getDate() - 90);
+        break;
       default:
         startDate.setDate(now.getDate() - 7);
     }
 
+    // …rest of analytics logic…
+  } catch (err) {
+    // error handling…
+  }
     // Get total events count
     const { data: totalEvents, error: eventsError } = await supabase
       .from('analytics_events')
