@@ -11,8 +11,13 @@ const getSecureApiBaseUrl = (): string => {
   try {
     return secureConfigService.getApiBaseUrl();
   } catch (error) {
-    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
-    return getSecureApiBaseUrl();
+    logger.warn('Failed to get secure API base URL, falling back to config service');
+    try {
+      return configService.getBaseUrl();
+    } catch (_e) {
+      // Final safe fallback for development
+      return 'http://192.168.1.66:5000/api';
+    }
   }
 };
 import {
@@ -1206,7 +1211,7 @@ class WebSocketService {
             logger.debug('WebSocket: Authentication sent');
           }
         } catch (error) {
-          console.error('WebSocket: Failed to authenticate:', error);
+          logger.warn('WebSocket: Failed to authenticate');
           // If authentication fails, close the connection to prevent retry loop
           if (this.ws) {
             this.ws.close(1000, 'Authentication failed');
@@ -1220,7 +1225,7 @@ class WebSocketService {
           
           // Handle authentication errors
           if (message.type === 'auth_error') {
-            console.error('WebSocket: Authentication error:', message.error);
+            logger.warn('WebSocket: Authentication error:', message.message || message.error);
             // Close connection to prevent retry loop
             if (this.ws) {
               this.ws.close(1000, 'Authentication failed');
@@ -1232,13 +1237,13 @@ class WebSocketService {
             this.onMessageCallback(message);
           }
         } catch (error) {
-          console.error('WebSocket: Error parsing message:', error);
+          logger.debug('WebSocket: Error parsing message');
         }
       };
 
-      this.ws.onerror = (error) => {
-        console.error('WebSocket: Connection error:', error);
-        // Don't log the full error object to avoid console spam
+      this.ws.onerror = (_error) => {
+        logger.debug('WebSocket: Connection error');
+        // Intentionally avoiding verbose error object to reduce console noise
       };
 
       this.ws.onclose = (event) => {
@@ -1264,7 +1269,7 @@ class WebSocketService {
       };
 
     } catch (error) {
-      console.error('WebSocket: Failed to initialize connection:', error);
+      logger.warn('WebSocket: Failed to initialize connection');
     }
   }
 
