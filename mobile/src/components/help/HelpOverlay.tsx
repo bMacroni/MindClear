@@ -19,14 +19,14 @@ export const HelpOverlay: React.FC = () => {
   // When overlay toggles off, frozen targets reset.
   useEffect(() => {
     if (isHelpOverlayActive) {
-      if (targets.length) {
-        lastTargetsRef.current = targets;
+      const currentTargets = Object.values(targetLayouts);
+      if (currentTargets.length) {
+        lastTargetsRef.current = currentTargets;
       }
     } else {
       lastTargetsRef.current = [];
     }
-  }, [isHelpOverlayActive, targets]);
-
+  }, [isHelpOverlayActive, targetLayouts]);
   // Compute non-overlapping dim rectangles that exclude all target areas
   const dimRects = useMemo(() => {
     const frozen = lastTargetsRef.current.length ? lastTargetsRef.current : targets;

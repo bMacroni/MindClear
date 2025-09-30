@@ -75,7 +75,11 @@
   "engines": {
     "node": ">=18"
   },
+  "overrides": {
+    "markdown-it": "^13.0.2"
+  },
   "dependencyNotes": [
+    "2025-09-30 CST: added overrides to force 'markdown-it' >=13.0.2 due to ReDoS vulnerability from react-native-markdown-display",
     "2025-08-11 CST: added devDependency 'sharp' to generate Android launcher icons from assets/icon.svg",
     "2025-08-14 CST: added dependency 'react-native-svg' to render circular progress ring in Goals screen redesign",
     "2025-08-14 CST: added dependency 'date-fns' for due-date formatting in Goals screen redesign",

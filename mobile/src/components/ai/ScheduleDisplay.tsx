@@ -291,20 +291,37 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
       {/* Simplified: no header title */}
       <View style={styles.eventsContainer}>
         {groups.map((group, gIdx) => (
-          <View key={group.key} style={styles.daySection}>
-            <View style={styles.dayHeader}>
-              <Text style={styles.dayHeaderText}>{group.label}</Text>
+          <View key={group.key}>
+            <View style={styles.daySection}>
+              <View style={styles.dayHeader}>
+                <Text style={styles.dayHeaderText}>{group.label}</Text>
+              </View>
+              {group.events.map((event, index) => (
+                <TouchableOpacity
+                  key={`${group.key}:${index}`}
+                  style={styles.eventCard}
+                  onPress={() => handleSchedule(event)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Schedule ${event.activity} from ${formatTime(event.startTime)} to ${formatTime(event.endTime)}`}
+                  accessibilityHint="Double tap to add this event to your calendar"
+                >
+                  <Text style={styles.timeText}>
+                    {formatTime(event.startTime)} - {formatTime(event.endTime)}
+                  </Text>
+                  <Text
+                    selectable
+                    style={styles.activityText}
+                    numberOfLines={2}
+                  >
+                    {truncate(event.activity, 80)}
+                  </Text>
+                  {index < group.events.length - 1 && (
+                    <View style={styles.separator} />
+                  )}
+                </TouchableOpacity>
+              ))}
             </View>
-            {group.events.map((event, index) => (
-              <TouchableOpacity key={`${group.key}:${index}`} style={styles.eventCard} onPress={() => handleSchedule(event)}>
-                <Text style={styles.timeText}>
-                  {formatTime(event.startTime)} - {formatTime(event.endTime)}
-                </Text>
-                <Text selectable style={styles.activityText} numberOfLines={2}>{truncate(event.activity, 80)}</Text>
-                {index < group.events.length - 1 && <View style={styles.separator} />}
-              </TouchableOpacity>
-            ))}
-            {gIdx < groups.length - 1 && <View style={styles.dayDivider} />}
+            {gIdx < groups.length - 1 ? <View style={styles.dayDivider} /> : null}
           </View>
         ))}
       </View>

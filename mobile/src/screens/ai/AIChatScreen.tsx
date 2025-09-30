@@ -17,6 +17,9 @@ import { secureConfigService } from '../../services/secureConfig';
 import analyticsService from '../../services/analyticsService';
 import logger from '../../utils/logger';
 
+const BULK_DELETE_CONCURRENCY = 3;
+const BULK_DELETE_TIMEOUT_MS = 25000;
+
 // Helper function to get secure API base URL
 const getSecureApiBaseUrl = (): string => {
   try {
@@ -79,6 +82,7 @@ export default function AIChatScreen({ navigation, route }: any) {
   const [_onboardingState, setOnboardingState] = useState<OnboardingState>({ isCompleted: false });
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [pendingHelpMessage, setPendingHelpMessage] = useState<string | null>(null);
 
   // Quick actions configuration
   const quickActions: QuickAction[] = [
@@ -138,6 +142,7 @@ export default function AIChatScreen({ navigation, route }: any) {
   };
 
   const startNewConversation = async () => {
+    setLoading(true);
     try {
       const thread = await conversationService.createThread('New Conversation', null);
       const newConversation: Conversation = {
@@ -151,31 +156,34 @@ export default function AIChatScreen({ navigation, route }: any) {
       setConversations(prev => [newConversation, ...prev]);
       setCurrentConversationId(thread.id);
     } catch (err) {
-      console.error('Failed to create conversation thread:', err);
+      logger.error('Failed to create conversation thread:', err);
+      setError('Failed to create conversation. Please try again.');
     } finally {
+      setLoading(false);
       toggleSidebar();
     }
   };
 
-  const deleteConversation = (conversationId: string) => {
-    (async () => {
-      try {
-        // Attempt server delete (soft delete)
-        if (conversationId && conversationId.includes('-')) {
-          await conversationService.deleteThread(conversationId);
-        }
-      } catch (err) {
-        console.warn('Failed to delete server thread, removing locally anyway:', err);
-      } finally {
-        const updatedConversations = conversations.filter(c => c.id !== conversationId);
-        setConversations(updatedConversations);
-        if (conversationId === currentConversationId && updatedConversations.length > 0) {
-          setCurrentConversationId(updatedConversations[0].id);
-        } else if (updatedConversations.length === 0) {
-          startNewConversation();
-        }
+  const deleteConversation = async (conversationId: string) => {
+    setLoading(true);
+    try {
+      // Attempt server delete (soft delete)
+      if (conversationId && conversationId.includes('-')) {
+        await conversationService.deleteThread(conversationId);
       }
-    })();
+      const updatedConversations = conversations.filter(c => c.id !== conversationId);
+      setConversations(updatedConversations);
+      if (conversationId === currentConversationId && updatedConversations.length > 0) {
+        setCurrentConversationId(updatedConversations[0].id);
+      } else if (updatedConversations.length === 0) {
+        await startNewConversation();
+      }
+    } catch (err) {
+      logger.warn('Failed to delete conversation:', err);
+      setError('Failed to delete conversation. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const togglePinConversation = (conversationId: string) => {
@@ -184,15 +192,16 @@ export default function AIChatScreen({ navigation, route }: any) {
     ));
   };
 
-  const clearNonPinnedConversations = () => {
-    (async () => {
+  const clearNonPinnedConversations = async () => {
+    setLoading(true);
+    setError('');
       try {
         const hadPinned = conversations.some(c => c.isPinned);
         if (!hadPinned) {
           // No pinned: delete ALL threads on server then create a fresh one
           const allServerIds = conversations.map(c => c.id).filter(id => id && id.includes('-'));
           if (allServerIds.length) {
-            await conversationService.bulkDeleteThreads(allServerIds, { concurrency: 3, timeoutMs: 25000 });
+            await conversationService.bulkDeleteThreads(allServerIds, { concurrency: BULK_DELETE_CONCURRENCY, timeoutMs: BULK_DELETE_TIMEOUT_MS });
           }
           setConversations([]);
           await startNewConversation();
@@ -202,11 +211,8 @@ export default function AIChatScreen({ navigation, route }: any) {
         const toDelete = conversations.filter(c => !c.isPinned);
         const serverIds = toDelete.map(c => c.id).filter(id => id && id.includes('-'));
         if (serverIds.length) {
-          await conversationService.bulkDeleteThreads(serverIds, { concurrency: 3, timeoutMs: 25000 });
+          await conversationService.bulkDeleteThreads(serverIds, { concurrency: BULK_DELETE_CONCURRENCY, timeoutMs: BULK_DELETE_TIMEOUT_MS });
         }
-      } catch (err) {
-        console.warn('Failed to clear some threads on server:', err);
-      } finally {
         let pinnedSnapshot: Conversation[] = [];
         setConversations(prev => {
           pinnedSnapshot = prev.filter(c => c.isPinned);
@@ -217,8 +223,12 @@ export default function AIChatScreen({ navigation, route }: any) {
         } else if (pinnedSnapshot.length === 0) {
           await startNewConversation();
         }
+      } catch (err) {
+        logger.warn('Failed to clear conversations:', err);
+        setError('Failed to clear conversations. Please try again.');
+      } finally {
+        setLoading(false);
       }
-    })();
   };
 
   // Title updates are handled when sending messages
@@ -236,6 +246,8 @@ export default function AIChatScreen({ navigation, route }: any) {
   }, []);
   // Load persisted threads on mount
   useEffect(() => {
+    if (threadsLoaded) return;
+
     (async () => {
       try {
         const threads = await conversationService.listThreads();
@@ -262,14 +274,17 @@ export default function AIChatScreen({ navigation, route }: any) {
           setCurrentConversationId(mapped[0].id);
         }
       } catch (err) {
-        console.warn('Failed to load conversation threads:', err);
+        logger.warn('Failed to load conversation threads:', err);
+        setError('Failed to load conversations. Please try again.');
       } finally {
         setThreadsLoaded(true);
       }
     })();
-  }, []);
+  }, [threadsLoaded]);
 
   const loadThreadMessages = useCallback(async (threadId: string) => {
+    setLoading(true);
+    setError('');
     try {
       const data: ConversationThreadWithMessages = await conversationService.getThread(threadId);
       const msgs: Message[] = (data.messages || []).map(m => ({
@@ -284,14 +299,17 @@ export default function AIChatScreen({ navigation, route }: any) {
         title: data.thread.title || c.title,
       } : c)));
     } catch (err) {
-      console.warn('Failed to load thread messages:', err);
+      logger.warn('Failed to load thread messages:', err);
+      setError('Failed to load messages. Please try again.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
 
   
 
-  const handleHelpPress = useCallback(async () => {
+  const handleHelpPress = useCallback(async (messageToSend?: string) => {
     await OnboardingService.resetOnboarding();
     setShowOnboarding(true);
     setHasUserInteracted(false);
@@ -308,6 +326,9 @@ export default function AIChatScreen({ navigation, route }: any) {
     setConversations(prev => prev.map(c => 
       c.id === currentConversationId ? resetConversation : c
     ));
+    if (messageToSend) {
+      setPendingHelpMessage(messageToSend);
+    }
   }, [currentConversationId]);
 
   // Sign out is handled from Profile screen now
@@ -656,12 +677,18 @@ export default function AIChatScreen({ navigation, route }: any) {
     }
   }, [conversations, currentConversation, currentConversationId, input, loading]);
 
+  // After help reset completes rendering, send the pending help message once
+  useEffect(() => {
+    if (pendingHelpMessage && currentConversation) {
+      handleSend(pendingHelpMessage);
+      setPendingHelpMessage(null);
+    }
+  }, [pendingHelpMessage, currentConversation, handleSend]);
+
   // Help button should also send an initial help request to the AI
   const handleHelpPressWithSend = useCallback(async () => {
     try {
-      await handleHelpPress();
-      const helpMessage = 'How can you help me?';
-      handleSend(helpMessage);
+      await handleHelpPress('How can you help me?');
     } catch (e) {
       console.warn('Failed to trigger help send:', e);
     }
@@ -924,9 +951,14 @@ export default function AIChatScreen({ navigation, route }: any) {
         key={conversation.id}
         style={[styles.conversationItem, isActive && styles.activeConversationItem]}
         onPress={async () => {
-          setCurrentConversationId(conversation.id);
-          await loadThreadMessages(conversation.id);
-          toggleSidebar();
+          try {
+            setCurrentConversationId(conversation.id);
+            await loadThreadMessages(conversation.id);
+            toggleSidebar();
+          } catch (err) {
+            logger.error('Failed to switch conversation:', err);
+            // Don't close sidebar on error so user can retry
+          }
         }}
       >
         <View style={styles.conversationHeader}>
@@ -949,7 +981,7 @@ export default function AIChatScreen({ navigation, route }: any) {
              </TouchableOpacity>
              <TouchableOpacity
                style={styles.actionButton}
-               onPress={() => deleteConversation(conversation.id)}
+               onPress={async () => { await deleteConversation(conversation.id); }}
              >
                <Icon name="trash" size={16} color={colors.text.secondary} />
              </TouchableOpacity>

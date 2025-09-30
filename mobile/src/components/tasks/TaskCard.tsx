@@ -246,8 +246,17 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
 
             <View style={styles.actionIcons}>
                 <HelpTarget helpId={`task-complete:${task.id}`}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={toggleComplete} testID={`task-${task.id}-complete`}>
-                    <Icon name="check" size={22} color={colors.text.primary} />
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={toggleComplete}
+                    testID={`task-${task.id}-complete`}
+                    accessibilityLabel={
+                      task.status === 'completed'
+                        ? 'Mark task as incomplete'
+                        : 'Mark task as complete'
+                    }
+                  >
+                    <Icon name="check" size={20} color={colors.text.primary} />
                   </TouchableOpacity>
                 </HelpTarget>
                 <HelpTarget helpId={`task-schedule:${task.id}`}>

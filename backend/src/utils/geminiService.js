@@ -999,10 +999,9 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
           break;
         case 'lookup_calendar_event':
           if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Executing lookup_calendar_event');
-          // Ensure a date is always provided; default to 'today'
+          // Pass date only if provided by the user; do not default here
           {
             const safeArgs = { ...args };
-            if (!safeArgs.date) safeArgs.date = 'today';
             result = await calendarService.lookupCalendarEventbyTitle(userId, safeArgs.search, safeArgs.date);
           }
           break;

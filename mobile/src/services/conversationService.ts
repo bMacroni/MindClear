@@ -53,12 +53,31 @@ export const conversationService = {
     return res.data as ConversationThreadWithMessages;
   },
 
-  async updateThread(threadId: string, updates: { title?: string; summary?: string | null }): Promise<ConversationThread> {
-    const res = await apiService.put<ConversationThread>(`/ai/threads/${threadId}`, updates);
-    if (!res.ok) throw new Error((res.data as any)?.error || 'Failed to update thread');
+  async updateThread(
+    threadId: string,
+    updates: { title?: string; summary?: string | null }
+  ): Promise<ConversationThread> {
+    // Validate inputs
+    if (!threadId?.trim()) {
+      throw new Error('Thread ID is required');
+    }
+    if (!updates.title && updates.summary === undefined) {
+      throw new Error('At least one update field must be provided');
+    }
+
+    // Enforce a timeout for the API call
+    const res = await apiService.put<ConversationThread>(
+      `/ai/threads/${threadId}`,
+      updates,
+      { timeoutMs: 25000 }
+    );
+
+    if (!res.ok) {
+      throw new Error((res.data as any)?.error || 'Failed to update thread');
+    }
+
     return res.data as ConversationThread;
   },
-
   async deleteThread(threadId: string): Promise<void> {
     const res = await apiService.delete(`/ai/threads/${threadId}`, { timeoutMs: 20000 });
     if (!res.ok) throw new Error((res.data as any)?.error || 'Failed to delete thread');

@@ -62,18 +62,21 @@ export async function trackEvent(req, res) {
     // Note: we intentionally do not await this promise
     supabase
       .from('analytics_events')
-      .insert([{
-        user_id: String(user_id),
-        event_name,
-        payload: payload || null
-      }])
+      .insert([
+        {
+          user_id: String(user_id),
+          event_name,
+          payload: payload || null,
+        },
+      ])
       .select()
-      .single()
       .then(({ data, error }) => {
         if (error) {
           logger.error('Error inserting analytics event (async):', error);
         } else if (DEBUG) {
-          logger.info(`Analytics event tracked: ${event_name} for user ${user_id} (id=${data?.id})`);
+          logger.info(
+            `Analytics event tracked: ${event_name} for user ${user_id} (id=${data?.[0]?.id})`
+          );
         }
       })
       .catch((err) => {
