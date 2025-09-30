@@ -34,6 +34,7 @@
     "react-native-encrypted-storage": "^4.0.3",
     "react-native-gesture-handler": "^2.27.2",
     "react-native-haptic-feedback": "^2.3.3",
+    "react-native-markdown-display": "^7.0.2",
     "react-native-modal-datetime-picker": "^18.0.0",
     "react-native-paper": "^5.14.5",
     "react-native-popable": "^0.4.3",
@@ -86,6 +87,7 @@
     "2025-09-02 CST: added dependency 'react-native-popable' for contextual tooltips in Mobile Help system",
     "2025-01-27 CST: added dependency 'react-native-encrypted-storage' for secure JWT token storage using Android EncryptedSharedPreferences",
     "2025-01-27 CST: added dependency 'jwt-decode' for secure JWT token decoding in auth service",
-    "2025-01-27 CST: added devDependency 'babel-plugin-module-resolver' for TypeScript path alias resolution in React Native"
+    "2025-01-27 CST: added devDependency 'babel-plugin-module-resolver' for TypeScript path alias resolution in React Native",
+    "2025-09-28 CST: added dependency 'react-native-markdown-display' to render AI chat Markdown (bold, lists)"
   ]
 }

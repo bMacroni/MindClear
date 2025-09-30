@@ -16,7 +16,6 @@ import Svg, { Circle } from 'react-native-svg';
 import { format, isPast, isToday, formatDistanceToNow } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import HelpTarget from '../../components/help/HelpTarget';
-import { HelpIcon } from '../../components/help/HelpIcon';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
@@ -364,6 +363,9 @@ export default function GoalsScreen({ navigation }: any) {
     React.useCallback(() => {
       try { setHelpScope('goals'); } catch {}
       try { setHelpContent(getGoalsHelpContent()); } catch {}
+      // Ensure any previously registered targets from other scopes are ignored
+      // by turning the overlay off briefly on focus.
+      try { setIsHelpOverlayActive(false); } catch {}
       return () => {
         try { setIsHelpOverlayActive(false); } catch {}
       };
@@ -1099,7 +1101,6 @@ export default function GoalsScreen({ navigation }: any) {
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
         <ScreenHeader
           title="Goals"
-          rightActions={(<HelpIcon />)}
           withDivider
         />
         <View style={styles.loadingContainer}>
@@ -1203,7 +1204,6 @@ export default function GoalsScreen({ navigation }: any) {
             >
               <Icon name="plus" size={20} color={colors.text.secondary} />
             </TouchableOpacity>
-            <HelpIcon />
           </View>
         )}
         withDivider

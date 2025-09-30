@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, TouchableWithoutFeedback, TouchableOpacity, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
@@ -13,16 +13,30 @@ export const HelpOverlay: React.FC = () => {
 
   // Gather target rects
   const targets = Object.values(targetLayouts);
+  const lastTargetsRef = useRef<typeof targets>([]);
+
+  // Freeze targets for the duration of a single help session to avoid cycling.
+  // When overlay toggles off, frozen targets reset.
+  useEffect(() => {
+    if (isHelpOverlayActive) {
+      if (targets.length) {
+        lastTargetsRef.current = targets;
+      }
+    } else {
+      lastTargetsRef.current = [];
+    }
+  }, [isHelpOverlayActive, targets]);
 
   // Compute non-overlapping dim rectangles that exclude all target areas
   const dimRects = useMemo(() => {
-    if (!targets.length) {
+    const frozen = lastTargetsRef.current.length ? lastTargetsRef.current : targets;
+    if (!frozen.length) {
       return [
         { left: 0, top: 0, width: screenWidth, height: screenHeight },
       ];
     }
     const yCuts: number[] = [0, screenHeight];
-    targets.forEach(t => {
+    frozen.forEach(t => {
       yCuts.push(Math.max(0, t.pageY));
       yCuts.push(Math.min(screenHeight, t.pageY + t.height));
     });
@@ -44,7 +58,7 @@ export const HelpOverlay: React.FC = () => {
 
       // Determine x-intervals covered by holes in this horizontal slab
       const covered: Array<[number, number]> = [];
-      targets.forEach(t => {
+      frozen.forEach(t => {
         const top = t.pageY;
         const bottom = t.pageY + t.height;
         if (bottom <= y1 || top >= y2) { return; }

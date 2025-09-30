@@ -62,7 +62,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   onOpenQuickSchedule,
   onAIHelp,
 }) => {
-  const translateX = new Animated.Value(0);
+  const translateX = React.useRef(new Animated.Value(0)).current;
   const [_isDeleting, _setIsDeleting] = React.useState(false);
 
   const [anchor, setAnchor] = React.useState<{ x: number; y: number } | undefined>(undefined);
@@ -140,7 +140,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
 
   const handleGestureEvent = Animated.event(
     [{ nativeEvent: { translationX: translateX } }],
-    { useNativeDriver: false }
+    { useNativeDriver: true }
   );
 
   const handleStateChange = (event: { nativeEvent: { state: number; translationX: number } }) => {
@@ -166,7 +166,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
       // Reset position
       Animated.spring(translateX, {
         toValue: 0,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
     }
   };
@@ -215,7 +215,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID={`task-${task.id}`}>
       <PanGestureHandler
         onGestureEvent={handleGestureEvent}
         onHandlerStateChange={handleStateChange}
@@ -237,6 +237,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
             <TouchableOpacity onPress={() => onPress(task)} activeOpacity={0.7}>
               <Text
                 style={[styles.title, task.status === 'completed' && styles.completedTitle]}
+                testID={`task-${task.id}-title`}
                 numberOfLines={3}
               >
                 {task.title}
@@ -245,7 +246,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
 
             <View style={styles.actionIcons}>
                 <HelpTarget helpId={`task-complete:${task.id}`}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={toggleComplete}>
+                  <TouchableOpacity style={styles.iconBtn} onPress={toggleComplete} testID={`task-${task.id}-complete`}>
                     <Icon name="check" size={22} color={colors.text.primary} />
                   </TouchableOpacity>
                 </HelpTarget>
@@ -278,7 +279,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                   </TouchableOpacity>
                 </HelpTarget>
                 <HelpTarget helpId={`task-delete:${task.id}`}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => onDelete(task.id)}>
+                  <TouchableOpacity style={styles.iconBtn} onPress={() => onDelete(task.id)} testID={`task-${task.id}-delete`}>
                     <Icon name="trash" size={22} color={colors.text.primary} />
                   </TouchableOpacity>
                 </HelpTarget>

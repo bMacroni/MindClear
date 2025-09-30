@@ -27,7 +27,8 @@ export async function trackEvent(req, res) {
   }
 
   const user_id = req.user.id;
-  const token = req.headers.authorization?.split(' ')[1];
+  // Prefer token from enhanced auth middleware, fallback to header
+  const token = req.token || req.headers.authorization?.split(' ')[1];
   if (!token) {
     return res.status(401).json({ error: 'Authorization token is required' });
   }
@@ -56,37 +57,38 @@ export async function trackEvent(req, res) {
   }
 
   try {
-    // Insert the analytics event with validated user_id
-    const { data, error } = await supabase
+    // Fire-and-forget insert to avoid blocking the client for analytics
+    // Respond immediately and process in background to prevent client timeouts
+    // Note: we intentionally do not await this promise
+    supabase
       .from('analytics_events')
       .insert([{
-        user_id: String(user_id), // Ensure user_id is stored as string
+        user_id: String(user_id),
         event_name,
         payload: payload || null
       }])
       .select()
-      .single();
-
-    if (error) {
-      logger.error('Error inserting analytics event:', error);
-      return res.status(500).json({
-        error: 'Failed to track event'
+      .single()
+      .then(({ data, error }) => {
+        if (error) {
+          logger.error('Error inserting analytics event (async):', error);
+        } else if (DEBUG) {
+          logger.info(`Analytics event tracked: ${event_name} for user ${user_id} (id=${data?.id})`);
+        }
+      })
+      .catch((err) => {
+        logger.error('Unexpected error tracking analytics event (async):', err);
       });
-    }
 
-    if (DEBUG) {
-      logger.info(`Analytics event tracked: ${event_name} for user ${user_id}`);
-    }
-
-    // Return success response
-    res.status(201).json({
+    // Return 202 Accepted immediately
+    return res.status(202).json({
       success: true,
-      event_id: data.id,
-      message: 'Event tracked successfully'
+      accepted: true,
+      message: 'Event accepted for processing'
     });
   } catch (error) {
-    logger.error('Unexpected error tracking analytics event:', error);
-    res.status(500).json({
+    logger.error('Unexpected error scheduling analytics event:', error);
+    return res.status(500).json({
       error: 'Internal server error'
     });
   }

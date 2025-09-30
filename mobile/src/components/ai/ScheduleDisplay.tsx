@@ -223,22 +223,89 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
     }
   };
 
+  // Group events by day label for clearer multi-day schedules
+  type DayGroup = { key: string; label: string; events: ScheduleEvent[] };
+
+  const extractDateFromEvent = (event: ScheduleEvent): Date | undefined => {
+    const byLabel = parseDate(event.date);
+    if (byLabel) {return byLabel;}
+    const startAsISO = new Date(event.startTime);
+    if (!isNaN(startAsISO.getTime())) {return startAsISO;}
+    const endAsISO = new Date(event.endTime);
+    if (!isNaN(endAsISO.getTime())) {return endAsISO;}
+    return undefined;
+  };
+
+  const formatDayLabel = (d: Date | undefined, fallback?: string): string => {
+    if (!d) {return fallback || 'Unspecified Date';}
+    const opts: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+    const label = d.toLocaleDateString('en-US', opts);
+    const includeYear = d.getFullYear() !== new Date().getFullYear();
+    return includeYear ? `${label}, ${d.getFullYear()}` : label;
+  };
+
+  const toDateKey = (d: Date | undefined, fallback?: string): string => {
+    if (!d) {return `unknown:${fallback || ''}`.toLowerCase();}
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  // Build groups
+  const groupsMap = new Map<string, DayGroup>();
+  events.forEach((evt) => {
+    const d = extractDateFromEvent(evt);
+    const key = toDateKey(d, evt.date);
+    const label = formatDayLabel(d, evt.date);
+    if (!groupsMap.has(key)) {
+      groupsMap.set(key, { key, label, events: [] });
+    }
+    const group = groupsMap.get(key)!;
+    group.events.push(evt);
+  });
+
+  // Sort groups by date key when possible, unknowns last
+  const groups: DayGroup[] = Array.from(groupsMap.values()).sort((a, b) => {
+    const isUnknownA = a.key.startsWith('unknown');
+    const isUnknownB = b.key.startsWith('unknown');
+    if (isUnknownA && isUnknownB) {return 0;}
+    if (isUnknownA) {return 1;}
+    if (isUnknownB) {return -1;}
+    return a.key.localeCompare(b.key);
+  });
+
+  // Sort events within each group by start time
+  groups.forEach((g) => {
+    g.events.sort((e1, e2) => {
+      const d1 = combineDateTime(e1.date, e1.startTime) || new Date(e1.startTime);
+      const d2 = combineDateTime(e2.date, e2.startTime) || new Date(e2.startTime);
+      const t1 = isNaN(d1.getTime()) ? Number.MAX_SAFE_INTEGER : d1.getTime();
+      const t2 = isNaN(d2.getTime()) ? Number.MAX_SAFE_INTEGER : d2.getTime();
+      return t1 - t2;
+    });
+  });
+
   return (
     <View style={styles.container}>
       {/* Simplified: no header title */}
       <View style={styles.eventsContainer}>
-        {events.map((event, index) => (
-          <TouchableOpacity key={index} style={styles.eventCard} onPress={() => handleSchedule(event)}>
-            <Text style={styles.timeText}>
-              {formatTime(event.startTime)} - {formatTime(event.endTime)}
-              {(() => {
-                const d = parseDate(event.date);
-                return d ? `  •  ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}` : (event.date ? `  •  ${event.date}` : '');
-              })()}
-            </Text>
-            <Text selectable style={styles.activityText} numberOfLines={2}>{truncate(event.activity, 80)}</Text>
-            {index < events.length - 1 && <View style={styles.separator} />}
-          </TouchableOpacity>
+        {groups.map((group, gIdx) => (
+          <View key={group.key} style={styles.daySection}>
+            <View style={styles.dayHeader}>
+              <Text style={styles.dayHeaderText}>{group.label}</Text>
+            </View>
+            {group.events.map((event, index) => (
+              <TouchableOpacity key={`${group.key}:${index}`} style={styles.eventCard} onPress={() => handleSchedule(event)}>
+                <Text style={styles.timeText}>
+                  {formatTime(event.startTime)} - {formatTime(event.endTime)}
+                </Text>
+                <Text selectable style={styles.activityText} numberOfLines={2}>{truncate(event.activity, 80)}</Text>
+                {index < group.events.length - 1 && <View style={styles.separator} />}
+              </TouchableOpacity>
+            ))}
+            {gIdx < groups.length - 1 && <View style={styles.dayDivider} />}
+          </View>
         ))}
       </View>
     </View>
@@ -265,6 +332,23 @@ const styles = StyleSheet.create({
     borderColor: colors.border.light,
     overflow: 'hidden',
   },
+  daySection: {
+    width: '100%',
+  },
+  dayHeader: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.background.primary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.light,
+  },
+  dayHeaderText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   eventCard: {
     padding: spacing.md,
     flexDirection: 'column',
@@ -288,5 +372,13 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border.light,
     marginHorizontal: -spacing.md,
+  },
+  dayDivider: {
+    height: 8,
+    backgroundColor: colors.background.primary,
+    borderTopWidth: 1,
+    borderTopColor: colors.border.light,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.light,
   },
 }); 

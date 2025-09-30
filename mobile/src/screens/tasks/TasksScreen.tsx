@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,15 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+// Development-only logging for EOD prompt debugging
+const EOD_DEBUG = true; // set false to silence
+const eodLog = (...args: any[]) => {
+  if (__DEV__ && EOD_DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log('[EOD]', ...args);
+  }
+};
 
 interface Task {
   id: string;
@@ -86,6 +95,7 @@ const TasksScreen: React.FC = () => {
   const [quickOpenedAt, setQuickOpenedAt] = useState<number | undefined>(undefined);
   const [quickTaskId, setQuickTaskId] = useState<string | undefined>(undefined);
   const [momentumEnabled, setMomentumEnabled] = useState<boolean>(false);
+  const eodActionInFlightRef = React.useRef<boolean>(false);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
   const [_userNotificationPrefs, _setUserNotificationPrefs] = useState<any | null>(null);
   const [userSchedulingPreferences, setUserSchedulingPreferences] = useState<any>(null);
@@ -232,17 +242,17 @@ const TasksScreen: React.FC = () => {
     })();
   }, []);
 
-  const handleTaskPress = (task: Task) => {
+  const handleTaskPress = useCallback((task: Task) => {
     setEditingTask(task);
     setShowModal(true);
-  };
+  }, []);
 
-  const handleCreateTask = () => {
+  const handleCreateTask = useCallback(() => {
     setEditingTask(undefined);
     setShowModal(true);
-  };
+  }, []);
 
-  const handleSaveTask = async (taskData: Partial<Task>) => {
+  const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
       if (editingTask) {
@@ -264,49 +274,49 @@ const TasksScreen: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  };
+  }, [editingTask]);
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    const prevTasks = tasks;
+    setTasks(prev => prev.filter(task => task.id !== taskId));
     try {
       await tasksAPI.deleteTask(taskId);
-      setTasks(prev => prev.filter(task => task.id !== taskId));
     } catch (error) {
       console.error('Error deleting task:', error);
+      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to delete task');
     }
-  };
+  }, [tasks]);
 
-  const handleToggleStatus = async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
+  const handleToggleStatus = useCallback(async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
+    const prevTasks = tasks;
+    const prevTask = tasks.find(t => t.id === taskId);
+    setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus } as any : task));
     try {
       const updatedTask = await tasksAPI.updateTask(taskId, { status: newStatus });
-      setTasks(prev => prev.map(task =>
-        task.id === taskId ? updatedTask : task
-      ));
+      setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
 
-      // Track task completion analytics
-      if (newStatus === 'completed') {
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-          analyticsService.trackTaskCompleted({
-            taskId: task.id,
-            taskTitle: task.title,
-            priority: task.priority,
-            hasLocation: !!task.location,
-            hasEstimatedDuration: !!task.estimated_duration_minutes,
-            autoScheduleEnabled: task.auto_schedule_enabled,
-            isTodayFocus: task.is_today_focus
-          }).catch(error => {
-            console.warn('Failed to track task completion analytics:', error);
-          });
-        }
+      if (newStatus === 'completed' && prevTask) {
+        analyticsService.trackTaskCompleted({
+          taskId: prevTask.id,
+          taskTitle: prevTask.title,
+          priority: prevTask.priority,
+          hasLocation: !!prevTask.location,
+          hasEstimatedDuration: !!prevTask.estimated_duration_minutes,
+          autoScheduleEnabled: prevTask.auto_schedule_enabled,
+          isTodayFocus: prevTask.is_today_focus
+        }).catch(error => {
+          console.warn('Failed to track task completion analytics:', error);
+        });
       }
     } catch (error) {
       console.error('Error updating task status:', error);
+      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to update task status');
     }
-  };
+  }, [tasks]);
 
-  const handleAddToCalendar = async (_taskId: string) => {
+  const handleAddToCalendar = useCallback(async (_taskId: string) => {
     try {
       const task = tasks.find(t => t.id === _taskId);
       if (!task) {
@@ -357,16 +367,16 @@ const TasksScreen: React.FC = () => {
       console.error('Error adding task to calendar:', error);
       Alert.alert('Error', 'Failed to add task to calendar');
     }
-  };
+  }, [tasks, navigation]);
 
-  const handleOpenQuickSchedule = (taskId: string, center: { x: number; y: number }) => {
+  const handleOpenQuickSchedule = useCallback((taskId: string, center: { x: number; y: number }) => {
     setQuickTaskId(taskId);
     setQuickAnchor(center);
     setQuickOpenedAt(Date.now());
     setQuickMenuVisible(true);
-  };
+  }, []);
 
-  const handleAIHelp = async (task: Task) => {
+  const handleAIHelp = useCallback(async (task: Task) => {
     try {
       const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
       const duePart = task.due_date ? task.due_date : 'none';
@@ -378,7 +388,7 @@ const TasksScreen: React.FC = () => {
     } catch {
       Alert.alert('Error', 'Failed to open AI assistant');
     }
-  };
+  }, [navigation]);
 
   // Find available time slot for today's focus
   const findAvailableTimeSlot = (events: any[], taskDuration: number = 60, userPreferences?: any) => {
@@ -718,9 +728,9 @@ const TasksScreen: React.FC = () => {
     return tasks.find(task => task.is_today_focus && task.status !== 'completed');
   };
 
-  const getInboxTasks = () => {
+  const inboxTasks = useMemo(() => {
     return tasks.filter(task => !task.is_today_focus && task.status !== 'completed');
-  };
+  }, [tasks]);
 
   const getAutoScheduledTasks = () => {
     return tasks.filter(task => task.auto_schedule_enabled);
@@ -739,100 +749,124 @@ const TasksScreen: React.FC = () => {
     </View>
   );
 
-  const renderTaskItem = ({ item }: { item: Task }) => (
+  // Optimized task selection handler - async and non-blocking
+  const handleTaskSelect = useCallback(async (task: Task) => {
+    if ((task as any).is_today_focus) {
+      setToastMessage("This task is already today's focus.");
+      setToastCalendarEvent(false);
+      setShowToast(true);
+      setShowInbox(false);
+      setSelectingFocus(false);
+      return;
+    }
+
+    // Find the current focus task (if any) - we'll remove its calendar event after setting the new focus
+    const currentFocusTask = tasks.find(t => (t as any).is_today_focus && t.id !== task.id);
+
+    // Start the focus update process asynchronously (non-blocking)
+    setSelectingFocus(false);
+    setShowInbox(false);
+
+    try {
+      // Set the task as today's focus (immediate UI feedback)
+      const updated = await tasksAPI.updateTask(task.id, { ...(undefined as any), is_today_focus: true } as any);
+
+      // Update state optimistically for immediate UI feedback
+      setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, is_today_focus: false }));
+
+      // Show immediate feedback
+      setToastMessage("Setting as Today's Focus...");
+      setToastCalendarEvent(false);
+      setShowToast(true);
+
+      // Handle calendar operations asynchronously (non-blocking)
+      const handleCalendarOperations = async () => {
+        try {
+          // Remove any existing focus task's calendar event
+          if (currentFocusTask) {
+            try {
+              const focusEvents = await enhancedAPI.getEventsForTask(currentFocusTask.id);
+              for (const event of focusEvents) {
+                await enhancedAPI.deleteEvent(event.id);
+              }
+            } catch (removeError) {
+              console.warn('Failed to remove previous focus task calendar event:', removeError);
+            }
+          }
+
+          // Try to schedule the task on today's calendar
+          let availableSlot: { start: Date; end: Date } | null = null;
+          try {
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const todaysEvents = await enhancedAPI.getEventsForDate(today);
+            const taskDuration = (task as any).estimated_duration_minutes || 60;
+
+            availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
+
+            if (availableSlot) {
+              try {
+                await enhancedAPI.scheduleTaskOnCalendar(task.id, {
+                  summary: task.title,
+                  description: task.description,
+                  startTime: availableSlot.start.toISOString(),
+                  endTime: availableSlot.end.toISOString(),
+                  isAllDay: false,
+                });
+
+                const timeString = availableSlot.start.toLocaleTimeString([], {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true
+                });
+
+                const isTomorrow = availableSlot.start.toDateString() !== new Date().toDateString();
+                const dateLabel = isTomorrow ? 'tomorrow' : 'today';
+
+                setToastMessage(`Set as Today's Focus & scheduled ${dateLabel} at ${timeString}.`);
+              } catch (apiError) {
+                console.error('Calendar API error:', apiError);
+                setToastMessage("Set as Today's Focus (calendar scheduling failed).");
+              }
+            } else {
+              setToastMessage("Set as Today's Focus (no available calendar slots).");
+            }
+          } catch (calendarError) {
+            console.warn('Failed to schedule focus task on calendar:', calendarError);
+            setToastMessage("Set as Today's Focus.");
+          }
+
+          setToastCalendarEvent(availableSlot ? true : false);
+          setShowToast(true);
+        } catch (error) {
+          console.error('Calendar operations failed:', error);
+          setToastMessage("Set as Today's Focus (some operations failed).");
+          setToastCalendarEvent(false);
+          setShowToast(true);
+        }
+      };
+
+      // Run calendar operations in background without blocking UI
+      handleCalendarOperations().catch(console.error);
+
+    } catch (error) {
+      console.error('Failed to set focus task:', error);
+      Alert.alert('Error', 'Failed to set Today\'s Focus');
+      // Reset UI state on error
+      setShowInbox(true);
+      setSelectingFocus(true);
+    }
+  }, [tasks, userSchedulingPreferences]);
+
+  const renderTaskItem = useCallback(({ item }: { item: Task }) => (
     <TaskCard
       task={item}
       onPress={(task) => {
         if (selectingFocus) {
-          // Prevent duplicate API calls
-          if ((task as any).is_today_focus) {
-            setToastMessage("This task is already today's focus.");
-            setToastCalendarEvent(false);
-            setShowToast(true);
-            setShowInbox(false);
-            setSelectingFocus(false);
-            return;
-          }
-
-          // Find the current focus task (if any) - we'll remove its calendar event after setting the new focus
-          const currentFocusTask = tasks.find(t => (t as any).is_today_focus && t.id !== task.id);
-
-          // Then, set the task as today's focus
-          tasksAPI.updateTask(task.id, { ...(undefined as any), is_today_focus: true } as any)
-            .then(async (updated) => {
-              setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, is_today_focus: false }));
-
-              // First, remove any existing focus task's calendar event
-              if (currentFocusTask) {
-                try {
-                  // Removing calendar event for previous focus task
-                  const focusEvents = await enhancedAPI.getEventsForTask(currentFocusTask.id);
-                  for (const event of focusEvents) {
-                    await enhancedAPI.deleteEvent(event.id);
-                    // Deleted calendar event
-                  }
-                } catch (removeError) {
-                  console.warn('Failed to remove previous focus task calendar event:', removeError);
-                  // Continue anyway - this is not critical
-                }
-              }
-
-              // Try to schedule the task on today's calendar
-              let availableSlot: { start: Date; end: Date } | null = null;
-              try {
-                const now = new Date();
-                const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                const todaysEvents = await enhancedAPI.getEventsForDate(today);
-                const taskDuration = (task as any).estimated_duration_minutes || 60;
-
-                // Find available time slot using the full algorithm
-                availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
-
-                if (availableSlot) {
-                  try {
-                    // Schedule the task on the calendar
-                    await enhancedAPI.scheduleTaskOnCalendar(task.id, {
-                      summary: task.title,
-                      description: task.description,
-                      startTime: availableSlot.start.toISOString(),
-                      endTime: availableSlot.end.toISOString(),
-                      isAllDay: false,
-                    });
-
-                                      const timeString = availableSlot.start.toLocaleTimeString([], {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
-                  });
-
-                  const isTomorrow = availableSlot.start.toDateString() !== new Date().toDateString();
-                  const dateLabel = isTomorrow ? 'tomorrow' : 'today';
-
-                  setToastMessage(`Set as Today's Focus & scheduled ${dateLabel} at ${timeString}.`);
-                  } catch (apiError) {
-                    console.error('Calendar API error:', apiError);
-                    // Still set as focus but don't show scheduling success
-                    setToastMessage("Set as Today's Focus (calendar scheduling failed).");
-                  }
-                } else {
-                  setToastMessage("Set as Today's Focus (no available calendar slots).");
-                }
-              } catch (calendarError) {
-                console.warn('Failed to schedule focus task on calendar:', calendarError);
-                setToastMessage("Set as Today's Focus.");
-              }
-
-              setToastCalendarEvent(availableSlot ? true : false);
-              setShowToast(true);
-              setShowInbox(false);
-              setSelectingFocus(false);
-            })
-            .catch(() => {
-              Alert.alert('Error', 'Failed to set Today\'s Focus');
-            });
-          return;
+          handleTaskSelect(task);
+        } else {
+          handleTaskPress(task);
         }
-        handleTaskPress(task);
       }}
       onDelete={handleDeleteTask}
       onToggleStatus={handleToggleStatus}
@@ -843,7 +877,9 @@ const TasksScreen: React.FC = () => {
       onQuickSchedule={handleQuickSchedule}
       onAIHelp={handleAIHelp}
     />
-  );
+  ), [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp]);
+
+  const keyExtractor = useCallback((item: Task) => item.id, []);
 
   const _renderHeaderActions = (compact?: boolean) => (
     <View style={[styles.headerActions, compact && styles.headerRightRow]}>
@@ -886,87 +922,124 @@ const TasksScreen: React.FC = () => {
   // End-of-day prompt logic: once per day if focus exists and is not completed
   useEffect(() => {
     const maybePromptEndOfDay = async () => {
+      eodLog('maybePromptEndOfDay invoked', { loading });
       if (loading) {return;}
       const focus = getFocusTask();
+      eodLog('focus task check', { hasFocus: !!focus, status: focus?.status, id: focus?.id, title: focus?.title, due_date: (focus as any)?.due_date });
       if (!focus) {return;}
       const todayStr = new Date().toISOString().slice(0, 10);
       try {
         const lastPrompt = await AsyncStorage.getItem('lastEODPromptDate');
+        eodLog('storage check', { lastPrompt, todayStr });
         if (lastPrompt === todayStr) {return;}
         if (focus.status !== 'completed') {
+          eodLog('showing EOD prompt');
           setShowEodPrompt(true);
         }
       } catch {}
     };
     maybePromptEndOfDay();
-     
-  }, [loading, tasks]);
+
+  }, [loading, getFocusTask]);
 
   const markEodPrompted = async () => {
     const todayStr = new Date().toISOString().slice(0, 10);
-    try { await AsyncStorage.setItem('lastEODPromptDate', todayStr); } catch {}
-  };
-
-  const handleEodMarkDone = async () => {
-    const focus = getFocusTask();
-    if (!focus) { setShowEodPrompt(false); return; }
-    await handleFocusDone(focus);
-    setShowEodPrompt(false);
-    await markEodPrompted();
-  };
-
-  const handleEodRollover = async () => {
-    const focus = getFocusTask();
-    if (!focus) { setShowEodPrompt(false); return; }
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
     try {
+      eodLog('markEodPrompted -> set lastEODPromptDate', { todayStr });
+      await AsyncStorage.setItem('lastEODPromptDate', todayStr);
+    } catch (err) {
+      eodLog('markEodPrompted error', err);
+    }
+  };
+
+  const handleEodMarkDone = useCallback(async () => {
+    if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
+    eodActionInFlightRef.current = true;
+    const focus = getFocusTask();
+    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, id: focus?.id, title: focus?.title });
+    if (!focus) { setShowEodPrompt(false); eodActionInFlightRef.current = false; return; }
+    try {
+      await handleFocusDone(focus);
+      setShowEodPrompt(false);
+      await markEodPrompted();
+      eodLog('handleEodMarkDone success');
+    } catch (err) {
+      eodLog('handleEodMarkDone error', err);
+    } finally {
+      eodActionInFlightRef.current = false;
+    }
+  }, []);
+
+  const handleEodRollover = useCallback(async () => {
+    if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
+    eodActionInFlightRef.current = true;
+    const focus = getFocusTask();
+    eodLog('handleEodRollover tapped', { hasFocus: !!focus, id: focus?.id, title: focus?.title, prev_due: (focus as any)?.due_date });
+    if (!focus) { setShowEodPrompt(false); eodActionInFlightRef.current = false; return; }
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const dd = String(tomorrow.getDate()).padStart(2, '0');
+
+    // Mark as prompted FIRST to prevent race condition
+    await markEodPrompted();
+
+    try {
+      eodLog('updating task due_date -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
       const updated = await tasksAPI.updateTask(focus.id, { due_date: `${yyyy}-${mm}-${dd}` });
       setTasks(prev => prev.map(t => t.id === focus.id ? updated : t));
-      setToastMessage('Rolled over to today.');
+      eodLog('update success, task updated', { updated_due: (updated as any)?.due_date });
+      setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
     } catch {
+      eodLog('update failed');
       Alert.alert('Error', 'Failed to roll over task');
     }
     setShowEodPrompt(false);
-    await markEodPrompted();
-  };
+    eodActionInFlightRef.current = false;
+  }, []);
 
-  const handleEodChooseNew = async () => {
-    setShowEodPrompt(false);
-    await markEodPrompted();
-    navigation.navigate('BrainDump');
-  };
-
-  const handleFocusDone = async (task: Task) => {
+  const handleEodChooseNew = useCallback(async () => {
+    if (eodActionInFlightRef.current) { eodLog('handleEodChooseNew ignored: action in flight'); return; }
+    eodActionInFlightRef.current = true;
+    eodLog('handleEodChooseNew tapped');
     try {
+      setShowEodPrompt(false);
+      await markEodPrompted();
+      navigation.navigate('BrainDump');
+      eodLog('handleEodChooseNew success');
+    } catch (err) {
+      eodLog('handleEodChooseNew error', err);
+    } finally {
+      eodActionInFlightRef.current = false;
+    }
+  }, [navigation]);
+
+  useEffect(() => {
+    eodLog('showEodPrompt state changed', { visible: showEodPrompt });
+  }, [showEodPrompt]);
+
+  const handleFocusDone = useCallback(async (task: Task) => {
+    try {
+      // Update task status immediately for responsive UI
       const updated = await tasksAPI.updateTask(task.id, { status: 'completed' });
       setTasks(prev => prev.map(t => t.id === task.id ? updated : t));
       setToastMessage('Great job! Focus task completed.');
       setToastCalendarEvent(false);
       setShowToast(true);
+
       if (task.is_today_focus && momentumEnabled) {
         try {
+          // Get next focus task
           const next = await tasksAPI.focusNext({
             current_task_id: task.id,
             travel_preference: travelPreference,
             exclude_ids: [],
           });
 
-          // Remove the completed task's calendar event
-          try {
-            const completedEvents = await enhancedAPI.getEventsForTask(task.id);
-            for (const event of completedEvents) {
-              await enhancedAPI.deleteEvent(event.id);
-            }
-          } catch (removeError) {
-            console.warn('Failed to remove completed focus task calendar event:', removeError);
-            // Continue anyway - this is not critical
-          }
-
+          // Update state optimistically
           setTasks(prev => {
             const mapped = prev.map(t => {
               if (t.id === task.id) { return { ...t, is_today_focus: false }; }
@@ -979,45 +1052,68 @@ const TasksScreen: React.FC = () => {
             return mapped;
           });
 
-          // Schedule the new focus task to calendar
-          try {
-            const today = new Date().toISOString().split('T')[0];
-            const todaysEvents = await enhancedAPI.getEventsForDate(today);
-            const taskDuration = (next as any).estimated_duration_minutes || 60;
+          // Handle calendar operations asynchronously (non-blocking)
+          const handleMomentumCalendarOperations = async () => {
+            try {
+              // Remove the completed task's calendar event
+              try {
+                const completedEvents = await enhancedAPI.getEventsForTask(task.id);
+                for (const event of completedEvents) {
+                  await enhancedAPI.deleteEvent(event.id);
+                }
+              } catch (removeError) {
+                console.warn('Failed to remove completed focus task calendar event:', removeError);
+              }
 
-            // Find available time slot using the full algorithm
-            const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
+              // Schedule the new focus task to calendar
+              try {
+                const today = new Date().toISOString().split('T')[0];
+                const todaysEvents = await enhancedAPI.getEventsForDate(today);
+                const taskDuration = (next as any).estimated_duration_minutes || 60;
 
-            if (availableSlot) {
-              await enhancedAPI.scheduleTaskOnCalendar(next.id, {
-                summary: next.title,
-                description: next.description,
-                startTime: availableSlot.start.toISOString(),
-                endTime: availableSlot.end.toISOString(),
-                isAllDay: false,
-              });
+                const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
-              const timeString = availableSlot.start.toLocaleTimeString([], {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-              });
+                if (availableSlot) {
+                  await enhancedAPI.scheduleTaskOnCalendar(next.id, {
+                    summary: next.title,
+                    description: next.description,
+                    startTime: availableSlot.start.toISOString(),
+                    endTime: availableSlot.end.toISOString(),
+                    isAllDay: false,
+                  });
 
-              const isTomorrow = availableSlot.start.toDateString() !== new Date().toDateString();
-              const dateLabel = isTomorrow ? 'tomorrow' : 'today';
-              setToastMessage(`Next up: ${next.title} (scheduled ${dateLabel} at ${timeString})`);
-              setToastCalendarEvent(true);
-            } else {
-              setToastMessage(`Next up: ${next.title} (no available calendar slots)`);
+                  const timeString = availableSlot.start.toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  });
+
+                  const isTomorrow = availableSlot.start.toDateString() !== new Date().toDateString();
+                  const dateLabel = isTomorrow ? 'tomorrow' : 'today';
+                  setToastMessage(`Next up: ${next.title} (scheduled ${dateLabel} at ${timeString})`);
+                  setToastCalendarEvent(true);
+                } else {
+                  setToastMessage(`Next up: ${next.title} (no available calendar slots)`);
+                  setToastCalendarEvent(false);
+                }
+              } catch (calendarError) {
+                console.warn('Failed to schedule next focus task on calendar:', calendarError);
+                setToastMessage(`Next up: ${next.title}`);
+                setToastCalendarEvent(false);
+              }
+
+              setShowToast(true);
+            } catch (error) {
+              console.error('Momentum calendar operations failed:', error);
+              setToastMessage(`Next up: ${next.title}`);
               setToastCalendarEvent(false);
+              setShowToast(true);
             }
-          } catch (calendarError) {
-            console.warn('Failed to schedule next focus task on calendar:', calendarError);
-            setToastMessage(`Next up: ${next.title}`);
-            setToastCalendarEvent(false);
-          }
+          };
 
-          setShowToast(true);
+          // Run calendar operations in background
+          handleMomentumCalendarOperations().catch(console.error);
+
         } catch (err: any) {
           if (err?.code === 404) {
             setToastMessage("Great work, you've cleared all your tasks!");
@@ -1034,7 +1130,7 @@ const TasksScreen: React.FC = () => {
     } catch {
       Alert.alert('Error', 'Failed to complete focus task');
     }
-  };
+  }, [momentumEnabled, travelPreference, userSchedulingPreferences]);
 
   const _handleFocusRollover = async (task: Task) => {
     try {
@@ -1080,27 +1176,19 @@ const TasksScreen: React.FC = () => {
     await persistMomentumSettings(momentumEnabled, next);
   };
 
-  const handleFocusSkip = async () => {
+  const handleFocusSkip = useCallback(async () => {
     const focus = getFocusTask();
     if (!focus) { return; }
-    try {
-      // Remove the current focus task's calendar event
-      try {
-        const currentEvents = await enhancedAPI.getEventsForTask(focus.id);
-        for (const event of currentEvents) {
-          await enhancedAPI.deleteEvent(event.id);
-        }
-      } catch (removeError) {
-        console.warn('Failed to remove current focus task calendar event:', removeError);
-        // Continue anyway - this is not critical
-      }
 
+    try {
+      // Get next focus task
       const next = await tasksAPI.focusNext({
         current_task_id: focus.id,
         travel_preference: travelPreference,
         exclude_ids: [focus.id],
       });
 
+      // Update state optimistically
       setTasks(prev => {
         const mapped = prev.map(t => {
           if (t.id === focus.id) { return { ...t, is_today_focus: false }; }
@@ -1113,45 +1201,68 @@ const TasksScreen: React.FC = () => {
         return mapped;
       });
 
-      // Schedule the new focus task to calendar
-      try {
-        const today = new Date().toISOString().split('T')[0];
-        const todaysEvents = await enhancedAPI.getEventsForDate(today);
-        const taskDuration = (next as any).estimated_duration_minutes || 60;
+      // Handle calendar operations asynchronously (non-blocking)
+      const handleSkipCalendarOperations = async () => {
+        try {
+          // Remove the current focus task's calendar event
+          try {
+            const currentEvents = await enhancedAPI.getEventsForTask(focus.id);
+            for (const event of currentEvents) {
+              await enhancedAPI.deleteEvent(event.id);
+            }
+          } catch (removeError) {
+            console.warn('Failed to remove current focus task calendar event:', removeError);
+          }
 
-        // Find available time slot using the full algorithm
-        const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
+          // Schedule the new focus task to calendar
+          try {
+            const today = new Date().toISOString().split('T')[0];
+            const todaysEvents = await enhancedAPI.getEventsForDate(today);
+            const taskDuration = (next as any).estimated_duration_minutes || 60;
 
-        if (availableSlot) {
-          await enhancedAPI.scheduleTaskOnCalendar(next.id, {
-            summary: next.title,
-            description: next.description,
-            startTime: availableSlot.start.toISOString(),
-            endTime: availableSlot.end.toISOString(),
-            isAllDay: false,
-          });
+            const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
-          const timeString = availableSlot.start.toLocaleTimeString([], {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          });
+            if (availableSlot) {
+              await enhancedAPI.scheduleTaskOnCalendar(next.id, {
+                summary: next.title,
+                description: next.description,
+                startTime: availableSlot.start.toISOString(),
+                endTime: availableSlot.end.toISOString(),
+                isAllDay: false,
+              });
 
-          const isTomorrow = availableSlot.start.toDateString() !== new Date().toDateString();
-          const dateLabel = isTomorrow ? 'tomorrow' : 'today';
-          setToastMessage(`Next up: ${next.title} (scheduled ${dateLabel} at ${timeString})`);
-          setToastCalendarEvent(true);
-        } else {
-          setToastMessage(`Next up: ${next.title} (no available calendar slots)`);
+              const timeString = availableSlot.start.toLocaleTimeString([], {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+              });
+
+              const isTomorrow = availableSlot.start.toDateString() !== new Date().toDateString();
+              const dateLabel = isTomorrow ? 'tomorrow' : 'today';
+              setToastMessage(`Next up: ${next.title} (scheduled ${dateLabel} at ${timeString})`);
+              setToastCalendarEvent(true);
+            } else {
+              setToastMessage(`Next up: ${next.title} (no available calendar slots)`);
+              setToastCalendarEvent(false);
+            }
+          } catch (calendarError) {
+            console.warn('Failed to schedule next focus task on calendar:', calendarError);
+            setToastMessage(`Next up: ${next.title}`);
+            setToastCalendarEvent(false);
+          }
+
+          setShowToast(true);
+        } catch (error) {
+          console.error('Skip calendar operations failed:', error);
+          setToastMessage(`Next up: ${next.title}`);
           setToastCalendarEvent(false);
+          setShowToast(true);
         }
-      } catch (calendarError) {
-        console.warn('Failed to schedule next focus task on calendar:', calendarError);
-        setToastMessage(`Next up: ${next.title}`);
-        setToastCalendarEvent(false);
-      }
+      };
 
-      setShowToast(true);
+      // Run calendar operations in background
+      handleSkipCalendarOperations().catch(console.error);
+
     } catch (err: any) {
       if (err?.code === 404) {
         setToastMessage('No other tasks match your criteria.');
@@ -1161,7 +1272,7 @@ const TasksScreen: React.FC = () => {
         Alert.alert('Error', 'Failed to get next focus task');
       }
     }
-  };
+  }, [travelPreference, userSchedulingPreferences]);
 
   if (loading) {
     return (
@@ -1221,7 +1332,7 @@ const TasksScreen: React.FC = () => {
         {/* Today's Focus Card */}
         {(() => {
           const focus = getFocusTask();
-          const inboxCount = getInboxTasks().length;
+          const inboxCount = inboxTasks.length;
           return (
             <View>
               <View style={styles.focusHeaderRow}>
@@ -1253,7 +1364,7 @@ const TasksScreen: React.FC = () => {
                   </HelpTarget>
 
                   <HelpTarget helpId="tasks-inbox-toggle">
-                    <TouchableOpacity style={styles.inboxButton} onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}>
+                    <TouchableOpacity testID="inboxToggle" style={styles.inboxButton} onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}>
                       <Icon name="inbox" size={14} color={colors.text.primary} />
                       <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
                       <Icon name={showInbox ? 'chevron-up' : 'chevron-down'} size={14} color={colors.text.primary} />
@@ -1302,9 +1413,9 @@ const TasksScreen: React.FC = () => {
       </View>
 
       <LazyList
-        data={showInbox ? getInboxTasks() : []}
+        data={showInbox ? inboxTasks : []}
         renderItem={renderTaskItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
         onRefresh={handleRefresh}
@@ -1410,7 +1521,7 @@ const TasksScreen: React.FC = () => {
         <View style={styles.eodOverlay}>
           <View style={styles.eodCard}>
             <Text style={styles.eodTitle}>How did today’s focus go?</Text>
-            <Text style={styles.eodSubtitle}>No pressure—want to mark it done, roll it over to today, or choose something new?</Text>
+            <Text style={styles.eodSubtitle}>No pressure—want to mark it done, roll it over to tomorrow, or choose something new?</Text>
             {(() => {
               const focus = getFocusTask();
               if (!focus) {return null;}
