@@ -654,11 +654,11 @@ export default function AIChatScreen({ navigation, route }: any) {
         // If error
         if (action.details && action.details.error) {
           const errorMessage = `Failed to ${action.action_type} ${action.entity_type}: ${action.details.error}`;
-          console.error('❌ Action failed:', errorMessage);
+          logger.error('❌ Action failed:', errorMessage);
         }
       });
     } catch (err: any) {
-      console.error('AI Chat error:', (err as any)?.message || err);
+      logger.error('AI Chat error:', (err as any)?.message || err);
       
       let errorMessage = 'AI failed to respond. Please try again.';
       if (err.response?.status === 401) {
@@ -690,7 +690,7 @@ export default function AIChatScreen({ navigation, route }: any) {
     try {
       await handleHelpPress('How can you help me?');
     } catch (e) {
-      console.warn('Failed to trigger help send:', e);
+      logger.warn('Failed to trigger help send:', e);
     }
   }, [handleHelpPress, handleSend]);
 
@@ -804,11 +804,11 @@ export default function AIChatScreen({ navigation, route }: any) {
             // If error
             if (action.details && action.details.error) {
               const errorMessage = `Failed to ${action.action_type} ${action.entity_type}: ${action.details.error}`;
-              console.error('❌ Action failed:', errorMessage);
+              logger.error('❌ Action failed:', errorMessage);
             }
           });
                  } catch (err: any) {
-           console.error('AI Chat auto-send error:', (err as any)?.message || err);
+           logger.error('AI Chat auto-send error:', (err as any)?.message || err);
           
           let errorMessage = 'AI failed to respond. Please try again.';
           if (err.response?.status === 401) {

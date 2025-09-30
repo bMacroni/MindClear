@@ -61,7 +61,14 @@ export const conversationService = {
     if (!threadId?.trim()) {
       throw new Error('Thread ID is required');
     }
-    if (!updates.title && updates.summary === undefined) {
+    const hasNonEmptyTitle = typeof updates.title === 'string' && updates.title.trim().length > 0;
+    let hasProvidedSummary = false;
+    if (updates.summary !== undefined) {
+      hasProvidedSummary = typeof updates.summary === 'string'
+        ? updates.summary.trim().length > 0
+        : true; // counts null or non-string values as provided
+    }
+    if (!hasNonEmptyTitle && !hasProvidedSummary) {
       throw new Error('At least one update field must be provided');
     }
 

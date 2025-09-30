@@ -646,8 +646,7 @@ export const tasksAPI = {
     if (response.status === 404) {
       const text = await response.text().catch(()=> '');
       const err = new Error(text || 'No other tasks match your criteria.');
-      // @ts-ignore
-      err.code = 404;
+      (err as any).code = 404;
       throw err;
     }
     if (!response.ok) {
@@ -655,8 +654,7 @@ export const tasksAPI = {
       throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
     }
     return response.json();
-  },
-};
+  },};
 
 // Calendar API
 export const calendarAPI = {
@@ -1042,29 +1040,44 @@ async function getAuthToken(): Promise<string> {
 
 // Users API for profile endpoints
 export const usersAPI = {
+// Users API for profile endpoints
+export const usersAPI = {
   getMe: async (): Promise<any> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) {throw new Error(await response.text());}
-    return response.json();
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      throw error;
+    }
   },
   updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light'|'dark'; notification_preferences: any; }>): Promise<any> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {throw new Error(await response.text());}
-    return response.json();
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error updating user profile:', error);
+      throw error;
+    }
   }
-};
-
-export const notificationsAPI = {
-  registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
+};  registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
     const authToken = await getAuthToken();
     const response = await fetch(`${getSecureApiBaseUrl()}/user/device-token`, {
       method: 'POST',
@@ -1288,29 +1301,44 @@ class WebSocketService {
   // Public method to check connection status
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
-  }
-
-  // Public method to force reconnection (useful after login)
-  async forceReconnect(): Promise<void> {
-    logger.debug('WebSocket: Force reconnection requested');
-    this.disconnect();
-    this.reconnectAttempts = 0; // Reset retry counter
-    await this.connect();
-  }
-}
-
-export const webSocketService = new WebSocketService();
-
 // App Preferences API
 export const appPreferencesAPI = {
   get: async (): Promise<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) { throw new Error(await response.text()); }
-    return response.json();
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching app preferences:', error);
+      throw error;
+    }
+  },
+  update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error updating app preferences:', error);
+      throw error;
+    }
+  }
+};    return response.json();
   },
   update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {
     const token = await getAuthToken();

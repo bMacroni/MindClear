@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
+import Icon from 'react-native-vector-icons/Octicons';
 
 interface ScheduleEvent {
   activity: string;
@@ -297,28 +298,32 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
                 <Text style={styles.dayHeaderText}>{group.label}</Text>
               </View>
               {group.events.map((event, index) => (
-                <TouchableOpacity
-                  key={`${group.key}:${index}`}
-                  style={styles.eventCard}
-                  onPress={() => handleSchedule(event)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Schedule ${event.activity} from ${formatTime(event.startTime)} to ${formatTime(event.endTime)}`}
-                  accessibilityHint="Double tap to add this event to your calendar"
-                >
-                  <Text style={styles.timeText}>
-                    {formatTime(event.startTime)} - {formatTime(event.endTime)}
-                  </Text>
-                  <Text
-                    selectable
-                    style={styles.activityText}
-                    numberOfLines={2}
+                <React.Fragment key={`${group.key}:${index}`}>
+                  <TouchableOpacity
+                    style={styles.eventCard}
+                    onPress={() => handleSchedule(event)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Schedule ${event.activity} from ${formatTime(event.startTime)} to ${formatTime(event.endTime)}`}
+                    accessibilityHint="Double tap to add this event to your calendar"
                   >
-                    {truncate(event.activity, 80)}
-                  </Text>
+                  <View style={styles.timeRow}>
+                    <Icon name="calendar" size={16} color={colors.primary} />
+                    <Text style={styles.timeText}>
+                      {formatTime(event.startTime)} - {formatTime(event.endTime)}
+                    </Text>
+                  </View>
+                    <Text
+                      selectable
+                      style={styles.activityText}
+                      numberOfLines={2}
+                    >
+                      {truncate(event.activity, 80)}
+                    </Text>
+                  </TouchableOpacity>
                   {index < group.events.length - 1 && (
                     <View style={styles.separator} />
                   )}
-                </TouchableOpacity>
+                </React.Fragment>
               ))}
             </View>
             {gIdx < groups.length - 1 ? <View style={styles.dayDivider} /> : null}
@@ -373,11 +378,16 @@ const styles = StyleSheet.create({
     minHeight: 60,
     width: '100%',
   },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   timeText: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.bold,
     color: colors.primary,
     fontFamily: 'monospace',
+    marginLeft: spacing.xs,
     marginBottom: spacing.xs,
   },
   activityText: {
