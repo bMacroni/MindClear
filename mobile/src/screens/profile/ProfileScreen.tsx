@@ -118,7 +118,8 @@ export default function ProfileScreen({ navigation }: any) {
     try {
       const supported = await Linking.canOpenURL(url);
       if (!supported) {
-        Alert.alert('Unable to open link');
+        // Attempt to open anyway; some Android devices return false without queries
+        await Linking.openURL(url);
         return;
       }
       await Linking.openURL(url);
@@ -232,14 +233,7 @@ export default function ProfileScreen({ navigation }: any) {
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Profile</Text>
-        <TouchableOpacity 
-          style={styles.row} 
-          onPress={() => navigation.navigate('Notifications' as never)}
-        >
-          <Icon name="bell" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Notifications</Text>
-          <Icon name="chevron-right" size={16} color={colors.text.secondary} />
-        </TouchableOpacity>
+        {/* Notifications navigation hidden per request */}
         <Text style={styles.inputLabel}>Full Name</Text>
         <TextInput
           style={styles.input}
@@ -294,21 +288,14 @@ export default function ProfileScreen({ navigation }: any) {
         )}
         <TouchableOpacity 
           style={styles.row} 
-          onPress={() => handleExternalLink('https://your-privacy-policy-url.com')}
+          onPress={() => handleExternalLink('https://www.mind-clear.com/privacy.html')}
         >
           <Icon name="shield" size={18} color={colors.primary} />
           <Text style={styles.rowLabel}>Privacy Policy</Text>
           <Icon name="link-external" size={16} color={colors.text.secondary} />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.row} 
-          onPress={() => handleExternalLink('https://your-terms-of-service-url.com')}
-        >
-          <Icon name="file-text" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Terms of Service</Text>
-          <Icon name="link-external" size={16} color={colors.text.secondary} />
-        </TouchableOpacity>
+        {/* Terms of Service link hidden per request */}
 
         <TouchableOpacity
           style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}

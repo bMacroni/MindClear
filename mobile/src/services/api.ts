@@ -1040,8 +1040,6 @@ async function getAuthToken(): Promise<string> {
 
 // Users API for profile endpoints
 export const usersAPI = {
-// Users API for profile endpoints
-export const usersAPI = {
   getMe: async (): Promise<any> => {
     try {
       const token = await getAuthToken();
@@ -1076,8 +1074,8 @@ export const usersAPI = {
       console.error('Error updating user profile:', error);
       throw error;
     }
-  }
-};  registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
+  },
+  registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
     const authToken = await getAuthToken();
     const response = await fetch(`${getSecureApiBaseUrl()}/user/device-token`, {
       method: 'POST',
@@ -1301,6 +1299,9 @@ class WebSocketService {
   // Public method to check connection status
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+}
+
 // App Preferences API
 export const appPreferencesAPI = {
   get: async (): Promise<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }> => {
@@ -1338,16 +1339,16 @@ export const appPreferencesAPI = {
       throw error;
     }
   }
-};    return response.json();
-  },
-  update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    if (!response.ok) { throw new Error(await response.text()); }
-    return response.json();
-  }
+};
+
+// Export a singleton instance for WebSocket notifications
+export const webSocketService = new WebSocketService();
+
+// Backward-compatible Notifications API export expected by consumers
+export const notificationsAPI = {
+  getNotifications: usersAPI.getNotifications,
+  getUnreadCount: usersAPI.getUnreadCount,
+  markAsRead: usersAPI.markAsRead,
+  markAllAsRead: usersAPI.markAllAsRead,
+  registerDeviceToken: usersAPI.registerDeviceToken,
 };

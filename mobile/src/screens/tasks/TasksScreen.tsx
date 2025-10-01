@@ -96,6 +96,7 @@ const TasksScreen: React.FC = () => {
   const [quickTaskId, setQuickTaskId] = useState<string | undefined>(undefined);
   const [momentumEnabled, setMomentumEnabled] = useState<boolean>(false);
   const eodActionInFlightRef = React.useRef<boolean>(false);
+  const eodFocusIdRef = React.useRef<string | undefined>(undefined);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
   const [_userNotificationPrefs, _setUserNotificationPrefs] = useState<any | null>(null);
   const [userSchedulingPreferences, setUserSchedulingPreferences] = useState<any>(null);
@@ -933,14 +934,17 @@ const TasksScreen: React.FC = () => {
         eodLog('storage check', { lastPrompt, todayStr });
         if (lastPrompt === todayStr) {return;}
         if (focus.status !== 'completed') {
-          eodLog('showing EOD prompt');
+          // prevent re-open if already visible
+          if (showEodPrompt) { eodLog('prompt already visible, skipping re-open'); return; }
+          eodFocusIdRef.current = focus.id;
+          eodLog('showing EOD prompt (capture focus id)', { id: focus.id });
           setShowEodPrompt(true);
         }
       } catch {}
     };
     maybePromptEndOfDay();
 
-  }, [loading, getFocusTask]);
+  }, [loading, getFocusTask, showEodPrompt]);
 
   const markEodPrompted = async () => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -955,9 +959,14 @@ const TasksScreen: React.FC = () => {
   const handleEodMarkDone = useCallback(async () => {
     if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
     eodActionInFlightRef.current = true;
-    const focus = getFocusTask();
-    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, id: focus?.id, title: focus?.title });
-    if (!focus) { setShowEodPrompt(false); eodActionInFlightRef.current = false; return; }
+    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
+    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title });
+    if (!focus) { 
+      setShowEodPrompt(false);
+      await markEodPrompted();
+      eodActionInFlightRef.current = false; 
+      return; 
+    }
     try {
       await handleFocusDone(focus);
       setShowEodPrompt(false);
@@ -966,6 +975,7 @@ const TasksScreen: React.FC = () => {
     } catch (err) {
       eodLog('handleEodMarkDone error', err);
     } finally {
+      eodFocusIdRef.current = undefined;
       eodActionInFlightRef.current = false;
     }
   }, []);
@@ -973,9 +983,15 @@ const TasksScreen: React.FC = () => {
   const handleEodRollover = useCallback(async () => {
     if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
     eodActionInFlightRef.current = true;
-    const focus = getFocusTask();
-    eodLog('handleEodRollover tapped', { hasFocus: !!focus, id: focus?.id, title: focus?.title, prev_due: (focus as any)?.due_date });
-    if (!focus) { setShowEodPrompt(false); eodActionInFlightRef.current = false; return; }
+    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
+    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prev_due: (focus as any)?.due_date });
+    if (!focus) { 
+      // even if focus vanished, mark prompted so the modal doesn't re-open
+      await markEodPrompted();
+      setShowEodPrompt(false); 
+      eodActionInFlightRef.current = false; 
+      return; 
+    }
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const yyyy = tomorrow.getFullYear();
@@ -998,6 +1014,7 @@ const TasksScreen: React.FC = () => {
       Alert.alert('Error', 'Failed to roll over task');
     }
     setShowEodPrompt(false);
+    eodFocusIdRef.current = undefined;
     eodActionInFlightRef.current = false;
   }, []);
 
