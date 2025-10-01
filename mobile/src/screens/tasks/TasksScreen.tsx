@@ -725,9 +725,9 @@ const TasksScreen: React.FC = () => {
     return tasks.filter(task => task.status === 'completed');
   };
 
-  const getFocusTask = (): Task | undefined => {
+  const getFocusTask = useCallback((): Task | undefined => {
     return tasks.find(task => task.is_today_focus && task.status !== 'completed');
-  };
+  }, [tasks]);
 
   const inboxTasks = useMemo(() => {
     return tasks.filter(task => !task.is_today_focus && task.status !== 'completed');
@@ -956,88 +956,6 @@ const TasksScreen: React.FC = () => {
     }
   };
 
-  const handleEodMarkDone = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
-    eodActionInFlightRef.current = true;
-    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title });
-    if (!focus) { 
-      setShowEodPrompt(false);
-      await markEodPrompted();
-      eodActionInFlightRef.current = false; 
-      return; 
-    }
-    try {
-      await handleFocusDone(focus);
-      setShowEodPrompt(false);
-      await markEodPrompted();
-      eodLog('handleEodMarkDone success');
-    } catch (err) {
-      eodLog('handleEodMarkDone error', err);
-    } finally {
-      eodFocusIdRef.current = undefined;
-      eodActionInFlightRef.current = false;
-    }
-  }, []);
-
-  const handleEodRollover = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
-    eodActionInFlightRef.current = true;
-    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prev_due: (focus as any)?.due_date });
-    if (!focus) { 
-      // even if focus vanished, mark prompted so the modal doesn't re-open
-      await markEodPrompted();
-      setShowEodPrompt(false); 
-      eodActionInFlightRef.current = false; 
-      return; 
-    }
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const yyyy = tomorrow.getFullYear();
-    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
-    const dd = String(tomorrow.getDate()).padStart(2, '0');
-
-    // Mark as prompted FIRST to prevent race condition
-    await markEodPrompted();
-
-    try {
-      eodLog('updating task due_date -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
-      const updated = await tasksAPI.updateTask(focus.id, { due_date: `${yyyy}-${mm}-${dd}` });
-      setTasks(prev => prev.map(t => t.id === focus.id ? updated : t));
-      eodLog('update success, task updated', { updated_due: (updated as any)?.due_date });
-      setToastMessage('Rolled over to tomorrow.');
-      setToastCalendarEvent(false);
-      setShowToast(true);
-    } catch {
-      eodLog('update failed');
-      Alert.alert('Error', 'Failed to roll over task');
-    }
-    setShowEodPrompt(false);
-    eodFocusIdRef.current = undefined;
-    eodActionInFlightRef.current = false;
-  }, []);
-
-  const handleEodChooseNew = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodChooseNew ignored: action in flight'); return; }
-    eodActionInFlightRef.current = true;
-    eodLog('handleEodChooseNew tapped');
-    try {
-      setShowEodPrompt(false);
-      await markEodPrompted();
-      navigation.navigate('BrainDump');
-      eodLog('handleEodChooseNew success');
-    } catch (err) {
-      eodLog('handleEodChooseNew error', err);
-    } finally {
-      eodActionInFlightRef.current = false;
-    }
-  }, [navigation]);
-
-  useEffect(() => {
-    eodLog('showEodPrompt state changed', { visible: showEodPrompt });
-  }, [showEodPrompt]);
-
   const handleFocusDone = useCallback(async (task: Task) => {
     try {
       // Update task status immediately for responsive UI
@@ -1138,7 +1056,7 @@ const TasksScreen: React.FC = () => {
             setShowToast(true);
           } else {
             console.error('Momentum mode error:', err);
-            setToastMessage("Great job! Focus task completed.");
+            setToastMessage('Great job! Focus task completed.');
             setToastCalendarEvent(false);
             setShowToast(true);
           }
@@ -1148,6 +1066,88 @@ const TasksScreen: React.FC = () => {
       Alert.alert('Error', 'Failed to complete focus task');
     }
   }, [momentumEnabled, travelPreference, userSchedulingPreferences]);
+
+  const handleEodMarkDone = useCallback(async () => {
+    if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
+    eodActionInFlightRef.current = true;
+    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
+    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title });
+    if (!focus) { 
+      setShowEodPrompt(false);
+      await markEodPrompted();
+      eodActionInFlightRef.current = false; 
+      return; 
+    }
+    try {
+      await handleFocusDone(focus);
+      setShowEodPrompt(false);
+      await markEodPrompted();
+      eodLog('handleEodMarkDone success');
+    } catch (err) {
+      eodLog('handleEodMarkDone error', err);
+    } finally {
+      eodFocusIdRef.current = undefined;
+      eodActionInFlightRef.current = false;
+    }
+  }, [tasks, getFocusTask, handleFocusDone]);
+
+  const handleEodRollover = useCallback(async () => {
+    if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
+    eodActionInFlightRef.current = true;
+    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
+    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prev_due: (focus as any)?.due_date });
+    if (!focus) { 
+      // even if focus vanished, mark prompted so the modal doesn't re-open
+      await markEodPrompted();
+      setShowEodPrompt(false); 
+      eodActionInFlightRef.current = false; 
+      return; 
+    }
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const dd = String(tomorrow.getDate()).padStart(2, '0');
+
+    // Mark as prompted FIRST to prevent race condition
+    await markEodPrompted();
+
+    try {
+      eodLog('updating task due_date -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
+      const updated = await tasksAPI.updateTask(focus.id, { due_date: `${yyyy}-${mm}-${dd}` });
+      setTasks(prev => prev.map(t => t.id === focus.id ? updated : t));
+      eodLog('update success, task updated', { updated_due: (updated as any)?.due_date });
+      setToastMessage('Rolled over to tomorrow.');
+      setToastCalendarEvent(false);
+      setShowToast(true);
+    } catch {
+      eodLog('update failed');
+      Alert.alert('Error', 'Failed to roll over task');
+    }
+    setShowEodPrompt(false);
+    eodFocusIdRef.current = undefined;
+    eodActionInFlightRef.current = false;
+  }, [tasks, getFocusTask, markEodPrompted]);
+
+  const handleEodChooseNew = useCallback(async () => {
+    if (eodActionInFlightRef.current) { eodLog('handleEodChooseNew ignored: action in flight'); return; }
+    eodActionInFlightRef.current = true;
+    eodLog('handleEodChooseNew tapped');
+    try {
+      setShowEodPrompt(false);
+      await markEodPrompted();
+      navigation.navigate('BrainDump');
+      eodLog('handleEodChooseNew success');
+    } catch (err) {
+      eodLog('handleEodChooseNew error', err);
+    } finally {
+      eodActionInFlightRef.current = false;
+    }
+  }, [navigation, markEodPrompted]);
+
+  useEffect(() => {
+    eodLog('showEodPrompt state changed', { visible: showEodPrompt });
+  }, [showEodPrompt]);
 
   const _handleFocusRollover = async (task: Task) => {
     try {

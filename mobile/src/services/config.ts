@@ -8,7 +8,7 @@ export interface ApiConfig {
 
 export const API_CONFIGS: Record<string, ApiConfig> = {
   local: {
-    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || 'http://192.168.1.66:5000/api',
+    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || '',
     name: 'Local Development',
     description: 'Local backend server'
   },

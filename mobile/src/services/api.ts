@@ -1,6 +1,5 @@
 // Real API implementation for backend integration
 // Uses secure configuration service for API base URL
-import { configService } from './config';
 import { authService } from './auth';
 import { secureConfigService } from './secureConfig';
 import { sanitizeApiError, logErrorSecurely } from '../utils/errorSanitizer';
@@ -9,16 +8,22 @@ import logger from '../utils/logger';
 // Helper function to get secure API base URL
 const getSecureApiBaseUrl = (): string => {
   try {
-    return secureConfigService.getApiBaseUrl();
-  } catch (error) {
-    logger.warn('Failed to get secure API base URL, falling back to config service');
-    try {
-      return configService.getBaseUrl();
-    } catch (_e) {
-      // Final safe fallback for development
-      return 'http://192.168.1.66:5000/api';
+    const url = secureConfigService.getApiBaseUrl();
+    if (url && url.trim().length > 0) {
+      return url;
     }
+  } catch (_error) {
+    logger.warn('Failed to get secure API base URL from secureConfigService');
   }
+
+  const envFallback = (process.env?.API_FALLBACK || process.env?.API_BASE_URL || '').trim();
+  if (envFallback.length > 0) {
+    return envFallback;
+  }
+
+  const err = new Error('API base URL is not configured');
+  (err as any).code = 'API_BASE_URL_NOT_CONFIGURED';
+  throw err;
 };
 import {
   SchedulingPreferences,

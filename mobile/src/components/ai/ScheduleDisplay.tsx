@@ -187,12 +187,14 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
     return undefined;
   };
 
-  const combineDateTime = (dateLabel: string | undefined, timeStr: string): Date | undefined => {
+  const combineDateTime = (dateLabel: string | undefined, timeStr: unknown): Date | undefined => {
     // If time is ISO, just return parsed date
-    const iso = new Date(timeStr);
+    const iso = new Date(timeStr as any);
     if (!isNaN(iso.getTime())) {return iso;}
     const d = parseDate(dateLabel);
     if (!d) {return undefined;}
+    // Guard against non-string inputs (e.g., all-day events objects)
+    if (typeof timeStr !== 'string') {return undefined;}
     const [_, hrStr, minStr, ampm] = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i) || [];
     if (!hrStr) {return undefined;}
     let hour = parseInt(hrStr, 10);

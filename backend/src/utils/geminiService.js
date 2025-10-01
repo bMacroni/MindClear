@@ -171,7 +171,7 @@ ${moodLine}
 
 You are an AI assistant for the Mind Clear productivity app. Help the user using friendly, app-focused language. Execute actions via internal tools, but never reveal any tool or function names, schemas, or parameters to the user. Present everything as app features (e.g., "I'll add a task", "I'll schedule that", "I'll pull up your goals"). If multiple intents appear in prior messages, ask a brief clarifying question and proceed. When users ask to review progress, summarize their goals and tasks without mentioning internal tools.
 
-CONTEXT CLARITY: When the user makes a request, focus ONLY on their current message. Do not let previous conversation context confuse you about what they want now. If they ask to "schedule a meeting", use calendar functions. If they ask to "add a task", use task functions. If they ask about goals, use goal functions. Always prioritize the current request over historical context.
+CONTEXT CLARITY: Prioritize the user's current message as the primary intent while still consulting and preserving the persisted conversation history for follow-ups and stateful actions (e.g., reschedule, mark done, updates/deletes). Use historical context when necessary to resolve references and continue ongoing threads, but do not let older context override a clear new request. Prefer action-specific functions based on the current intent (calendar for scheduling/rescheduling, task for reads/creates/updates/completions, goal for goal reads/updates). Treat the latest message as the guide for what to do now while leveraging prior turns when needed.
 
 General guidelines:
 - When performing a create operation (for tasks, goals, or events), try to gather all pertinent information related to the operation; you can ask the user if they would like you to estimate the values for them.
@@ -730,6 +730,9 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
           if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Actions was not an array, set to empty array');
         }
         
+        // Ensure general JSON-only replies render in clients that strip code blocks
+        message = this._sanitizeMessageForFrontend(message);
+
         if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Final return object:', {
           message: message.substring(0, 200) + (message.length > 200 ? '...' : ''),
           actionsCount: actions.length,
@@ -742,7 +745,9 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
         };
       } else {
         // No function call, just return Gemini's text
-        const message = response.text ? await response.text() : '';
+        let message = response.text ? await response.text() : '';
+        // Ensure general JSON-only replies render in clients that strip code blocks
+        message = this._sanitizeMessageForFrontend(message);
         
         this._addToHistory(userId, { role: 'model', content: message });
         
@@ -1111,6 +1116,30 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
         const normalized = `${yyyy}-${mm}-${dd}`;
         action.details.due_date = normalized;
       }
+    }
+  }
+
+  /**
+   * Sanitize messages that are JSON-only code blocks to avoid blank UI in apps.
+   * If the block has category "general", return its "message" string as plain text.
+   * Leaves schedule/goal/task payloads intact for structured renderers.
+   * @param {string} message
+   * @returns {string}
+   */
+  _sanitizeMessageForFrontend(message) {
+    try {
+      if (typeof message !== 'string') return message;
+      const trimmed = message.trim();
+      const match = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
+      if (!match || !match[1]) return message;
+      const obj = JSON.parse(match[1]);
+      const category = String(obj?.category || '').toLowerCase();
+      if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
+        return obj.message.trim();
+      }
+      return message;
+    } catch (_) {
+      return message;
     }
   }
 
