@@ -89,10 +89,11 @@ class AnalyticsService {
    */
   private async sendEvent(event: AnalyticsEvent): Promise<void> {
     try {
+      // Short timeout for analytics to avoid blocking UI; server responds 202 quickly
       const response: ApiResponse<any> = await apiService.post('/analytics/track', {
         event_name: event.eventName,
         payload: event.payload,
-      });
+      }, { timeoutMs: 4000 });
 
       if (!response.ok) {
         const errorMessage = typeof response.data === 'object' && response.data?.error

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Popable } from 'react-native-popable';
+// import { Popable } from 'react-native-popable';
 import { useHelp, useHelpLocalScope } from '../../contexts/HelpContext';
 import { colors } from '../../themes/colors';
 
@@ -19,9 +19,14 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
   const measureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMeasuringRef = useRef<boolean>(false);
   const pendingMeasureRef = useRef<boolean>(false);
+  const lastRegisterTsRef = useRef<number>(0);
 
   // Debounced measure function to prevent excessive callbacks
   const measure = useCallback(() => {
+    // Skip all measuring when help overlay is OFF to avoid costly layout reads
+    if (!isHelpOverlayActive) {
+      return;
+    }
     // Ensure we don't stomp on an in-flight measure; if one's running, queue up a retry
 
     // …
@@ -60,21 +65,26 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
         const next = { x: pageX, y: pageY, width, height, pageX, pageY };
         const prev = lastLayoutRef.current;
         const changed = !prev
-          || Math.abs(prev.x - next.x) > 0.5
-          || Math.abs(prev.y - next.y) > 0.5
-          || Math.abs(prev.width - next.width) > 0.5
-          || Math.abs(prev.height - next.height) > 0.5;
+          || Math.abs(prev.x - next.x) > 1.5
+          || Math.abs(prev.y - next.y) > 1.5
+          || Math.abs(prev.width - next.width) > 1.5
+          || Math.abs(prev.height - next.height) > 1.5;
 
         if (changed) {
-          lastLayoutRef.current = next;
-          const targetScope = localScope || 'default';
+          const now = Date.now();
+          // Cooldown to avoid rapid re-registration thrash when overlay/tooltip affects layout
+          if (!prev || now - lastRegisterTsRef.current > 150) {
+            lastLayoutRef.current = next;
+            lastRegisterTsRef.current = now;
+            const targetScope = localScope || 'default';
 
-          // Unregister from previous scope if it exists and is different
-          if (lastRegisteredScope && lastRegisteredScope !== targetScope) {
-            unregisterTargetLayout(helpId, lastRegisteredScope);
-          }
+            // Unregister from previous scope if it exists and is different
+            if (lastRegisteredScope && lastRegisteredScope !== targetScope) {
+              unregisterTargetLayout(helpId, lastRegisteredScope);
+            }
 
-          if (!localScope || localScope === (currentScope || 'default')) {
+            // Always register the target under its local scope; the overlay reads
+            // only the active scope's layouts from context, so filtering happens there.
             registerTargetLayout(helpId, next, targetScope);
             setLastRegisteredScope(targetScope);
           }
@@ -107,6 +117,7 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
 
   // Re-measure when help mode toggles (debounced)
   useEffect(() => {
+    // Only measure if overlay is active
     if (isHelpOverlayActive) {
       measure();
     }
@@ -120,8 +131,11 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
       setLastRegisteredScope(null);
     }
     lastLayoutRef.current = null;
-    measure();
-  }, [currentScope, localScope, helpId, unregisterTargetLayout, measure]);
+    // Only measure if overlay is active to avoid layout thrash
+    if (isHelpOverlayActive) {
+      measure();
+    }
+  }, [currentScope, localScope, helpId, unregisterTargetLayout, measure, isHelpOverlayActive]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -138,8 +152,10 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
 
   // Optimized onLayout handler
   const handleLayout = useCallback(() => {
+    // Avoid re-measuring during help mode to prevent registration thrash
+    if (isHelpOverlayActive) { return; }
     measure();
-  }, [measure]);
+  }, [measure, isHelpOverlayActive]);
 
   // Do not alter layout when help mode is inactive
   if (!isHelpOverlayActive) {
@@ -150,14 +166,13 @@ export const HelpTarget: React.FC<HelpTargetProps> = ({ helpId, children, style 
     );
   }
 
+  // While help overlay is active, avoid rendering popovers for all targets at once,
+  // which can cause layout thrash and cycling. Just render the child non-interactive.
   return (
     <View ref={ref} onLayout={handleLayout} style={style}>
-      <Popable content={content} position="bottom" visible={isHelpOverlayActive ? undefined : false}>
-        {/* Disable child interactions while help is active so only tooltip opens */}
-        <View pointerEvents={isHelpOverlayActive ? 'none' : 'auto'}>
-          {children}
-        </View>
-      </Popable>
+      <View pointerEvents="none">
+        {children}
+      </View>
     </View>
   );
 };

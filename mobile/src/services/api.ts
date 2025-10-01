@@ -1,6 +1,5 @@
 // Real API implementation for backend integration
 // Uses secure configuration service for API base URL
-import { configService } from './config';
 import { authService } from './auth';
 import { secureConfigService } from './secureConfig';
 import { sanitizeApiError, logErrorSecurely } from '../utils/errorSanitizer';
@@ -9,11 +8,19 @@ import logger from '../utils/logger';
 // Helper function to get secure API base URL
 const getSecureApiBaseUrl = (): string => {
   try {
-    return secureConfigService.getApiBaseUrl();
-  } catch (error) {
-    logger.warn('Failed to get secure API base URL, falling back to config service:', error);
-    return getSecureApiBaseUrl();
+    const url = secureConfigService.getApiBaseUrl();
+    if (url && url.trim().length > 0) {
+      return url;
+    }
+  } catch (_error) {
+    logger.warn('Failed to get secure API base URL from secureConfigService');
   }
+
+  // Defer all resolution to secureConfigService to ensure validation and consistent ordering.
+
+  const err = new Error('API base URL is not configured');
+  (err as any).code = 'API_BASE_URL_NOT_CONFIGURED';
+  throw err;
 };
 import {
   SchedulingPreferences,
@@ -641,8 +648,7 @@ export const tasksAPI = {
     if (response.status === 404) {
       const text = await response.text().catch(()=> '');
       const err = new Error(text || 'No other tasks match your criteria.');
-      // @ts-ignore
-      err.code = 404;
+      (err as any).code = 404;
       throw err;
     }
     if (!response.ok) {
@@ -650,8 +656,7 @@ export const tasksAPI = {
       throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
     }
     return response.json();
-  },
-};
+  },};
 
 // Calendar API
 export const calendarAPI = {
@@ -1038,27 +1043,40 @@ async function getAuthToken(): Promise<string> {
 // Users API for profile endpoints
 export const usersAPI = {
   getMe: async (): Promise<any> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) {throw new Error(await response.text());}
-    return response.json();
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      throw error;
+    }
   },
   updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light'|'dark'; notification_preferences: any; }>): Promise<any> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {throw new Error(await response.text());}
-    return response.json();
-  }
-};
-
-export const notificationsAPI = {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error updating user profile:', error);
+      throw error;
+    }
+  },
   registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
     const authToken = await getAuthToken();
     const response = await fetch(`${getSecureApiBaseUrl()}/user/device-token`, {
@@ -1206,7 +1224,7 @@ class WebSocketService {
             logger.debug('WebSocket: Authentication sent');
           }
         } catch (error) {
-          console.error('WebSocket: Failed to authenticate:', error);
+          logger.warn('WebSocket: Failed to authenticate');
           // If authentication fails, close the connection to prevent retry loop
           if (this.ws) {
             this.ws.close(1000, 'Authentication failed');
@@ -1220,7 +1238,7 @@ class WebSocketService {
           
           // Handle authentication errors
           if (message.type === 'auth_error') {
-            console.error('WebSocket: Authentication error:', message.error);
+            logger.warn('WebSocket: Authentication error:', message.message || message.error);
             // Close connection to prevent retry loop
             if (this.ws) {
               this.ws.close(1000, 'Authentication failed');
@@ -1232,13 +1250,13 @@ class WebSocketService {
             this.onMessageCallback(message);
           }
         } catch (error) {
-          console.error('WebSocket: Error parsing message:', error);
+          logger.debug('WebSocket: Error parsing message');
         }
       };
 
-      this.ws.onerror = (error) => {
-        console.error('WebSocket: Connection error:', error);
-        // Don't log the full error object to avoid console spam
+      this.ws.onerror = (_error) => {
+        logger.debug('WebSocket: Connection error');
+        // Intentionally avoiding verbose error object to reduce console noise
       };
 
       this.ws.onclose = (event) => {
@@ -1264,7 +1282,7 @@ class WebSocketService {
       };
 
     } catch (error) {
-      console.error('WebSocket: Failed to initialize connection:', error);
+      logger.warn('WebSocket: Failed to initialize connection');
     }
   }
 
@@ -1284,37 +1302,55 @@ class WebSocketService {
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
   }
-
-  // Public method to force reconnection (useful after login)
-  async forceReconnect(): Promise<void> {
-    logger.debug('WebSocket: Force reconnection requested');
-    this.disconnect();
-    this.reconnectAttempts = 0; // Reset retry counter
-    await this.connect();
-  }
 }
-
-export const webSocketService = new WebSocketService();
 
 // App Preferences API
 export const appPreferencesAPI = {
   get: async (): Promise<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) { throw new Error(await response.text()); }
-    return response.json();
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching app preferences:', error);
+      throw error;
+    }
   },
   update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    if (!response.ok) { throw new Error(await response.text()); }
-    return response.json();
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Error updating app preferences:', error);
+      throw error;
+    }
   }
+};
+
+// Export a singleton instance for WebSocket notifications
+export const webSocketService = new WebSocketService();
+
+// Backward-compatible Notifications API export expected by consumers
+export const notificationsAPI = {
+  getNotifications: usersAPI.getNotifications,
+  getUnreadCount: usersAPI.getUnreadCount,
+  markAsRead: usersAPI.markAsRead,
+  markAllAsRead: usersAPI.markAllAsRead,
+  registerDeviceToken: usersAPI.registerDeviceToken,
 };

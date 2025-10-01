@@ -115,9 +115,18 @@ class SecureConfigService {
     } catch (error) {
       logger.warn('ConfigService unavailable, falling back to local URL:', String((error as Error)?.message ?? error));
     }
-    
-    // Only fall back to development IP if configService is unavailable
-    return 'http://192.168.1.66:5000/api';
+
+    // Environment-based fallback (non-production only)
+    const envFallback = (process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || '').trim();
+    if (envFallback && this.isValidUrl(envFallback)) {
+      const validatedUrl = this.validateAndSanitizeApiUrl(envFallback, environment);
+      if (validatedUrl) {
+        return validatedUrl;
+      }
+    }
+
+    // No safe fallback; fail fast so callers can handle
+    throw new Error('API base URL is not configured');
   }
 
   private getBooleanFlag(name: string, defaultValue: boolean): boolean {

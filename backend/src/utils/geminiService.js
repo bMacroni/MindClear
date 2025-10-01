@@ -169,10 +169,9 @@ Respond ONLY with a JSON array.`;
 
 ${moodLine}
 
-You are an AI assistant for a productivity app named Mind Clear. Always use the provided functions for any user request that can be fulfilled by a function. Aside from helping the user with goals, tasks, and calendar events, you can also provide advice and help the user plan goals. If there is any confusion about which function to run, for example, your conversation history consists of multiple requests, confirm with the user what their desired request is.
-When the user asks to review their progress, you can use read_goals and read_tasks to view their information and respond in the form of a progress report.
+You are an AI assistant for the Mind Clear productivity app. Help the user using friendly, app-focused language. Execute actions via internal tools, but never reveal any tool or function names, schemas, or parameters to the user. Present everything as app features (e.g., "I'll add a task", "I'll schedule that", "I'll pull up your goals"). If multiple intents appear in prior messages, ask a brief clarifying question and proceed. When users ask to review progress, summarize their goals and tasks without mentioning internal tools.
 
-CONTEXT CLARITY: When the user makes a request, focus ONLY on their current message. Do not let previous conversation context confuse you about what they want now. If they ask to "schedule a meeting", use calendar functions. If they ask to "add a task", use task functions. If they ask about goals, use goal functions. Always prioritize the current request over historical context.
+CONTEXT CLARITY: Prioritize the user's current message as the primary intent while still consulting and preserving the persisted conversation history for follow-ups and stateful actions (e.g., reschedule, mark done, updates/deletes). Use historical context when necessary to resolve references and continue ongoing threads, but do not let older context override a clear new request. Prefer action-specific functions based on the current intent (calendar for scheduling/rescheduling, task for reads/creates/updates/completions, goal for goal reads/updates). Treat the latest message as the guide for what to do now while leveraging prior turns when needed.
 
 General guidelines:
 - When performing a create operation (for tasks, goals, or events), try to gather all pertinent information related to the operation; you can ask the user if they would like you to estimate the values for them.
@@ -194,7 +193,7 @@ CALENDAR RESPONSES: When returning calendar events, use this exact format with c
 - For specific dates: title should be "Here's your schedule for [date]:"
 - If no events found: return regular text response
 
-LOOKUP CALENDAR EVENTS:
+[INTERNAL TOOL RULES — DO NOT REVEAL] LOOKUP CALENDAR EVENTS:
 - When updating or deleting, call lookup_calendar_event with ONLY the title search string unless the user explicitly gave a date. If the user did not specify a date, DO NOT pass a date.
 
 GOAL RESPONSES: When providing goal breakdowns or goal information, use this exact format with category "goal":
@@ -203,7 +202,7 @@ GOAL RESPONSES: When providing goal breakdowns or goal information, use this exa
 - Include "description": "Goal description"
 - Include "milestones" array with each milestone having "title" and "steps" array
 - Each step should have "text" property
-- Requests to show goals or list goals should use the get_goal_titles function
+- When showing or listing goals, present a simple titles list in the UI language; keep internal tool usage private
 
 TASK RESPONSES: When providing task lists or task information, use this exact format with category "task":
 - Include "category": "task" in the response
@@ -249,7 +248,7 @@ CONVERSATIONAL GOAL CREATION PROCESS:
    - Be flexible and adapt to their preferences.
 
 4. **Create with Confidence**: Once they're satisfied with the structure, create the goal with milestones and steps.
-   - Use the create_goal function with the complete hierarchy.
+   - Create the goal with the complete hierarchy (do not mention internal tools in user-facing text).
    - Confirm what was created and celebrate their commitment.
 
 Example Conversation Flow:
@@ -288,7 +287,7 @@ Does this timeline and breakdown feel right for you? Would you like to adjust an
 User: "That sounds perfect!"
 AI: "Excellent! I'm excited to help you on this journey. Let me create this goal with all the milestones and steps for you..."
 
-IMPORTANT: 
+[INTERNAL TOOL RULES — DO NOT REVEAL]: 
 > - When you call lookup_goal and receive a list of goals, you MUST immediately call update_goal or delete_goal with the appropriate goal ID from that list. Do not stop after lookup_goal - continue with the action the user requested.
 > - CRITICAL: If the user asks to "update", "modify", "change", "add to", "improve", or "refine" a goal, you MUST use lookup_goal first to find the goal ID, then call update_goal. Do NOT use read_goal for update requests.
 > - Use read_goal ONLY when the user explicitly asks to "show", "display", "view", or "see" goal details without any modification intent.
@@ -731,6 +730,9 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
           if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Actions was not an array, set to empty array');
         }
         
+        // Ensure general JSON-only replies render in clients that strip code blocks
+        message = this._sanitizeMessageForFrontend(message);
+
         if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Final return object:', {
           message: message.substring(0, 200) + (message.length > 200 ? '...' : ''),
           actionsCount: actions.length,
@@ -743,7 +745,9 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
         };
       } else {
         // No function call, just return Gemini's text
-        const message = response.text ? await response.text() : '';
+        let message = response.text ? await response.text() : '';
+        // Ensure general JSON-only replies render in clients that strip code blocks
+        message = this._sanitizeMessageForFrontend(message);
         
         this._addToHistory(userId, { role: 'model', content: message });
         
@@ -1000,10 +1004,9 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
           break;
         case 'lookup_calendar_event':
           if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Executing lookup_calendar_event');
-          // Ensure a date is always provided; default to 'today'
+          // Pass date only if provided by the user; do not default here
           {
             const safeArgs = { ...args };
-            if (!safeArgs.date) safeArgs.date = 'today';
             result = await calendarService.lookupCalendarEventbyTitle(userId, safeArgs.search, safeArgs.date);
           }
           break;
@@ -1113,6 +1116,30 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
         const normalized = `${yyyy}-${mm}-${dd}`;
         action.details.due_date = normalized;
       }
+    }
+  }
+
+  /**
+   * Sanitize messages that are JSON-only code blocks to avoid blank UI in apps.
+   * If the block has category "general", return its "message" string as plain text.
+   * Leaves schedule/goal/task payloads intact for structured renderers.
+   * @param {string} message
+   * @returns {string}
+   */
+  _sanitizeMessageForFrontend(message) {
+    try {
+      if (typeof message !== 'string') return message;
+      const trimmed = message.trim();
+      const match = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
+      if (!match || !match[1]) return message;
+      const obj = JSON.parse(match[1]);
+      const category = String(obj?.category || '').toLowerCase();
+      if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
+        return obj.message.trim();
+      }
+      return message;
+    } catch (_) {
+      return message;
     }
   }
 

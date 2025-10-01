@@ -26,7 +26,7 @@ export const HelpProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [helpContent, _setHelpContent] = useState<HelpContent>({});
   const allTargetLayoutsRef = useRef<ScopedTargetLayouts>({});
   const [currentScope, setCurrentScope] = useState<string>('default');
-  const [, forceRender] = useState(0);
+  const [layoutsVersion, setLayoutsVersion] = useState(0);
 
   const setHelpContent = useCallback((content: HelpContent) => {
     _setHelpContent(content || {});
@@ -35,7 +35,7 @@ export const HelpProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const registerTargetLayout = useCallback((helpId: string, layout: LayoutRectangle & { pageX: number; pageY: number }, scope: string) => {
     const scopeMap = allTargetLayoutsRef.current[scope] || {};
     allTargetLayoutsRef.current = { ...allTargetLayoutsRef.current, [scope]: { ...scopeMap, [helpId]: layout } };
-    forceRender(v => v + 1);
+    setLayoutsVersion(v => v + 1);
   }, []);
 
   const unregisterTargetLayout = useCallback((helpId: string, scope: string) => {
@@ -44,7 +44,7 @@ export const HelpProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const nextScopeMap = { ...scopeMap };
       delete nextScopeMap[helpId];
       allTargetLayoutsRef.current = { ...allTargetLayoutsRef.current, [scope]: nextScopeMap };
-      forceRender(v => v + 1);
+      setLayoutsVersion(v => v + 1);
     }
   }, []);
 
@@ -58,7 +58,7 @@ export const HelpProvider: React.FC<{ children: React.ReactNode }> = ({ children
     registerTargetLayout,
     unregisterTargetLayout,
     targetLayouts: allTargetLayoutsRef.current[currentScope] || {},
-  }), [isHelpOverlayActive, currentScope, helpContent, registerTargetLayout, unregisterTargetLayout]);
+  }), [isHelpOverlayActive, currentScope, helpContent, registerTargetLayout, unregisterTargetLayout, layoutsVersion]);
 
   return (
     <HelpContext.Provider value={value}>
