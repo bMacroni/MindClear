@@ -16,10 +16,7 @@ const getSecureApiBaseUrl = (): string => {
     logger.warn('Failed to get secure API base URL from secureConfigService');
   }
 
-  const envFallback = (process.env?.API_FALLBACK || process.env?.API_BASE_URL || '').trim();
-  if (envFallback.length > 0) {
-    return envFallback;
-  }
+  // Defer all resolution to secureConfigService to ensure validation and consistent ordering.
 
   const err = new Error('API base URL is not configured');
   (err as any).code = 'API_BASE_URL_NOT_CONFIGURED';
