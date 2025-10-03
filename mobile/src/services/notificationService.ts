@@ -39,10 +39,10 @@ class NotificationService {
         const isAndroid13Plus = typeof androidVersion === 'number' && androidVersion >= 33;
         
         if (isAndroid13Plus) {
-          // Check current permission status first
+          // Check current permission status first (check() returns a boolean)
           const currentStatus = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
           
-          if (currentStatus === PermissionsAndroid.RESULTS.GRANTED) {
+          if (currentStatus) {
             console.log('Notification permissions already granted');
             return true;
           }
@@ -86,7 +86,7 @@ class NotificationService {
     try {
       if (Platform.OS === 'android') {
         const status = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-        return status === PermissionsAndroid.RESULTS.GRANTED;
+        return status;
       } else if (Platform.OS === 'ios') {
         // For iOS, assume permission is granted since backend handles it
         return true;

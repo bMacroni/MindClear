@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
@@ -11,6 +11,7 @@ import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
 import { authService } from '../../services/auth';
 import { notificationService } from '../../services/notificationService';
 import MobileAnalyticsDashboard from '../../components/analytics/MobileAnalyticsDashboard';
+import { ApiToggle } from '../../components/common/ApiToggle';
 
 type Profile = {
   id: string;
@@ -44,11 +45,16 @@ export default function ProfileScreen({ navigation }: any) {
   const [saving, setSaving] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [notificationPermission, setNotificationPermission] = useState<boolean>(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  
+  // Ref for tracking delete timeout to enable cleanup
+  const deleteTimeoutRef = useRef<number | null>(null);
+  const deletingRef = useRef(false);
 
   // Inline edit fields
   const [fullName, setFullName] = useState('');
@@ -65,10 +71,14 @@ export default function ProfileScreen({ navigation }: any) {
       setAvatarUrl(me.avatar_url || '');
       setLocation(me.geographic_location || '');
       setPrefs({ ...defaultPrefs, ...(me.notification_preferences || {}) });
-      
       // Check notification permission status
-      const hasPermission = await notificationService.checkNotificationPermission();
-      setNotificationPermission(hasPermission);
+      try {
+        const hasPermission = await notificationService.checkNotificationPermission();
+        setNotificationPermission(hasPermission);
+      } catch (permError) {
+        console.error('Failed to check notification permission', permError);
+        setNotificationPermission(false);
+      }
     } catch (e) {
       console.error('Failed to load profile', e);
     } finally {
@@ -79,6 +89,15 @@ export default function ProfileScreen({ navigation }: any) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Cleanup delete timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (deleteTimeoutRef.current !== null) {
+        clearTimeout(deleteTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const toggleTheme = useCallback(async () => {
     if (!profile) {return;}
@@ -164,8 +183,14 @@ export default function ProfileScreen({ navigation }: any) {
       return;
     }
 
+    // Guard against multiple submissions
+    if (deletingRef.current) {
+      return;
+    }
+
     try {
-      setSaving(true);
+      deletingRef.current = true;
+      setDeleting(true);
       await usersAPI.deleteAccount();
       
       // Account deletion successful - show success message briefly then navigate to sign-in
@@ -174,7 +199,7 @@ export default function ProfileScreen({ navigation }: any) {
       setShowDeleteModal(false);
       
       // Wait a moment for the toast to show, then navigate to sign-in
-      setTimeout(async () => {
+      deleteTimeoutRef.current = setTimeout(async () => {
         try {
           // Clear any stored auth data
           await authService.logout();
@@ -188,7 +213,7 @@ export default function ProfileScreen({ navigation }: any) {
           // Fallback: just logout and let the app handle navigation
           await authService.logout();
         }
-      }, 2000); // 2 second delay to show success message
+      }, 2000) as unknown as number; // 2 second delay to show success message
       
     } catch (error) {
       console.error('Failed to delete account', error);
@@ -197,7 +222,8 @@ export default function ProfileScreen({ navigation }: any) {
         'Failed to delete account. Please try again or contact support.'
       );
     } finally {
-      setSaving(false);
+      setDeleting(false);
+      deletingRef.current = false;
     }
   }, [deleteConfirmationText, navigation]);
 
@@ -266,16 +292,21 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.meta}>Joined: {new Date(profile.join_date).toLocaleDateString()}</Text>
           )}
         </View>
-        {profile.account_status && profile.account_status !== 'active' && (
-          <View style={styles.statusChip}>
-            <Text style={styles.statusText}>{profile.account_status}</Text>
+        <TouchableOpacity 
+          style={styles.row} 
+          onPress={handleNotificationPermissionToggle}
+          accessibilityLabel="Manage push notification permissions"
+          accessibilityRole="button"
+        >
+          <Icon name="bell" size={20} color={colors.primary} />
+          <Text style={styles.rowLabel}>Push Notifications</Text>
+          <View style={styles.permissionStatus}>
+            <Text style={[styles.rowValue, { color: notificationPermission ? colors.success : colors.error }]}>
+              {notificationPermission ? 'Enabled' : 'Disabled'}
+            </Text>
+            <Icon name="chevron-right" size={16} color={colors.text.secondary} />
           </View>
-        )}
-        {profile.is_admin && (
-          <View style={styles.adminBadge}>
-            <Text style={styles.adminBadgeText}>ADMIN</Text>
-          </View>
-        )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -399,52 +430,59 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.rowValue}>{new Date(profile.last_login).toLocaleString()}</Text>
           </View>
         )}
-        <TouchableOpacity 
-          style={styles.row} 
-          onPress={() => handleExternalLink('https://www.mind-clear.com/privacy.html')}
-        >
-          <Icon name="shield" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Privacy Policy</Text>
-          <Icon name="link-external" size={16} color={colors.text.secondary} />
-        </TouchableOpacity>
-
-        {/* Terms of Service link hidden per request */}
-
         <TouchableOpacity
           style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}
           onPress={async () => {
-            try {
-              await authService.logout();
-              setToastMessage('Signed out');
-              setToastVisible(true);
-              // No need to manually navigate - AppNavigator will handle this automatically
-            } catch {}
+            await authService.logout();
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
           }}
+          accessibilityLabel="Sign out of your account"
+          accessibilityRole="button"
         >
-          <Icon name="sign-out" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+          <Icon name="sign-out" size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
           <Text style={styles.ctaText}>Sign Out</Text>
         </TouchableOpacity>
-
-        {/* Delete Account Section */}
-        <View style={[styles.section, { marginTop: spacing.xl }]}>
-          <Text style={styles.sectionTitle}>Danger Zone</Text>
-          <TouchableOpacity
-            style={[styles.cta, { backgroundColor: '#dc2626', marginTop: spacing.sm }]}
-            onPress={handleDeleteAccount}
-          >
-            <Icon name="trash" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
-            <Text style={styles.ctaText}>Delete Account</Text>
-          </TouchableOpacity>
-        </View>
       </View>
-      </ScrollView>
 
-      {/* Delete Account Confirmation Modal */}
+      {/* Developer Settings - Only visible in development mode */}
+      {__DEV__ && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Developer Settings</Text>
+          <ApiToggle 
+            onLogout={() => {
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            }}
+          />
+        </View>
+      )}
+
+      {/* Delete Account Section */}
+      <View style={[styles.section, { marginTop: spacing.xl }]}>
+        <Text style={styles.sectionTitle}>Danger Zone</Text>
+        <TouchableOpacity
+          style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.sm }]}
+          onPress={handleDeleteAccount}
+          accessibilityLabel="Delete your account permanently"
+          accessibilityRole="button"
+        >
+          <Icon name="trash" size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+          <Text style={styles.ctaText}>Delete Account</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Delete Confirmation Modal */}
       <Modal
         visible={showDeleteModal}
         transparent={true}
         animationType="fade"
         onRequestClose={() => setShowDeleteModal(false)}
+        accessibilityViewIsModal={true}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
@@ -469,12 +507,16 @@ export default function ProfileScreen({ navigation }: any) {
               placeholderTextColor={colors.text.secondary}
               autoCapitalize="characters"
               autoCorrect={false}
+              accessibilityLabel="Confirmation text input. Type DELETE to confirm account deletion"
             />
             
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.modalCancelButton]}
+                style={[styles.modalButton, styles.modalCancelButton, deleting && { opacity: 0.5 }]}
                 onPress={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel account deletion"
               >
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -483,19 +525,22 @@ export default function ProfileScreen({ navigation }: any) {
                 style={[
                   styles.modalButton,
                   styles.modalDeleteButton,
-                  deleteConfirmationText !== 'DELETE' && styles.modalDeleteButtonDisabled
+                  (deleteConfirmationText !== 'DELETE' || deleting) && styles.modalDeleteButtonDisabled
                 ]}
                 onPress={handleConfirmDelete}
-                disabled={deleteConfirmationText !== 'DELETE' || saving}
+                disabled={deleteConfirmationText !== 'DELETE' || deleting}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm and delete account permanently"
               >
                 <Text style={styles.modalDeleteButtonText}>
-                  {saving ? 'Deleting...' : 'Delete Account'}
+                  {deleting ? 'Deleting...' : 'Delete Account'}
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
+      </ScrollView>
     </SafeAreaView>
   );
 }

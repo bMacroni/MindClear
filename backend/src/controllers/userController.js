@@ -400,50 +400,46 @@ export async function deleteUserAccount(req, res) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    console.log(`Starting account deletion for user: ${user_id}`);
+    console.log(`Starting atomic account deletion for user: ${user_id}`);
 
-    // Delete user data from all tables (in order to respect foreign key constraints)
-    const deletionSteps = [
-      // Delete user-specific data first
-      { table: 'user_notification_preferences', where: 'user_id' },
-      { table: 'user_device_tokens', where: 'user_id' },
-      { table: 'user_app_preferences', where: 'user_id' },
-      { table: 'email_digest_logs', where: 'user_id' },
-      { table: 'chat_history', where: 'user_id' },
-      { table: 'conversation_threads', where: 'user_id' },
-      { table: 'calendar_events', where: 'user_id' },
-      { table: 'tasks', where: 'user_id' },
-      { table: 'milestones', where: 'user_id' },
-      { table: 'goals', where: 'user_id' },
-      { table: 'google_tokens', where: 'user_id' },
-      { table: 'users', where: 'id' }
-    ];
+    // Call the atomic deletion stored procedure
+    // This deletes all user data in a single transaction - either all succeed or all fail
+    const { data: deletionResult, error: rpcError } = await supabase
+      .rpc('delete_user_data_atomic', { target_user_id: user_id });
 
-    for (const step of deletionSteps) {
-      const { error } = await supabase
-        .from(step.table)
-        .delete()
-        .eq(step.where, user_id);
-
-      if (error) {
-        console.error(`Error deleting from ${step.table}:`, error);
-        // Continue with other deletions even if one fails
-      } else {
-        console.log(`Successfully deleted from ${step.table}`);
-      }
-    }
-
-    // Delete the auth user (this will cascade to any remaining user data)
-    const { error: authError } = await supabase.auth.admin.deleteUser(user_id);
-    
-    if (authError) {
-      console.error('Error deleting auth user:', authError);
+    if (rpcError) {
+      console.error('Atomic deletion RPC failed:', {
+        user_id,
+        error: rpcError.message,
+        code: rpcError.code,
+        details: rpcError.details,
+        hint: rpcError.hint
+      });
       return res.status(500).json({ 
-        error: 'Failed to delete user account. Some data may have been removed.' 
+        error: 'Failed to delete user account. No data was removed (transaction rolled back).',
+        details: rpcError.message
       });
     }
 
-    console.log(`Account deletion completed for user: ${user_id}`);
+    console.log('Database deletion completed atomically:', deletionResult);
+
+    // Only proceed to delete auth user if database deletion succeeded
+    // This ensures we don't orphan database records
+    const { error: authError } = await supabase.auth.admin.deleteUser(user_id);
+    
+    if (authError) {
+      console.error('Error deleting auth user after successful DB deletion:', {
+        user_id,
+        error: authError.message,
+        db_deletion_result: deletionResult
+      });
+      return res.status(500).json({ 
+        error: 'Database records deleted but failed to remove authentication. Please contact support.',
+        details: authError.message
+      });
+    }
+
+    console.log('Account deletion process completed atomically for user:', user_id);
     
     res.status(200).json({ 
       success: true, 

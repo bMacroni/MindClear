@@ -28,10 +28,6 @@ class ConfigService {
 
   constructor() {
     this.loadConfig();
-    // Ensure we always have a valid base URL
-    if (!this.currentConfig.baseUrl || this.currentConfig.baseUrl.trim() === '') {
-      this.currentConfig = API_CONFIGS.hosted; // Default to hosted if local config is empty
-    }
   }
 
   async loadConfig(): Promise<void> {
@@ -48,8 +44,17 @@ class ConfigService {
         const config = JSON.parse(savedConfig);
         this.currentConfig = config;
       }
+
+      // Ensure we always have a valid base URL
+      if (!this.currentConfig.baseUrl || this.currentConfig.baseUrl.trim() === '') {
+        this.currentConfig = API_CONFIGS.hosted;
+      }
     } catch (error) {
       console.warn('Failed to load API config, using default:', error);
+      // Ensure fallback on error
+      if (!this.currentConfig.baseUrl || this.currentConfig.baseUrl.trim() === '') {
+        this.currentConfig = API_CONFIGS.hosted;
+      }
     }
   }
 

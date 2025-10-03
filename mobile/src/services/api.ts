@@ -12,8 +12,11 @@ const getSecureApiBaseUrl = (): string => {
     if (url && url.trim().length > 0) {
       return url;
     }
-  } catch (_error) {
-    // Fall back to configService
+  } catch (error) {
+    logger.debug('Primary config service failed, falling back to configService', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 
   // Fallback to regular config service
@@ -23,8 +26,11 @@ const getSecureApiBaseUrl = (): string => {
     if (fallbackUrl && fallbackUrl.trim().length > 0) {
       return fallbackUrl;
     }
-  } catch (_error) {
-    // Continue to final fallback
+  } catch (error) {
+    logger.debug('configService require failed, falling back to final URL', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 
   // Final fallback based on environment

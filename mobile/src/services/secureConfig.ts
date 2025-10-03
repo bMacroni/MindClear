@@ -31,7 +31,7 @@ class SecureConfigService {
   private isLoaded = false;
 
   private constructor() {
-    this.loadSecureConfig();
+    // Constructor stays synchronous; call loadSecureConfig in initialize()
   }
 
   static getInstance(): SecureConfigService {
@@ -41,14 +41,31 @@ class SecureConfigService {
     return SecureConfigService.instance;
   }
 
+  /**
+   * Asynchronously initialize the singleton by loading secure config.
+   * Must be awaited at app startup before using the service.
+   */
+  static async initialize(): Promise<SecureConfigService> {
+    const instance = SecureConfigService.getInstance();
+    if (!instance.isLoaded) {
+      await instance.loadSecureConfig();
+    }
+    return instance;
+  }
+
   private async loadSecureConfig(): Promise<void> {
     try {
       const savedConfig = await AsyncStorage.getItem(this.configKey);
       if (savedConfig) {
-        this.config = JSON.parse(savedConfig);
-        this.isLoaded = true;
-        logger.info('Secure config loaded from storage');
-        return;
+        try {
+          this.config = JSON.parse(savedConfig);
+          this.isLoaded = true;
+          logger.info('Secure config loaded from storage');
+          return;
+        } catch (parseError) {
+          logger.error('Failed to parse secure config, resetting to defaults:', parseError);
+          await AsyncStorage.removeItem(this.configKey);
+        }
       }
     } catch (error) {
       logger.warn('Failed to load secure config from storage:', error);
@@ -86,10 +103,39 @@ class SecureConfigService {
       await this.loadSecureConfig();
     }
     
-    if (this.config) {
-      this.config.apiBaseUrl = url;
-      await AsyncStorage.setItem(this.configKey, JSON.stringify(this.config));
-      logger.info('API base URL updated:', url);
+    if (!this.config) {
+      const error = new Error('Config not initialized');
+      logger.error('Failed to update API base URL: config not initialized', { url });
+      throw error;
+    }
+
+    // Preserve original value for rollback
+    const previousUrl = this.config.apiBaseUrl;
+    
+    try {
+      // Create updated config
+      const updatedConfig = {
+        ...this.config,
+        apiBaseUrl: url,
+      };
+      
+      // Persist to storage first
+      await AsyncStorage.setItem(this.configKey, JSON.stringify(updatedConfig));
+      
+      // Only update in-memory config after successful persistence
+      this.config = updatedConfig;
+      logger.info('API base URL updated successfully', { previousUrl, newUrl: url });
+    } catch (error) {
+      // Log the error with context
+      logger.error('Failed to persist API base URL update to storage', {
+        url,
+        previousUrl,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      
+      // Rethrow to propagate to caller
+      throw new Error(`Failed to update API base URL: ${error instanceof Error ? error.message : 'Storage error'}`);
     }
   }
 
@@ -197,13 +243,17 @@ class SecureConfigService {
   }
 
   async resetToDefaults(): Promise<void> {
-    await AsyncStorage.removeItem(this.configKey);
-    this.config = null;
-    this.isLoaded = false;
-    await this.loadSecureConfig();
-    logger.info('Secure config reset to defaults');
+    try {
+      await AsyncStorage.removeItem(this.configKey);
+      this.config = null;
+      this.isLoaded = false;
+      await this.loadSecureConfig();
+      logger.info('Secure config reset to defaults');
+    } catch (error) {
+      logger.error('Failed to reset config to defaults:', error);
+      throw new Error('Failed to reset configuration');
+    }
   }
-
   // Health check method
   async healthCheck(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; details: any }> {
     try {

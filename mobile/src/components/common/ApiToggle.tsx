@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { configService, ApiConfig } from '../../services/config';
+import { authService } from '../../services/auth';
 
 interface ApiToggleProps {
   onConfigChange?: (config: ApiConfig) => void;
+  onLogout?: () => void;
 }
 
-export const ApiToggle: React.FC<ApiToggleProps> = ({ onConfigChange }) => {
+export const ApiToggle: React.FC<ApiToggleProps> = ({ onConfigChange, onLogout }) => {
   const [currentConfigKey, setCurrentConfigKey] = useState<string>('local');
   const [showConfigs, setShowConfigs] = useState(false);
 
@@ -23,12 +25,59 @@ export const ApiToggle: React.FC<ApiToggleProps> = ({ onConfigChange }) => {
   };
 
   const handleConfigChange = async (configKey: string) => {
-    await configService.setConfig(configKey);
-    setCurrentConfigKey(configKey);
-    setShowConfigs(false);
+    // Don't do anything if selecting the current config
+    if (configKey === currentConfigKey) {
+      setShowConfigs(false);
+      return;
+    }
+
+    const targetConfig = configService.getAvailableConfigs()[configKey];
     
-    const newConfig = configService.getCurrentConfig();
-    onConfigChange?.(newConfig);
+    // Show confirmation dialog
+    Alert.alert(
+      'Switch Backend?',
+      `Switching to "${targetConfig.name}" will log you out. You'll need to sign in again with credentials for that backend.\n\nContinue?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => setShowConfigs(false),
+        },
+        {
+          text: 'Switch & Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Update config
+              await configService.setConfig(configKey);
+              setCurrentConfigKey(configKey);
+              setShowConfigs(false);
+              
+              const newConfig = configService.getCurrentConfig();
+              
+              // Logout user
+              await authService.logout();
+              
+              // Notify parent component
+              onConfigChange?.(newConfig);
+              onLogout?.();
+              
+              Alert.alert(
+                'Backend Switched',
+                `You're now connected to "${targetConfig.name}". Please sign in.`,
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                'Failed to switch backend. Please try again.',
+                [{ text: 'OK' }]
+              );
+            }
+          },
+        },
+      ]
+    );
   };
 
   const currentConfig = configService.getCurrentConfig();
