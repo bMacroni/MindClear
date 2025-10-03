@@ -8,7 +8,7 @@ export interface ApiConfig {
 
 export const API_CONFIGS: Record<string, ApiConfig> = {
   local: {
-    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || '',
+    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || 'http://localhost:5000/api',
     name: 'Local Development',
     description: 'Local backend server'
   },
@@ -20,7 +20,7 @@ export const API_CONFIGS: Record<string, ApiConfig> = {
 };
 
 class ConfigService {
-  private currentConfig: ApiConfig = API_CONFIGS.local;
+  private currentConfig: ApiConfig = __DEV__ ? API_CONFIGS.local : API_CONFIGS.hosted;
   private configKey = 'api_config';
   private googleWebClientId: string | undefined;
   private googleAndroidClientId: string | undefined;
@@ -28,10 +28,21 @@ class ConfigService {
 
   constructor() {
     this.loadConfig();
+    // Ensure we always have a valid base URL
+    if (!this.currentConfig.baseUrl || this.currentConfig.baseUrl.trim() === '') {
+      this.currentConfig = API_CONFIGS.hosted; // Default to hosted if local config is empty
+    }
   }
 
   async loadConfig(): Promise<void> {
     try {
+      // In development mode, always use local config regardless of saved settings
+      if (__DEV__) {
+        this.currentConfig = API_CONFIGS.local;
+        return;
+      }
+
+      // In production, load saved config
       const savedConfig = await AsyncStorage.getItem(this.configKey);
       if (savedConfig) {
         const config = JSON.parse(savedConfig);

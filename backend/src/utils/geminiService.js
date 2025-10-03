@@ -156,8 +156,17 @@ Respond ONLY with a JSON array.`;
           actions: []
         };
       }
+      // Content filtering for harmful content
+      const filteredMessage = this._filterHarmfulContent(message);
+      if (filteredMessage.blocked) {
+        return {
+          message: "I'm here to help with productivity, goal-setting, and task management. Let's focus on how I can assist you with your goals and tasks.",
+          actions: []
+        };
+      }
+
       // Update conversation history
-      this._addToHistory(userId, { role: 'user', content: message });
+      this._addToHistory(userId, { role: 'user', content: filteredMessage.content });
       // Add a system prompt to instruct Gemini to use functions
       // --- Add today's date to the prompt ---
       const today = new Date();
@@ -1343,6 +1352,63 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
     } catch (error) {
       return 'unknown';
     }
+  }
+
+  /**
+   * Filter harmful content from user messages
+   * @param {string} message - The user message to filter
+   * @returns {Object} - { content: string, blocked: boolean }
+   */
+  _filterHarmfulContent(message) {
+    if (!message || typeof message !== 'string') {
+      return { content: message, blocked: false };
+    }
+
+    const lowerMessage = message.toLowerCase();
+    
+    // Define harmful content patterns
+    const harmfulPatterns = [
+      // Violence and threats
+      /\b(kill|murder|suicide|self-harm|violence|threat|harm|hurt)\b/,
+      // Hate speech and discrimination
+      /\b(hate|racist|sexist|discriminat|slur|offensive)\b/,
+      // Illegal activities
+      /\b(drug|illegal|crime|criminal|fraud|scam|hack)\b/,
+      // Inappropriate sexual content
+      /\b(sexual|porn|explicit|inappropriate)\b/,
+      // Spam and phishing
+      /\b(spam|phishing|scam|fake|clickbait)\b/,
+    ];
+
+    // Check for harmful patterns
+    for (const pattern of harmfulPatterns) {
+      if (pattern.test(lowerMessage)) {
+        logger.warn('Blocked potentially harmful content:', { 
+          pattern: pattern.toString(), 
+          messageLength: message.length 
+        });
+        return { content: message, blocked: true };
+      }
+    }
+
+    // Check for excessive repetition (potential spam)
+    const words = lowerMessage.split(/\s+/);
+    const wordCounts = {};
+    for (const word of words) {
+      if (word.length > 3) { // Only count longer words
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+      }
+    }
+    
+    // Block if any word appears more than 5 times in a short message
+    for (const [word, count] of Object.entries(wordCounts)) {
+      if (count > 5 && words.length < 50) {
+        logger.warn('Blocked repetitive content:', { word, count, messageLength: message.length });
+        return { content: message, blocked: true };
+      }
+    }
+
+    return { content: message, blocked: false };
   }
 }
 

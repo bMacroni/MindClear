@@ -13,14 +13,25 @@ const getSecureApiBaseUrl = (): string => {
       return url;
     }
   } catch (_error) {
-    logger.warn('Failed to get secure API base URL from secureConfigService');
+    // Fall back to configService
   }
 
-  // Defer all resolution to secureConfigService to ensure validation and consistent ordering.
+  // Fallback to regular config service
+  try {
+    const { configService } = require('./config');
+    const fallbackUrl = configService.getBaseUrl();
+    if (fallbackUrl && fallbackUrl.trim().length > 0) {
+      return fallbackUrl;
+    }
+  } catch (_error) {
+    // Continue to final fallback
+  }
 
-  const err = new Error('API base URL is not configured');
-  (err as any).code = 'API_BASE_URL_NOT_CONFIGURED';
-  throw err;
+  // Final fallback based on environment
+  const finalFallback = __DEV__ 
+    ? 'http://localhost:5000/api'  // Development: use localhost with adb reverse
+    : 'https://foci-production.up.railway.app/api';  // Production: use Railway
+  return finalFallback;
 };
 import {
   SchedulingPreferences,
@@ -1163,6 +1174,37 @@ export const usersAPI = {
     }
     const data = await response.json();
     return data.count || 0;
+  },
+
+  deleteAccount: async (): Promise<void> => {
+    try {
+      const token = await getAuthToken();
+      const apiUrl = getSecureApiBaseUrl();
+      const response = await fetch(`${apiUrl}/user`, {
+        method: 'DELETE',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ confirmDeletion: true }),
+      });
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          const err = new Error('Authentication failed - user not logged in');
+          (err as any).code = 'AUTH_REQUIRED';
+          throw err;
+        }
+        const errorText = await response.text();
+        throw new Error(`Failed to delete account: ${response.status} - ${errorText}`);
+      }
+      
+      // Account deletion successful - user will be logged out automatically
+      // The auth service should handle the logout
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      throw error;
+    }
   },
 };
 

@@ -376,3 +376,82 @@ export async function updateNotificationPreferences(req, res) {
     res.status(500).json({ error: 'An unexpected error occurred' });
   }
 }
+
+/**
+ * Delete user account and all associated data
+ * This endpoint provides user-initiated account deletion for Play policy compliance
+ */
+export async function deleteUserAccount(req, res) {
+  // Check if user is authenticated
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  const user_id = req.user.id;
+  const { confirmDeletion } = req.body;
+
+  // Require explicit confirmation to prevent accidental deletion
+  if (!confirmDeletion) {
+    return res.status(400).json({ 
+      error: 'Account deletion requires confirmation. Please set confirmDeletion to true.' 
+    });
+  }
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+  try {
+    console.log(`Starting account deletion for user: ${user_id}`);
+
+    // Delete user data from all tables (in order to respect foreign key constraints)
+    const deletionSteps = [
+      // Delete user-specific data first
+      { table: 'user_notification_preferences', where: 'user_id' },
+      { table: 'user_device_tokens', where: 'user_id' },
+      { table: 'user_app_preferences', where: 'user_id' },
+      { table: 'email_digest_logs', where: 'user_id' },
+      { table: 'chat_history', where: 'user_id' },
+      { table: 'conversation_threads', where: 'user_id' },
+      { table: 'calendar_events', where: 'user_id' },
+      { table: 'tasks', where: 'user_id' },
+      { table: 'milestones', where: 'user_id' },
+      { table: 'goals', where: 'user_id' },
+      { table: 'google_tokens', where: 'user_id' },
+      { table: 'users', where: 'id' }
+    ];
+
+    for (const step of deletionSteps) {
+      const { error } = await supabase
+        .from(step.table)
+        .delete()
+        .eq(step.where, user_id);
+
+      if (error) {
+        console.error(`Error deleting from ${step.table}:`, error);
+        // Continue with other deletions even if one fails
+      } else {
+        console.log(`Successfully deleted from ${step.table}`);
+      }
+    }
+
+    // Delete the auth user (this will cascade to any remaining user data)
+    const { error: authError } = await supabase.auth.admin.deleteUser(user_id);
+    
+    if (authError) {
+      console.error('Error deleting auth user:', authError);
+      return res.status(500).json({ 
+        error: 'Failed to delete user account. Some data may have been removed.' 
+      });
+    }
+
+    console.log(`Account deletion completed for user: ${user_id}`);
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Account and all associated data have been permanently deleted.' 
+    });
+
+  } catch (e) {
+    console.error('Exception in deleteUserAccount:', e);
+    res.status(500).json({ error: 'An unexpected error occurred during account deletion' });
+  }
+}

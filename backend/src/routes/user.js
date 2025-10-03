@@ -9,7 +9,8 @@ import {
   updateAppPreferences,
   registerDeviceToken,
   getNotificationPreferences,
-  updateNotificationPreferences
+  updateNotificationPreferences,
+  deleteUserAccount
 } from '../controllers/userController.js';
 
 const router = express.Router();
@@ -34,5 +35,8 @@ router.put('/app-preferences', requireAuth, updateAppPreferences);
 router.post('/device-token', requireAuth, registerDeviceToken);
 router.get('/notifications/preferences', requireAuth, getNotificationPreferences);
 router.put('/notifications/preferences', requireAuth, updateNotificationPreferences);
+
+// Account deletion (Play policy compliance)
+router.delete('/', requireAuth, deleteUserAccount);
 
 export default router; 
