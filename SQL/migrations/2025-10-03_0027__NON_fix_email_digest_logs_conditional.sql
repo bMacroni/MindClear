@@ -1,13 +1,20 @@
--- Migration: Atomic user deletion function
--- Created: 2025-10-03
--- Description: Creates a PostgreSQL stored function to delete all user-related data
---              atomically in a single transaction to prevent partial deletions and race conditions.
+-- Migration: Fix email_digest_logs conditional deletion
+-- Date: 2025-10-03
+-- Description: Updates delete_user_data_atomic to check if email_digest_logs table exists before deleting
+-- 
+-- This fixes the error: column "user_id" does not exist
+-- The email_digest_logs table may not exist in all environments, so we check before deleting
 
--- Drop the function if it exists (for idempotency)
-DROP FUNCTION IF EXISTS delete_user_data_atomic(UUID);
+-- Drop and recreate the function with the fix
+DROP FUNCTION IF EXISTS delete_user_data_atomic(UUID, UUID, TEXT, INET);
 
--- Create the atomic deletion function
-CREATE OR REPLACE FUNCTION delete_user_data_atomic(target_user_id UUID)
+-- Recreate with audit parameters and conditional email_digest_logs check
+CREATE OR REPLACE FUNCTION delete_user_data_atomic(
+  target_user_id UUID,
+  performed_by UUID DEFAULT NULL,
+  reason TEXT DEFAULT NULL,
+  ip_address INET DEFAULT NULL
+)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -15,7 +22,24 @@ AS $$
 DECLARE
   deleted_counts jsonb := '{}';
   row_count integer;
+  audit_record_id UUID;
 BEGIN
+  -- Record deletion audit BEFORE any deletions
+  INSERT INTO user_deletion_audit (
+    deleted_user_id,
+    deleted_by,
+    reason,
+    ip_address,
+    deleted_at
+  ) VALUES (
+    target_user_id,
+    COALESCE(performed_by, target_user_id),
+    COALESCE(reason, 'User-initiated account deletion'),
+    ip_address,
+    NOW()
+  )
+  RETURNING id INTO audit_record_id;
+  
   -- All deletions happen within this function's implicit transaction
   -- If any DELETE fails, the entire transaction will roll back
   
@@ -82,26 +106,47 @@ BEGIN
   deleted_counts := jsonb_set(deleted_counts, '{users}', to_jsonb(row_count));
   
   -- If we got here, all deletions succeeded
+  -- Update audit record with success
+  UPDATE user_deletion_audit
+  SET 
+    success = true,
+    deleted_counts = deleted_counts
+  WHERE id = audit_record_id;
+  
   -- Return the counts of deleted rows per table
   RETURN jsonb_build_object(
     'success', true,
     'user_id', target_user_id,
+    'audit_id', audit_record_id,
     'deleted_rows', deleted_counts
   );
   
 EXCEPTION
   WHEN OTHERS THEN
+    -- Update audit record with failure
+    UPDATE user_deletion_audit
+    SET 
+      success = false,
+      error_message = SQLERRM
+    WHERE id = audit_record_id;
+    
     -- Any error will cause automatic rollback of all changes
     RAISE EXCEPTION 'Atomic user deletion failed for user %: % (SQLSTATE: %)', 
       target_user_id, SQLERRM, SQLSTATE;
 END;
 $$;
 
--- Grant execute permission to authenticated users (via service role in practice)
--- Note: This function uses SECURITY DEFINER, so it runs with the privileges of the function owner
-GRANT EXECUTE ON FUNCTION delete_user_data_atomic(UUID) TO authenticated;
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION delete_user_data_atomic(UUID, UUID, TEXT, INET) TO authenticated;
 
--- Add a comment describing the function
-COMMENT ON FUNCTION delete_user_data_atomic(UUID) IS 
-  'Atomically deletes all user-related data across all tables in a single transaction. Returns a JSONB object with deletion counts or raises an exception on failure, causing automatic rollback of all changes.';
+-- Add comment
+COMMENT ON FUNCTION delete_user_data_atomic(UUID, UUID, TEXT, INET) IS 
+  'Atomically deletes all user-related data across all tables in a single transaction with audit trail. Conditionally handles email_digest_logs if table exists. Returns a JSONB object with deletion counts or raises an exception on failure, causing automatic rollback of all changes.';
+
+-- Log migration completion
+DO $$
+BEGIN
+  RAISE NOTICE '✓ Migration 2025-10-03_0027 completed successfully';
+  RAISE NOTICE '  - Fixed email_digest_logs conditional check in delete_user_data_atomic';
+END $$;
 

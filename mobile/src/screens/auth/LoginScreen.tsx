@@ -9,7 +9,18 @@ import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
 import { Image } from 'react-native';
 
-export default function LoginScreen({ navigation }: any) {
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+type AuthStackParamList = {
+  Login: undefined;
+  Signup: undefined;
+};
+
+type LoginScreenProps = {
+  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+};
+
+export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');

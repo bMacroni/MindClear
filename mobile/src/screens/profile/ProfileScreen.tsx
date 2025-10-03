@@ -292,21 +292,6 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.meta}>Joined: {new Date(profile.join_date).toLocaleDateString()}</Text>
           )}
         </View>
-        <TouchableOpacity 
-          style={styles.row} 
-          onPress={handleNotificationPermissionToggle}
-          accessibilityLabel="Manage push notification permissions"
-          accessibilityRole="button"
-        >
-          <Icon name="bell" size={20} color={colors.primary} />
-          <Text style={styles.rowLabel}>Push Notifications</Text>
-          <View style={styles.permissionStatus}>
-            <Text style={[styles.rowValue, { color: notificationPermission ? colors.success : colors.error }]}>
-              {notificationPermission ? 'Enabled' : 'Disabled'}
-            </Text>
-            <Icon name="chevron-right" size={16} color={colors.text.secondary} />
-          </View>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -433,11 +418,16 @@ export default function ProfileScreen({ navigation }: any) {
         <TouchableOpacity
           style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}
           onPress={async () => {
-            await authService.logout();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
+            try {
+              await authService.logout();
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } catch (error) {
+              console.error('Logout failed:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
           }}
           accessibilityLabel="Sign out of your account"
           accessibilityRole="button"
@@ -447,8 +437,8 @@ export default function ProfileScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Developer Settings - Only visible in development mode */}
-      {__DEV__ && (
+      {/* Developer Settings - Only visible to admin users */}
+      {profile?.is_admin && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Developer Settings</Text>
           <ApiToggle 

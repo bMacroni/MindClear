@@ -1,4 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { 
+  retryWithBackoff, 
+  enqueueFailedOperation, 
+  markUserDeletionFailed,
+  sendOpsAlert 
+} from '../utils/retryService.js';
 
 export async function getUserSettings(req, res) {
   const user_id = req.user.id;
@@ -380,6 +386,7 @@ export async function updateNotificationPreferences(req, res) {
 /**
  * Delete user account and all associated data
  * This endpoint provides user-initiated account deletion for Play policy compliance
+ * Now includes audit trail, consent verification, and IP tracking
  */
 export async function deleteUserAccount(req, res) {
   // Check if user is authenticated
@@ -388,7 +395,7 @@ export async function deleteUserAccount(req, res) {
   }
   
   const user_id = req.user.id;
-  const { confirmDeletion } = req.body;
+  const { confirmDeletion, reason } = req.body;
 
   // Require explicit confirmation to prevent accidental deletion
   if (!confirmDeletion) {
@@ -397,15 +404,44 @@ export async function deleteUserAccount(req, res) {
     });
   }
 
+  // Extract IP address from request (handle proxies)
+  const ip_address = req.headers['x-forwarded-for']?.split(',')[0].trim() 
+    || req.headers['x-real-ip']
+    || req.socket.remoteAddress
+    || req.connection.remoteAddress;
+
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   try {
     console.log(`Starting atomic account deletion for user: ${user_id}`);
 
-    // Call the atomic deletion stored procedure
+    // STEP 1: Set deletion_requested_at timestamp to record user consent
+    console.log('Recording user consent for deletion...');
+    const { error: consentError } = await supabase
+      .from('users')
+      .update({ deletion_requested_at: new Date().toISOString() })
+      .eq('id', user_id);
+
+    if (consentError) {
+      console.error('Failed to record deletion consent:', {
+        user_id,
+        error: consentError.message
+      });
+      return res.status(500).json({ 
+        error: 'Failed to record deletion consent.',
+        details: consentError.message
+      });
+    }
+
+    // STEP 2: Call the atomic deletion stored procedure with audit parameters
     // This deletes all user data in a single transaction - either all succeed or all fail
     const { data: deletionResult, error: rpcError } = await supabase
-      .rpc('delete_user_data_atomic', { target_user_id: user_id });
+      .rpc('delete_user_data_atomic', { 
+        target_user_id: user_id,
+        performed_by: user_id, // User is deleting their own account
+        reason: reason || 'User-initiated account deletion',
+        ip_address: ip_address || null
+      });
 
     if (rpcError) {
       console.error('Atomic deletion RPC failed:', {
@@ -423,27 +459,92 @@ export async function deleteUserAccount(req, res) {
 
     console.log('Database deletion completed atomically:', deletionResult);
 
-    // Only proceed to delete auth user if database deletion succeeded
-    // This ensures we don't orphan database records
-    const { error: authError } = await supabase.auth.admin.deleteUser(user_id);
+    // STEP 3: Delete auth user with retry logic and compensating transactions
+    // Uses exponential backoff for transient errors and dead-letter queue for failures
+    console.log('Attempting auth account deletion with retry logic...');
     
-    if (authError) {
-      console.error('Error deleting auth user after successful DB deletion:', {
+    const authDeletionResult = await retryWithBackoff(
+      async () => {
+        const { error } = await supabase.auth.admin.deleteUser(user_id);
+        if (error) {
+          throw error;
+        }
+        return { success: true };
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 1000,
+        maxDelayMs: 10000
+      }
+    );
+
+    if (!authDeletionResult.success) {
+      // Auth deletion failed after retries - execute compensating actions
+      console.error('Auth deletion failed after retries, executing compensating actions:', {
         user_id,
-        error: authError.message,
+        error: authDeletionResult.error.message,
+        attempts: authDeletionResult.attempts
+      });
+
+      // COMPENSATING ACTION 1: Mark user with failed deletion status
+      const markResult = await markUserDeletionFailed(user_id, {
+        error: authDeletionResult.error.message,
+        attempts: authDeletionResult.attempts,
         db_deletion_result: deletionResult
       });
-      return res.status(500).json({ 
-        error: 'Database records deleted but failed to remove authentication. Please contact support.',
-        details: authError.message
+
+      // COMPENSATING ACTION 2: Enqueue for async/manual cleanup
+      const queueResult = await enqueueFailedOperation({
+        user_id,
+        operation_type: 'auth_deletion',
+        context: {
+          db_deletion_result: deletionResult,
+          audit_id: deletionResult?.audit_id,
+          deletion_reason: reason || 'User-initiated account deletion',
+          ip_address
+        },
+        retry_count: authDeletionResult.attempts,
+        last_error: authDeletionResult.error
+      });
+
+      // COMPENSATING ACTION 3: Send ops alert for manual intervention
+      await sendOpsAlert({
+        user_id,
+        operation_type: 'auth_deletion',
+        error_message: authDeletionResult.error.message,
+        retry_count: authDeletionResult.attempts,
+        context: {
+          db_deletion_result: deletionResult,
+          audit_id: deletionResult?.audit_id,
+          mark_result: markResult,
+          queue_result: queueResult
+        },
+        queue_id: queueResult?.data?.id
+      });
+
+      // Return response indicating partial success
+      // DB deletion succeeded but auth deletion is pending
+      return res.status(202).json({ 
+        success: 'partial',
+        message: 'Database records deleted successfully. Authentication removal is pending manual intervention.',
+        details: {
+          db_deletion: 'completed',
+          auth_deletion: 'pending',
+          audit_id: deletionResult?.audit_id,
+          queue_id: queueResult?.data?.id,
+          action_required: 'Operations team has been notified and will complete the process.'
+        },
+        contact_support: true
       });
     }
 
-    console.log('Account deletion process completed atomically for user:', user_id);
+    // Success - both DB and auth deleted
+    console.log(`Account deletion completed successfully for user: ${user_id} (${authDeletionResult.attempts} attempt(s))`);
     
     res.status(200).json({ 
       success: true, 
-      message: 'Account and all associated data have been permanently deleted.' 
+      message: 'Account and all associated data have been permanently deleted.',
+      audit_id: deletionResult?.audit_id
     });
 
   } catch (e) {

@@ -88,6 +88,9 @@ export const ApiToggle: React.FC<ApiToggleProps> = ({ onConfigChange, onLogout }
       <TouchableOpacity
         style={styles.toggleButton}
         onPress={() => setShowConfigs(!showConfigs)}
+        accessibilityRole="button"
+        accessibilityLabel={`Backend selector. Currently ${currentConfig.name}. ${showConfigs ? 'Expanded' : 'Collapsed'}`}
+        accessibilityHint="Double tap to show or hide backend options"
       >
         <Text style={styles.toggleLabel}>Backend:</Text>
         <Text style={styles.toggleValue}>{currentConfig.name}</Text>
@@ -104,17 +107,24 @@ export const ApiToggle: React.FC<ApiToggleProps> = ({ onConfigChange, onLogout }
                 currentConfigKey === key && styles.configOptionActive
               ]}
               onPress={() => handleConfigChange(key)}
+              accessibilityRole="button"
+              accessibilityLabel={`${config.name}. ${config.description}. ${currentConfigKey === key ? 'Currently selected' : ''}`}
+              accessibilityHint="Double tap to switch to this backend"
             >
-              <Text style={[
-                styles.configOptionName,
-                currentConfigKey === key && styles.configOptionNameActive
-              ]}>
+              <Text
+                style={[
+                  styles.configOptionName,
+                  currentConfigKey === key && styles.configOptionNameActive
+                ]}
+              >
                 {config.name}
               </Text>
-              <Text style={[
-                styles.configOptionDescription,
-                currentConfigKey === key && styles.configOptionDescriptionActive
-              ]}>
+              <Text
+                style={[
+                  styles.configOptionDescription,
+                  currentConfigKey === key && styles.configOptionDescriptionActive
+                ]}
+              >
                 {config.description}
               </Text>
             </TouchableOpacity>

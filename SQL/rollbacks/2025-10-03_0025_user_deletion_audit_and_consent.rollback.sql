@@ -1,12 +1,16 @@
--- Migration: Atomic user deletion function
+
+-- Rollback: User deletion audit trail and consent verification
 -- Created: 2025-10-03
--- Description: Creates a PostgreSQL stored function to delete all user-related data
---              atomically in a single transaction to prevent partial deletions and race conditions.
+-- Description: Rolls back audit table, consent column, and restores original deletion function
 
--- Drop the function if it exists (for idempotency)
-DROP FUNCTION IF EXISTS delete_user_data_atomic(UUID);
+-- ============================================================================
+-- STEP 1: Restore the original simple function signature
+-- ============================================================================
 
--- Create the atomic deletion function
+-- Drop the enhanced function
+DROP FUNCTION IF EXISTS delete_user_data_atomic(UUID, UUID, TEXT, INET);
+
+-- Recreate the original simple function
 CREATE OR REPLACE FUNCTION delete_user_data_atomic(target_user_id UUID)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -97,11 +101,24 @@ EXCEPTION
 END;
 $$;
 
--- Grant execute permission to authenticated users (via service role in practice)
--- Note: This function uses SECURITY DEFINER, so it runs with the privileges of the function owner
+-- Restore original permissions
 GRANT EXECUTE ON FUNCTION delete_user_data_atomic(UUID) TO authenticated;
 
--- Add a comment describing the function
+-- Restore original comment
 COMMENT ON FUNCTION delete_user_data_atomic(UUID) IS 
   'Atomically deletes all user-related data across all tables in a single transaction. Returns a JSONB object with deletion counts or raises an exception on failure, causing automatic rollback of all changes.';
+
+-- ============================================================================
+-- STEP 2: Drop audit table and indexes
+-- ============================================================================
+
+DROP TABLE IF EXISTS public.user_deletion_audit CASCADE;
+
+-- ============================================================================
+-- STEP 3: Remove consent tracking column from users table
+-- ============================================================================
+
+ALTER TABLE public.users
+DROP COLUMN IF EXISTS deletion_requested_at;
+
 

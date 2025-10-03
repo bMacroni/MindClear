@@ -1473,7 +1473,7 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
     // Block if any word appears more than 10 times or comprises >30% of the message
     for (const [word, count] of Object.entries(wordCounts)) {
       const ratio = count / words.length;
-      if (count > 10 || (ratio > 0.3 && words.length < 50)) {
+      if (count > 10 || ratio > 0.3) {
         logger.warn('Blocked repetitive content:', { word, count, messageLength: message.length });
         return { content: message, blocked: true, pattern: 'excessive_repetition' };
       }
