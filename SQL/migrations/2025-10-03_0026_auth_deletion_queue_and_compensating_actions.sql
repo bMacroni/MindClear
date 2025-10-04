@@ -227,8 +227,8 @@ ALTER TABLE auth_deletion_queue ENABLE ROW LEVEL SECURITY;
 -- If you need admin access via authenticated role, add a proper policy:
 -- CREATE POLICY "Admins can manage queue" ON auth_deletion_queue
 -- FOR ALL TO authenticated
--- USING (auth.jwt() ->> 'role' = 'admin');-- This policy allows admins to view the queue
-CREATE POLICY "Service role and admins can manage auth deletion queue"
+-- USING (auth.jwt() ->> 'role' = 'admin');
+-- This policy allows admins to view the queueCREATE POLICY "Service role and admins can manage auth deletion queue"
 ON auth_deletion_queue
 FOR ALL
 TO authenticated

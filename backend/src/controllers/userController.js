@@ -460,8 +460,6 @@ export async function deleteUserAccount(req, res) {
         maxDelayMs: 10000
       }
     );
-
-  });
   
   // Check if auth deletion succeeded
   if (authDeletionResult.success) {
