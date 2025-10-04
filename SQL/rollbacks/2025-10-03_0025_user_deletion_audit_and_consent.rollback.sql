@@ -15,8 +15,8 @@ CREATE OR REPLACE FUNCTION delete_user_data_atomic(target_user_id UUID)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-AS $$
-DECLARE
+SET search_path = public, pg_temp
+AS $DECLARE
   deleted_counts jsonb := '{}';
   row_count integer;
 BEGIN

@@ -415,26 +415,9 @@ export async function deleteUserAccount(req, res) {
   try {
     console.log(`Starting atomic account deletion for user: ${user_id}`);
 
-    // STEP 1: Set deletion_requested_at timestamp to record user consent
-    console.log('Recording user consent for deletion...');
-    const { error: consentError } = await supabase
-      .from('users')
-      .update({ deletion_requested_at: new Date().toISOString() })
-      .eq('id', user_id);
-
-    if (consentError) {
-      console.error('Failed to record deletion consent:', {
-        user_id,
-        error: consentError.message
-      });
-      return res.status(500).json({ 
-        error: 'Failed to record deletion consent.',
-        details: consentError.message
-      });
-    }
-
-    // STEP 2: Call the atomic deletion stored procedure with audit parameters
-    // This deletes all user data in a single transaction - either all succeed or all fail
+    // Call the atomic deletion stored procedure with audit parameters
+    // This sets deletion_requested_at AND deletes all user data in a single transaction
+    // Either ALL operations succeed or ALL roll back (including the timestamp)
     const { data: deletionResult, error: rpcError } = await supabase
       .rpc('delete_user_data_atomic', { 
         target_user_id: user_id,
@@ -478,68 +461,62 @@ export async function deleteUserAccount(req, res) {
       }
     );
 
-    if (!authDeletionResult.success) {
-      // Auth deletion failed after retries - execute compensating actions
-      console.error('Auth deletion failed after retries, executing compensating actions:', {
-        user_id,
-        error: authDeletionResult.error.message,
-        attempts: authDeletionResult.attempts
-      });
-
-      // COMPENSATING ACTION 1: Mark user with failed deletion status
-      const markResult = await markUserDeletionFailed(user_id, {
+    // COMPENSATING ACTION 1: Mark user with failed deletion status
+    let markResult;
+    try {
+      markResult = await markUserDeletionFailed(user_id, {
         error: authDeletionResult.error.message,
         attempts: authDeletionResult.attempts,
         db_deletion_result: deletionResult
       });
-
-      // COMPENSATING ACTION 2: Enqueue for async/manual cleanup
-      const queueResult = await enqueueFailedOperation({
-        user_id,
-        operation_type: 'auth_deletion',
-        context: {
-          db_deletion_result: deletionResult,
-          audit_id: deletionResult?.audit_id,
-          deletion_reason: reason || 'User-initiated account deletion',
-          ip_address
-        },
-        retry_count: authDeletionResult.attempts,
-        last_error: authDeletionResult.error
-      });
-
-      // COMPENSATING ACTION 3: Send ops alert for manual intervention
-      await sendOpsAlert({
-        user_id,
-        operation_type: 'auth_deletion',
-        error_message: authDeletionResult.error.message,
-        retry_count: authDeletionResult.attempts,
-        context: {
-          db_deletion_result: deletionResult,
-          audit_id: deletionResult?.audit_id,
-          mark_result: markResult,
-          queue_result: queueResult
-        },
-        queue_id: queueResult?.data?.id
-      });
-
-      // Return response indicating partial success
-      // DB deletion succeeded but auth deletion is pending
-      return res.status(202).json({ 
-        success: 'partial',
-        message: 'Database records deleted successfully. Authentication removal is pending manual intervention.',
-        details: {
-          db_deletion: 'completed',
-          auth_deletion: 'pending',
-          audit_id: deletionResult?.audit_id,
-          queue_id: queueResult?.data?.id,
-          action_required: 'Operations team has been notified and will complete the process.'
-        },
-        contact_support: true
-      });
+    } catch (markError) {
+      console.error('CRITICAL: Failed to mark user deletion as failed:', markError);
+      markResult = { error: markError.message };
     }
 
-    // Success - both DB and auth deleted
-    console.log(`Account deletion completed successfully for user: ${user_id} (${authDeletionResult.attempts} attempt(s))`);
+    // COMPENSATING ACTION 2: Enqueue for async/manual cleanup
+    const queueResult = await enqueueFailedOperation({
+      user_id,
+      operation_type: 'auth_deletion',
+      context: {
+        db_deletion_result: deletionResult,
+        audit_id: deletionResult?.audit_id,
+        deletion_reason: reason || 'User-initiated account deletion',
+        ip_address
+      },
+      retry_count: authDeletionResult.attempts,
+      last_error: authDeletionResult.error
+    });
+
+    // COMPENSATING ACTION 3: Send ops alert for manual intervention
+    await sendOpsAlert({
+      user_id,
+      operation_type: 'auth_deletion',
+      error_message: authDeletionResult.error.message,
+      retry_count: authDeletionResult.attempts,
+      context: {
+        db_deletion_result: deletionResult,
+        audit_id: deletionResult?.audit_id,
+        mark_result: markResult,
+        queue_result: queueResult
+      },
+      queue_id: queueResult?.data?.id
+    });
+
+    // Return response indicating partial success
+    // DB deletion succeeded but auth deletion is pending
+    return res.status(202).json({ 
+      success: 'partial',
+      message: 'Database records deleted successfully. Authentication removal is pending manual intervention.',
+      details: {
+        db_deletion: 'completed',
+        auth_deletion: 'pending',
+        audit_id: deletionResult?.audit_id,
+        queue_id: queueResult?.data?.id,
+        action_required: 'Operations team has been notified and will complete the process.'
+      },
+      contact_support: true
+    });
     
     res.status(200).json({ 
       success: true, 

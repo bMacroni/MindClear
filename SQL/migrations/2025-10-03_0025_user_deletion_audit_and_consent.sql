@@ -254,9 +254,9 @@ EXCEPTION
 END;
 $$;
 
--- ============================================================================
+-- ================================================================================
 -- STEP 4: Permissions and documentation
--- ============================================================================
+-- ================================================================================
 
 -- Grant execute permission (function uses SECURITY DEFINER for elevated privileges)
 GRANT EXECUTE ON FUNCTION delete_user_data_atomic(UUID, UUID, TEXT, INET) TO authenticated;
@@ -279,6 +279,4 @@ COMMENT ON FUNCTION delete_user_data_atomic(UUID, UUID, TEXT, INET) IS
    - any deletion operation fails (atomicity guarantee)
    
    All operations occur in a single transaction with full rollback on any failure.
-   Every deletion attempt is logged to user_deletion_audit table for compliance.';
-
-
+   Successful deletion attempts are logged to user_deletion_audit table. Failed attempts roll back atomically and are not persisted.';

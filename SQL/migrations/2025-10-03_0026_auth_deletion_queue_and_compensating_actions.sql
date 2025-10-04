@@ -19,6 +19,16 @@ ADD COLUMN IF NOT EXISTS deletion_status VARCHAR(50) DEFAULT 'active',
 ADD COLUMN IF NOT EXISTS deletion_failed_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS deletion_failure_context JSONB;
 
+-- Add CHECK constraint to enforce allowed deletion_status values
+-- Using NOT VALID to avoid long locks on large tables
+ALTER TABLE users 
+ADD CONSTRAINT chk_users_deletion_status 
+CHECK (deletion_status IN ('active', 'auth_deletion_failed', 'pending_deletion', 'deleted')) 
+NOT VALID;
+
+-- Validate the constraint (checks existing rows without blocking writes)
+ALTER TABLE users VALIDATE CONSTRAINT chk_users_deletion_status;
+
 COMMENT ON COLUMN users.deletion_status IS 
   'Status of user deletion: active, auth_deletion_failed, pending_deletion, deleted';
 COMMENT ON COLUMN users.deletion_failed_at IS 
@@ -109,12 +119,28 @@ BEGIN
   FROM auth_deletion_queue q
   WHERE q.status = 'pending'
     AND q.retry_count < q.max_retries
+    AND (q.last_retry_at IS NULL OR q.last_retry_at < now() - INTERVAL '5 minutes')
+  UNION
+  -- Include stuck 'processing' items older than 10 minutes
+  SELECT 
+    q.id,
+    q.user_id,
+    q.operation_type,
+    q.context,
+    q.last_error,
+    q.retry_count,
+    q.created_at,
+    q.last_retry_at
+  FROM auth_deletion_queue q
+  WHERE q.status = 'processing'
+    AND q.last_retry_at < now() - INTERVAL '10 minutes'
+    AND q.retry_count < q.max_retries
   ORDER BY q.created_at ASC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION get_pending_auth_deletions() IS 
-  'Returns all pending auth deletion queue items that need processing';
+  'Returns pending auth deletion queue items that need processing, with protection against concurrent processing (5 min cooldown) and stuck item recovery (processing >10 min). Use with FOR UPDATE SKIP LOCKED at application level for full concurrency safety';
 
 -- ============================================================================
 -- STEP 4: Function to update queue item status
@@ -141,25 +167,25 @@ BEGIN
   RETURNING TRUE INTO v_updated;
   
   IF v_updated THEN
-    RAISE NOTICE 'Auth deletion queue item % updated to status: %', p_queue_id, p_status;
-    RETURN TRUE;
-  ELSE
-    RAISE NOTICE 'Auth deletion queue item % not found', p_queue_id;
-    RETURN FALSE;
-  END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION update_auth_deletion_queue_status IS 
-  'Updates the status of a queue item and tracks processing information';
-
--- ============================================================================
--- STEP 5: Function to clean up old completed queue items
--- ============================================================================
-
 CREATE OR REPLACE FUNCTION cleanup_old_auth_deletion_queue()
-RETURNS INTEGER AS $$
+RETURNS INTEGER AS $
 DECLARE
+  v_deleted_count INTEGER;
+BEGIN
+  -- Delete completed/cancelled items older than 90 days
+  DELETE FROM auth_deletion_queue
+  WHERE status IN ('completed', 'cancelled')
+    AND completed_at < (now() - INTERVAL '90 days');
+
+  GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+
+  RAISE NOTICE 'Cleaned up % old auth deletion queue items', v_deleted_count;
+  RETURN v_deleted_count;
+END;
+$ LANGUAGE plpgsql SECURITY DEFINER;
+
+COMMENT ON FUNCTION cleanup_old_auth_deletion_queue() IS 
+  'Removes completed/cancelled queue items older than 90 days for housekeeping';DECLARE
   v_deleted_count INTEGER;
 BEGIN
   -- Delete completed/cancelled items older than 90 days
@@ -200,23 +226,14 @@ LEFT JOIN users u ON q.user_id = u.id
 WHERE q.status IN ('pending', 'processing', 'failed')
 ORDER BY q.created_at DESC;
 
-COMMENT ON VIEW failed_auth_deletions_summary IS 
-  'Summary view of all auth deletions requiring attention, including user context';
-
--- ============================================================================
--- STEP 7: Grant necessary permissions
--- ============================================================================
-
--- Grant access to authenticated users (via service role in practice)
-GRANT SELECT, INSERT, UPDATE ON auth_deletion_queue TO authenticated;
--- Note: No sequence to grant - using UUID with gen_random_uuid()
-GRANT SELECT ON failed_auth_deletions_summary TO authenticated;
-
--- ============================================================================
--- STEP 8: Add RLS policies (optional - for admin access)
--- ============================================================================
-
 ALTER TABLE auth_deletion_queue ENABLE ROW LEVEL SECURITY;
+
+-- Service role bypasses RLS by default in Supabase
+-- No policy needed for service role access
+-- If you need admin access via authenticated role, add a proper policy:
+-- CREATE POLICY "Admins can manage queue" ON auth_deletion_queue
+-- FOR ALL TO authenticated
+-- USING (auth.jwt() ->> 'role' = 'admin');ALTER TABLE auth_deletion_queue ENABLE ROW LEVEL SECURITY;
 
 -- Only service role should access this table in production
 -- This policy allows admins to view the queue
