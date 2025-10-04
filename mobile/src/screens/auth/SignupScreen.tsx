@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
-import { Input, PasswordInput, Button, ApiToggle, GoogleSignInButton } from '../../components/common';
+import { Input, PasswordInput, Button, GoogleSignInButton } from '../../components/common';
 import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
 import Icon from 'react-native-vector-icons/Octicons';
@@ -148,17 +148,6 @@ export default function SignupScreen({ navigation }: any) {
         </View>
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.subtitle}>Sign up for a Mind Clear account</Text>
-        
-        <View style={styles.tabContainer}>
-          <View style={styles.activeTab}>
-            <Text style={styles.activeTabText}>Email & Password</Text>
-          </View>
-          <View style={styles.inactiveTab}>
-            <Text style={styles.inactiveTabText}>JWT Token</Text>
-          </View>
-        </View>
-        
-        <ApiToggle />
         
         <Input
           placeholder="Full Name"
@@ -309,31 +298,6 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     marginBottom: spacing.md,
     textAlign: 'center',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    marginBottom: spacing.sm,
-  },
-  activeTab: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    marginRight: spacing.sm,
-  },
-  activeTabText: {
-    color: colors.secondary,
-    fontWeight: typography.fontWeight.bold,
-  },
-  inactiveTab: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  inactiveTabText: {
-    color: colors.text.disabled,
-    fontWeight: typography.fontWeight.bold,
   },
   button: {
     width: '100%',

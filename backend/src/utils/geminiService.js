@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import logger from './logger.js';
 import { dateParser } from './dateParser.js';
 import {
@@ -19,8 +19,32 @@ export class GeminiService {
     }
     this.enabled = true;
     this.genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    // Gemini AI initialized with model: gemini-2.5-flash
+    
+    // Configure Gemini model with safety settings (long-term fix for harmful content filtering)
+    // Using BLOCK_MEDIUM_AND_ABOVE as threshold for all categories to prevent harmful content
+    // while reducing false positives from overly broad regex patterns
+    this.model = this.genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      safetySettings: [
+        {
+          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+      ],
+    });
+    // Gemini AI initialized with model: gemini-2.5-flash and safety settings
 
     // Gate verbose debug logs. When DEBUG is false, suppress logs that are clearly
     // marked as Gemini debug (to keep console clean in pre-alpha builds).
@@ -156,8 +180,18 @@ Respond ONLY with a JSON array.`;
           actions: []
         };
       }
+      // Content filtering for harmful content
+      const filteredMessage = this._filterHarmfulContent(message);
+      if (filteredMessage.blocked) {
+        if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Message blocked by content filter');
+        return {
+          message: "I noticed your message might contain content outside my area of expertise. I'm here to help with productivity, goal-setting, and task management. Could you rephrase your request to focus on tasks, goals, or scheduling?",
+          actions: []
+        };
+      }
+
       // Update conversation history
-      this._addToHistory(userId, { role: 'user', content: message });
+      this._addToHistory(userId, { role: 'user', content: filteredMessage.content });
       // Add a system prompt to instruct Gemini to use functions
       // --- Add today's date to the prompt ---
       const today = new Date();
@@ -333,6 +367,39 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
       
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Received response from Gemini');
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Response has function calls:', !!response.functionCalls);
+      
+      // LONG-TERM FIX: Check Gemini's native safety ratings
+      // If the response was blocked due to safety concerns, return a friendly fallback
+      if (response.promptFeedback?.blockReason) {
+        const blockReason = response.promptFeedback.blockReason;
+        logger.warn('Gemini blocked content due to safety:', {
+          blockReason,
+          messageLength: message.length
+        });
+        return {
+          message: "I'm here to help with productivity, goal-setting, and task management. Let's focus on how I can assist you with your goals and tasks.",
+          actions: []
+        };
+      }
+      
+      // Check safety ratings in the response candidates
+      if (response.candidates?.[0]?.safetyRatings) {
+        const safetyRatings = response.candidates[0].safetyRatings;
+        const blockedCategories = safetyRatings.filter(rating => 
+          rating.probability === 'HIGH' || rating.probability === 'MEDIUM'
+        );
+        
+        if (blockedCategories.length > 0) {
+          logger.warn('Gemini flagged content with safety concerns:', {
+            categories: blockedCategories.map(r => ({ category: r.category, probability: r.probability })),
+            messageLength: message.length
+          });
+          return {
+            message: "I'm here to help with productivity, goal-setting, and task management. Let's focus on how I can assist you with your goals and tasks.",
+            actions: []
+          };
+        }
+      }
       
       // Get function calls and text from Gemini response
       let functionCalls = response.functionCalls ? await response.functionCalls() : [];
@@ -1343,6 +1410,76 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
     } catch (error) {
       return 'unknown';
     }
+  }
+
+  /**
+   * Filter harmful content from user messages (SHORT-TERM FIX)
+   * Note: This is a narrow backup filter. Primary safety is handled by Gemini's native
+   * safetySettings (configured in constructor) and response safety rating checks (in processMessage).
+   * 
+   * @param {string} message - The user message to filter
+   * @returns {Object} - { content: string, blocked: boolean, pattern?: string }
+   */
+  _filterHarmfulContent(message) {
+    if (!message || typeof message !== 'string') {
+      return { content: message, blocked: false };
+    }
+
+    const lowerMessage = message.toLowerCase();
+    
+    // SHORT-TERM FIX: Narrowed patterns to reduce false positives
+    // Removed ambiguous single words (kill, harm, drug, hack, explicit, offensive, etc.)
+    // Changed patterns to target unambiguous phrases or require multiple indicators/context
+    const harmfulPatterns = [
+      // Direct threats with verbs + targets (strict word boundaries)
+      { pattern: /\b(going to kill|will kill|gonna kill|i'll kill|want to kill|plan to kill)\b/, name: 'direct_threat' },
+      { pattern: /\b(commit suicide|end my life|kill myself)\b/, name: 'self_harm_intent' },
+      
+      // Explicit slurs (examples - add specific slurs as needed with strict boundaries)
+      { pattern: /\b(n[i1]gg[ae]r|f[a@]gg[o0]t|sp[i1]c|ch[i1]nk|k[i1]ke)\b/, name: 'explicit_slur' },
+      
+      // Pornographic phrases (multi-word patterns)
+      { pattern: /\b(watch porn|pornographic (content|material|video)|explicit sex)\b/, name: 'pornographic_phrase' },
+      
+      // Illegal activity with intent indicators (requires context)
+      { pattern: /\b(how to (make|build|create) (bomb|explosive|weapon))\b/, name: 'illegal_weapon_instruction' },
+      { pattern: /\b(sell drugs|buy drugs|drug dealer)\b/, name: 'drug_transaction' },
+      
+      // Coordinated spam patterns (excessive repetition checked separately)
+      { pattern: /\b(click here now|act now|limited time offer|free money|you've won)\b/, name: 'spam_phrase' },
+    ];
+
+    // Check for harmful patterns
+    for (const { pattern, name } of harmfulPatterns) {
+      if (pattern.test(lowerMessage)) {
+        logger.warn('Blocked potentially harmful content:', { 
+          patternName: name,
+          messageLength: message.length 
+        });
+        return { content: message, blocked: true, pattern: name };
+      }
+    }
+
+    // Check for excessive repetition (potential spam)
+    const words = lowerMessage.split(/\s+/);
+    const excludedWords = ['task', 'goal', 'event', 'schedule', 'meet', 'meeting', 'plan', 'planning'];
+    const wordCounts = {};
+    for (const word of words) {
+      if (word.length > 3 && !excludedWords.includes(word)) {
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+      }
+    }
+
+    // Block if any word appears more than 10 times or comprises >30% of the message
+    for (const [word, count] of Object.entries(wordCounts)) {
+      const ratio = count / words.length;
+      if (count > 10 || ratio > 0.3) {
+        logger.warn('Blocked repetitive content:', { word, count, messageLength: message.length });
+        return { content: message, blocked: true, pattern: 'excessive_repetition' };
+      }
+    }
+
+    return { content: message, blocked: false };
   }
 }
 

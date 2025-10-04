@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+When making major changes, always write test cases, then make your changes, then run your test cases, fixing your code until it passes each test case.

@@ -31,18 +31,70 @@ class NotificationService {
     }
   }
 
-  async requestUserPermission() {
+  async requestUserPermission(): Promise<boolean> {
     try {
       if (Platform.OS === 'android') {
-        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-        // Note: FCM token registration moved to backend-only approach
-        console.log('Notification permissions requested for Android');
+        // Check if we're on Android 13+ (API level 33+)
+        const androidVersion = Platform.Version;
+        const isAndroid13Plus = typeof androidVersion === 'number' && androidVersion >= 33;
+        
+        if (isAndroid13Plus) {
+          // Check current permission status first (check() returns a boolean)
+          const currentStatus = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          
+          if (currentStatus) {
+            console.log('Notification permissions already granted');
+            return true;
+          }
+          
+          // Request permission with rationale for Android 13+
+          const result = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+            {
+              title: 'Notification Permission',
+              message: 'Mind Clear would like to send you notifications for task reminders, goal updates, and important updates. You can change this later in your device settings.',
+              buttonNeutral: 'Ask Me Later',
+              buttonNegative: 'Cancel',
+              buttonPositive: 'Allow',
+            }
+          );
+          
+          const granted = result === PermissionsAndroid.RESULTS.GRANTED;
+          console.log(`Notification permission ${granted ? 'granted' : 'denied'}`);
+          return granted;
+        } else {
+          // For older Android versions, use simple request
+          const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          const granted = result === PermissionsAndroid.RESULTS.GRANTED;
+          console.log(`Notification permission ${granted ? 'granted' : 'denied'} for Android ${androidVersion}`);
+          return granted;
+        }
       } else if (Platform.OS === 'ios') {
         // iOS notification permissions will be handled by the backend push notification system
         console.log('iOS notification permissions will be handled by backend');
+        return true; // Assume granted for iOS since backend handles it
       }
+      
+      return false;
     } catch (error) {
       console.error('Error requesting notification permissions:', error);
+      return false;
+    }
+  }
+
+  async checkNotificationPermission(): Promise<boolean> {
+    try {
+      if (Platform.OS === 'android') {
+        const status = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+        return status;
+      } else if (Platform.OS === 'ios') {
+        // For iOS, assume permission is granted since backend handles it
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error checking notification permissions:', error);
+      return false;
     }
   }
 
@@ -81,10 +133,14 @@ class NotificationService {
 
   async initialize(): Promise<void> {
     try {
-      await this.requestUserPermission();
-      await this.updateBadgeCount(); // Initial count
+      const permissionGranted = await this.requestUserPermission();
+      if (permissionGranted) {
+        await this.updateBadgeCount(); // Initial count
+        console.log('Notification service initialized with permissions granted');
+      } else {
+        console.log('Notification service initialized without permissions - continuing gracefully');
+      }
       // Firebase messaging removed - using backend-only approach
-      console.log('Notification service initialized with backend-only approach');
       console.log('Push notifications will be handled by the backend FCM service');
     } catch (error) {
       console.error('Notification service initialization failed:', error);

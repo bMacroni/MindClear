@@ -12,15 +12,32 @@ const getSecureApiBaseUrl = (): string => {
     if (url && url.trim().length > 0) {
       return url;
     }
-  } catch (_error) {
-    logger.warn('Failed to get secure API base URL from secureConfigService');
+  } catch (error) {
+    logger.debug('Primary config service failed, falling back to configService', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 
-  // Defer all resolution to secureConfigService to ensure validation and consistent ordering.
+  // Fallback to regular config service
+  try {
+    const { configService } = require('./config');
+    const fallbackUrl = configService.getBaseUrl();
+    if (fallbackUrl && fallbackUrl.trim().length > 0) {
+      return fallbackUrl;
+    }
+  } catch (error) {
+    logger.debug('configService require failed, falling back to final URL', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+  }
 
-  const err = new Error('API base URL is not configured');
-  (err as any).code = 'API_BASE_URL_NOT_CONFIGURED';
-  throw err;
+  // Final fallback based on environment
+  const finalFallback = __DEV__ 
+    ? 'http://localhost:5000/api'  // Development: use localhost with adb reverse
+    : 'https://foci-production.up.railway.app/api';  // Production: use Railway
+  return finalFallback;
 };
 import {
   SchedulingPreferences,
@@ -1163,6 +1180,40 @@ export const usersAPI = {
     }
     const data = await response.json();
     return data.count || 0;
+  },
+
+  deleteAccount: async (): Promise<{ status: number; payload: any }> => {
+    try {
+      const token = await getAuthToken();
+      const apiUrl = getSecureApiBaseUrl();
+      const response = await fetch(`${apiUrl}/user`, {
+        method: 'DELETE',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ confirmDeletion: true }),
+      });
+      
+      const payload = await response.json().catch(() => ({}));
+      
+      // Only treat 4xx and 5xx as errors, 2xx are success responses
+      if (response.status >= 400) {
+        if (response.status === 401) {
+          const err = new Error('Authentication failed - user not logged in');
+          (err as any).code = 'AUTH_REQUIRED';
+          throw err;
+        }
+        const errorText = payload.error || 'Unknown error';
+        throw new Error(`Failed to delete account: ${response.status} - ${errorText}`);
+      }
+      
+      // Return both status and payload for the caller to inspect
+      return { status: response.status, payload };
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      throw error;
+    }
   },
 };
 

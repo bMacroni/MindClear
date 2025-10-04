@@ -5,104 +5,159 @@
  * of sensitive information in client-side code.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { configService } from './config';
 import logger from '../utils/logger';
 
 interface SecureConfig {
   apiBaseUrl: string;
   environment: 'development' | 'staging' | 'production';
-  enableDebugLogs: boolean;
-  enableCertificatePinning: boolean;
-  maxRetryAttempts: number;
-  requestTimeout: number;
-  enableOfflineMode: boolean;
+  features: {
+    analytics: boolean;
+    crashReporting: boolean;
+    remoteConfig: boolean;
+  };
+  security: {
+    certificatePinning: boolean;
+    requestSigning: boolean;
+    encryption: boolean;
+  };
 }
 
 class SecureConfigService {
   private static instance: SecureConfigService;
-  private config: SecureConfig;
+  private config: SecureConfig | null = null;
+  private configKey = 'secure_config';
+  private isLoaded = false;
 
   private constructor() {
-    this.config = this.loadSecureConfig();
+    // Constructor stays synchronous; call loadSecureConfig in initialize()
   }
 
-  public static getInstance(): SecureConfigService {
+  static getInstance(): SecureConfigService {
     if (!SecureConfigService.instance) {
       SecureConfigService.instance = new SecureConfigService();
     }
     return SecureConfigService.instance;
   }
 
-  private loadSecureConfig(): SecureConfig {
-    const environment = this.getEnvironment();
-    
-    return {
-      apiBaseUrl: this.getSecureApiUrl(environment),
-      environment,
-      enableDebugLogs: environment === 'development',
-      enableCertificatePinning: environment === 'production',
-      maxRetryAttempts: environment === 'production' ? 3 : 1,
-      requestTimeout: environment === 'production' ? 10000 : 5000,
-      enableOfflineMode: this.getBooleanFlag('ENABLE_OFFLINE_MODE', environment !== 'production')
-    };
+  /**
+   * Asynchronously initialize the singleton by loading secure config.
+   * Must be awaited at app startup before using the service.
+   */
+  static async initialize(): Promise<SecureConfigService> {
+    const instance = SecureConfigService.getInstance();
+    if (!instance.isLoaded) {
+      await instance.loadSecureConfig();
+    }
+    return instance;
   }
 
-  private getEnvironment(): 'development' | 'staging' | 'production' {
-    // Check for environment variables first, with __DEV__ fallback for React Native
-    const env = process.env?.NODE_ENV ?? (__DEV__ ? 'development' : 'production');
-    
-    if (env === 'production') {
-      return 'production';
-    } else if (env === 'staging') {
-      return 'staging';
-    } else {
-      return 'development';
-    }
-  }
-
-  private getSecureApiUrl(environment: 'development' | 'staging' | 'production'): string {
-    // Use SECURE_API_BASE environment variable as primary source
-    const secureApiBase = process.env.SECURE_API_BASE;
-    
-    if (secureApiBase) {
-      // Validate and enforce HTTPS in production
-      const validatedUrl = this.validateAndSanitizeApiUrl(secureApiBase, environment);
-      if (validatedUrl) {
-        return validatedUrl;
-      }
-      // If validation fails, throw error in production
-      if (environment === 'production') {
-        throw new Error('SECURE_API_BASE must be a valid HTTPS URL in production');
-      }
-    }
-
-    // Fallback to legacy API_BASE_URL for backward compatibility
-    const envApiUrl = process.env.API_BASE_URL;
-    if (envApiUrl) {
-      const validatedUrl = this.validateAndSanitizeApiUrl(envApiUrl, environment);
-      if (validatedUrl) {
-        return validatedUrl;
-      }
-      if (environment === 'production') {
-        throw new Error('API_BASE_URL must be a valid HTTPS URL in production');
-      }
-    }
-
-    // Fallback to config service only in non-production environments
-    if (environment !== 'production') {
-      const configApiUrl = configService.getBaseUrl();
-      
-      // Validate URL format
-      if (this.isValidUrl(configApiUrl)) {
-        const validatedUrl = this.validateAndSanitizeApiUrl(configApiUrl, environment);
-        if (validatedUrl) {
-          return validatedUrl;
+  private async loadSecureConfig(): Promise<void> {
+    try {
+      const savedConfig = await AsyncStorage.getItem(this.configKey);
+      if (savedConfig) {
+        try {
+          this.config = JSON.parse(savedConfig);
+          this.isLoaded = true;
+          logger.info('Secure config loaded from storage');
+          return;
+        } catch (parseError) {
+          logger.error('Failed to parse secure config, resetting to defaults:', parseError);
+          await AsyncStorage.removeItem(this.configKey);
         }
       }
+    } catch (error) {
+      logger.warn('Failed to load secure config from storage:', error);
     }
 
-    // Final fallback - only for development
-    return this.getDefaultApiUrl(environment);
+    // Initialize with default config
+    this.config = {
+      apiBaseUrl: this.getDefaultApiUrl('development'),
+      environment: 'development',
+      features: {
+        analytics: true,
+        crashReporting: true,
+        remoteConfig: true,
+      },
+      security: {
+        certificatePinning: false,
+        requestSigning: false,
+        encryption: true,
+      },
+    };
+    this.isLoaded = true;
+    logger.info('Secure config initialized with defaults');
+  }
+
+  getApiBaseUrl(): string {
+    if (!this.isLoaded) {
+      // Synchronous fallback
+      return this.getDefaultApiUrl('development');
+    }
+    return this.config?.apiBaseUrl || this.getDefaultApiUrl('development');
+  }
+
+  async updateApiBaseUrl(url: string): Promise<void> {
+    if (!this.isLoaded) {
+      await this.loadSecureConfig();
+    }
+    
+    if (!this.config) {
+      const error = new Error('Config not initialized');
+      logger.error('Failed to update API base URL: config not initialized', { url });
+      throw error;
+    }
+
+    // Preserve original value for rollback
+    const previousUrl = this.config.apiBaseUrl;
+    
+    try {
+      // Create updated config
+      const updatedConfig = {
+        ...this.config,
+        apiBaseUrl: url,
+      };
+      
+      // Persist to storage first
+      await AsyncStorage.setItem(this.configKey, JSON.stringify(updatedConfig));
+      
+      // Only update in-memory config after successful persistence
+      this.config = updatedConfig;
+      logger.info('API base URL updated successfully', { previousUrl, newUrl: url });
+    } catch (error) {
+      // Log the error with context
+      logger.error('Failed to persist API base URL update to storage', {
+        url,
+        previousUrl,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      
+      // Rethrow to propagate to caller
+      throw new Error(`Failed to update API base URL: ${error instanceof Error ? error.message : 'Storage error'}`);
+    }
+  }
+
+  async getEnvironment(): Promise<'development' | 'staging' | 'production'> {
+    if (!this.isLoaded) {
+      await this.loadSecureConfig();
+    }
+    return this.config?.environment || 'development';
+  }
+
+  async getFeatureFlag(flag: keyof SecureConfig['features']): Promise<boolean> {
+    if (!this.isLoaded) {
+      await this.loadSecureConfig();
+    }
+    return this.config?.features[flag] ?? true;
+  }
+
+  async getSecuritySetting(setting: keyof SecureConfig['security']): Promise<boolean> {
+    if (!this.isLoaded) {
+      await this.loadSecureConfig();
+    }
+    return this.config?.security[setting] ?? false;
   }
 
   private getDefaultApiUrl(environment: 'development' | 'staging' | 'production'): string {
@@ -110,10 +165,11 @@ class SecureConfigService {
       // Use configService as the primary source of truth
       const configUrl = configService.getBaseUrl();
       if (configUrl && this.isValidUrl(configUrl)) {
+        logger.info('Using API URL from configService:', configUrl);
         return configUrl;
       }
     } catch (error) {
-      logger.warn('ConfigService unavailable, falling back to local URL:', String((error as Error)?.message ?? error));
+      logger.warn('ConfigService unavailable, falling back to environment variables:', String((error as Error)?.message ?? error));
     }
 
     // Environment-based fallback (non-production only)
@@ -121,12 +177,17 @@ class SecureConfigService {
     if (envFallback && this.isValidUrl(envFallback)) {
       const validatedUrl = this.validateAndSanitizeApiUrl(envFallback, environment);
       if (validatedUrl) {
+        logger.info('Using API URL from environment variables:', validatedUrl);
         return validatedUrl;
       }
     }
 
-    // No safe fallback; fail fast so callers can handle
-    throw new Error('API base URL is not configured');
+    // Final fallback based on environment
+    const finalFallback = __DEV__
+      ? 'http://localhost:5000/api'  // Development: use localhost with adb reverse
+      : 'https://foci-production.up.railway.app/api';  // Production: use Railway
+    logger.warn('Using final fallback API base URL:', finalFallback, `(${__DEV__ ? 'development' : 'production'})`);
+    return finalFallback;
   }
 
   private getBooleanFlag(name: string, defaultValue: boolean): boolean {
@@ -145,133 +206,82 @@ class SecureConfigService {
   }
 
   private validateAndSanitizeApiUrl(url: string, environment: 'development' | 'staging' | 'production'): string | null {
-    try {
-      const parsedUrl = new URL(url);
-      
-      // In production, enforce HTTPS
-      if (environment === 'production') {
-        if (parsedUrl.protocol !== 'https:') {
-          logger.error(`Production environment requires HTTPS, got: ${parsedUrl.protocol}`);
-          return null;
-        }
-      }
-      
-      // Allow HTTP only for localhost in non-production environments
-      if (parsedUrl.protocol === 'http:') {
-        if (environment === 'production') {
-          logger.error('HTTP protocol not allowed in production environment');
-          return null;
-        }
-        
-        // Only allow localhost and development IP for HTTP
-        if (parsedUrl.hostname !== 'localhost' && parsedUrl.hostname !== '127.0.0.1' && parsedUrl.hostname !== '192.168.1.66') {
-          logger.error(`HTTP protocol only allowed for localhost or development IP, got: ${parsedUrl.hostname}`);
-          return null;
-        }
-      }
-      
-      // Reject hard-coded IP addresses in production (except development IP)
-      if (environment === 'production') {
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        if (ipRegex.test(parsedUrl.hostname) && parsedUrl.hostname !== '192.168.1.66') {
-          logger.error(`Hard-coded IP addresses not allowed in production: ${parsedUrl.hostname}`);
-          return null;
-        }
-      }
-      
-      return url;
-    } catch (error) {
-      logger.error('Invalid URL format:', error);
+    if (!this.isValidUrl(url)) {
       return null;
     }
-  }
 
-  public getConfig(): SecureConfig {
-    return { ...this.config };
-  }
-
-  public getApiBaseUrl(): string {
-    return this.config.apiBaseUrl;
-  }
-
-  public isProduction(): boolean {
-    return this.config.environment === 'production';
-  }
-
-  public isDevelopment(): boolean {
-    return this.config.environment === 'development';
-  }
-
-  public shouldEnableCertificatePinning(): boolean {
-    return this.config.enableCertificatePinning;
-  }
-
-  public shouldEnableDebugLogs(): boolean {
-    return this.config.enableDebugLogs;
-  }
-
-  public getMaxRetryAttempts(): number {
-    return this.config.maxRetryAttempts;
-  }
-
-  public getRequestTimeout(): number {
-    return this.config.requestTimeout;
-  }
-
-  public shouldEnableOfflineMode(): boolean {
-    return this.config.enableOfflineMode;
-  }
-
-  /**
-   * Validates that all required configuration is present
-   */
-  public validateConfiguration(): { isValid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    if (!this.config.apiBaseUrl) {
-      errors.push('API base URL is required');
+    // Ensure URL ends with /api for consistency
+    if (!url.endsWith('/api')) {
+      url = url.endsWith('/') ? url + 'api' : url + '/api';
     }
 
-    if (!this.isValidUrl(this.config.apiBaseUrl)) {
-      errors.push('API base URL must be a valid URL');
+    // Additional validation based on environment
+    if (environment === 'production') {
+      // In production, only allow HTTPS URLs
+      if (!url.startsWith('https://')) {
+        logger.warn('Production environment requires HTTPS URL, rejecting:', url);
+        return null;
+      }
     }
 
-    // Additional security validation
-    const validatedUrl = this.validateAndSanitizeApiUrl(this.config.apiBaseUrl, this.config.environment);
-    if (!validatedUrl) {
-      errors.push('API base URL failed security validation');
-    }
+    return url;
+  }
 
-    if (this.config.maxRetryAttempts < 0 || this.config.maxRetryAttempts > 10) {
-      errors.push('Max retry attempts must be between 0 and 10');
+  // Utility methods for debugging
+  async getConfigSummary(): Promise<object> {
+    if (!this.isLoaded) {
+      await this.loadSecureConfig();
     }
-
-    if (this.config.requestTimeout < 1000 || this.config.requestTimeout > 60000) {
-      errors.push('Request timeout must be between 1000ms and 60000ms');
-    }
-
+    
     return {
-      isValid: errors.length === 0,
-      errors
+      isLoaded: this.isLoaded,
+      environment: this.config?.environment,
+      apiBaseUrl: this.config?.apiBaseUrl,
+      features: this.config?.features,
+      security: this.config?.security,
     };
   }
 
-  /**
-   * Gets configuration summary for logging (without sensitive data)
-   */
-  public getConfigurationSummary(): Record<string, any> {
-    return {
-      environment: this.config.environment,
-      hasApiUrl: !!this.config.apiBaseUrl,
-      enableDebugLogs: this.config.enableDebugLogs,
-      enableCertificatePinning: this.config.enableCertificatePinning,
-      maxRetryAttempts: this.config.maxRetryAttempts,
-      requestTimeout: this.config.requestTimeout,
-      enableOfflineMode: this.config.enableOfflineMode,
-      timestamp: new Date().toISOString()
-    };
+  async resetToDefaults(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(this.configKey);
+      this.config = null;
+      this.isLoaded = false;
+      await this.loadSecureConfig();
+      logger.info('Secure config reset to defaults');
+    } catch (error) {
+      logger.error('Failed to reset config to defaults:', error);
+      throw new Error('Failed to reset configuration');
+    }
+  }
+  // Health check method
+  async healthCheck(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; details: any }> {
+    try {
+      const apiUrl = this.getApiBaseUrl();
+      const environment = await this.getEnvironment();
+      
+      return {
+        status: 'healthy',
+        details: {
+          apiUrl,
+          environment,
+          isLoaded: this.isLoaded,
+          hasConfig: !!this.config,
+        },
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+          isLoaded: this.isLoaded,
+          hasConfig: !!this.config,
+        },
+      };
+    }
   }
 }
 
+// Export singleton instance
 export const secureConfigService = SecureConfigService.getInstance();
-
+export default secureConfigService;

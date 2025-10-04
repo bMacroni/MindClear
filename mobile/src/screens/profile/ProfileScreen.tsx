@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -9,7 +9,9 @@ import { usersAPI } from '../../services/api';
 import { SuccessToast } from '../../components/common/SuccessToast';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
 import { authService } from '../../services/auth';
+import { notificationService } from '../../services/notificationService';
 import MobileAnalyticsDashboard from '../../components/analytics/MobileAnalyticsDashboard';
+import { ApiToggle } from '../../components/common/ApiToggle';
 
 type Profile = {
   id: string;
@@ -43,8 +45,16 @@ export default function ProfileScreen({ navigation }: any) {
   const [saving, setSaving] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [notificationPermission, setNotificationPermission] = useState<boolean>(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  
+  // Ref for tracking delete timeout to enable cleanup
+  const deleteTimeoutRef = useRef<number | null>(null);
+  const deletingRef = useRef(false);
 
   // Inline edit fields
   const [fullName, setFullName] = useState('');
@@ -61,6 +71,14 @@ export default function ProfileScreen({ navigation }: any) {
       setAvatarUrl(me.avatar_url || '');
       setLocation(me.geographic_location || '');
       setPrefs({ ...defaultPrefs, ...(me.notification_preferences || {}) });
+      // Check notification permission status
+      try {
+        const hasPermission = await notificationService.checkNotificationPermission();
+        setNotificationPermission(hasPermission);
+      } catch (permError) {
+        console.error('Failed to check notification permission', permError);
+        setNotificationPermission(false);
+      }
     } catch (e) {
       console.error('Failed to load profile', e);
     } finally {
@@ -71,6 +89,15 @@ export default function ProfileScreen({ navigation }: any) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Cleanup delete timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (deleteTimeoutRef.current !== null) {
+        clearTimeout(deleteTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const toggleTheme = useCallback(async () => {
     if (!profile) {return;}
@@ -129,6 +156,133 @@ export default function ProfileScreen({ navigation }: any) {
     }
   }, []);
 
+  const handleDeleteAccount = useCallback(async () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to permanently delete your account? This action cannot be undone and will remove all your data including goals, tasks, and conversations.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            setDeleteConfirmationText('');
+            setShowDeleteModal(true);
+          },
+        },
+      ]
+    );
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (deleteConfirmationText !== 'DELETE') {
+      Alert.alert('Invalid Confirmation', 'Please type "DELETE" exactly as shown to confirm account deletion.');
+      return;
+    }
+
+    // Guard against multiple submissions
+    if (deletingRef.current) {
+      return;
+    }
+
+    try {
+      deletingRef.current = true;
+      setDeleting(true);
+      const result = await usersAPI.deleteAccount();
+      
+      // Check if deletion was partial (status 202 or success: 'partial')
+      if (result.status === 202 || result.payload.success === 'partial') {
+        // Partial deletion - show support contact message and keep modal open
+        Alert.alert(
+          'Account Deletion In Progress',
+          'Your account data has been deleted, but some authentication cleanup is still pending. Our support team has been notified and will complete the process. Please contact support if you have any questions.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Keep the delete modal open so user can try again if needed
+                // Don't close modal, don't logout, don't navigate
+              }
+            }
+          ]
+        );
+        return; // Exit early - don't proceed with logout/navigation
+      }
+      
+      // Full success (status 200 and success: true) - proceed with normal flow
+      if (result.status === 200 && result.payload.success === true) {
+        // Account deletion successful - show success message briefly then navigate to sign-in
+        setToastMessage('Account deleted successfully');
+        setToastVisible(true);
+        setShowDeleteModal(false);
+        
+        // Wait a moment for the toast to show, then navigate to sign-in
+        deleteTimeoutRef.current = setTimeout(async () => {
+          try {
+            // Clear any stored auth data
+            await authService.logout();
+            // Navigate to sign-in screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
+          } catch (navError) {
+            console.error('Error during post-deletion navigation:', navError);
+            // Fallback: just logout and let the app handle navigation
+            await authService.logout();
+          }
+        }, 2000) as unknown as number; // 2 second delay to show success message
+      } else {
+        // Unexpected response format - treat as error
+        throw new Error('Unexpected response format from account deletion');
+      }
+      
+    } catch (error) {
+      console.error('Failed to delete account', error);
+      Alert.alert(
+        'Error',
+        'Failed to delete account. Please try again or contact support.'
+      );
+    } finally {
+      setDeleting(false);
+      deletingRef.current = false;
+    }
+  }, [deleteConfirmationText, navigation]);
+
+  const handleNotificationPermissionToggle = useCallback(async () => {
+    try {
+      if (notificationPermission) {
+        // Permission is granted, show info about how to disable
+        Alert.alert(
+          'Notification Settings',
+          'To disable notifications, go to your device Settings > Apps > Mind Clear > Notifications and turn off notifications.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Request permission
+        const granted = await notificationService.requestUserPermission();
+        setNotificationPermission(granted);
+        
+        if (granted) {
+          setToastMessage('Notifications enabled');
+          setToastVisible(true);
+        } else {
+          Alert.alert(
+            'Notifications Disabled',
+            'You can enable notifications later in your device settings or by tapping this toggle again.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error handling notification permission:', error);
+      Alert.alert('Error', 'Failed to update notification settings');
+    }
+  }, [notificationPermission]);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -163,16 +317,6 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.meta}>Joined: {new Date(profile.join_date).toLocaleDateString()}</Text>
           )}
         </View>
-        {profile.account_status && profile.account_status !== 'active' && (
-          <View style={styles.statusChip}>
-            <Text style={styles.statusText}>{profile.account_status}</Text>
-          </View>
-        )}
-        {profile.is_admin && (
-          <View style={styles.adminBadge}>
-            <Text style={styles.adminBadgeText}>ADMIN</Text>
-          </View>
-        )}
       </View>
 
       <View style={styles.section}>
@@ -186,6 +330,16 @@ export default function ProfileScreen({ navigation }: any) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notifications</Text>
+        <TouchableOpacity style={styles.row} onPress={handleNotificationPermissionToggle}>
+          <Icon name="bell" size={18} color={colors.primary} />
+          <Text style={styles.rowLabel}>Push Notifications</Text>
+          <View style={styles.permissionStatus}>
+            <Text style={[styles.rowValue, { color: notificationPermission ? colors.success : colors.error }]}>
+              {notificationPermission ? 'Enabled' : 'Disabled'}
+            </Text>
+            <Icon name="chevron-right" size={16} color={colors.text.secondary} />
+          </View>
+        </TouchableOpacity>
         <View style={styles.row}> 
           <Icon name="bell" size={18} color={colors.primary} />
           <Text style={styles.rowLabel}>In-App</Text>
@@ -286,32 +440,121 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.rowValue}>{new Date(profile.last_login).toLocaleString()}</Text>
           </View>
         )}
-        <TouchableOpacity 
-          style={styles.row} 
-          onPress={() => handleExternalLink('https://www.mind-clear.com/privacy.html')}
-        >
-          <Icon name="shield" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Privacy Policy</Text>
-          <Icon name="link-external" size={16} color={colors.text.secondary} />
-        </TouchableOpacity>
-
-        {/* Terms of Service link hidden per request */}
-
         <TouchableOpacity
           style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}
           onPress={async () => {
             try {
               await authService.logout();
-              setToastMessage('Signed out');
-              setToastVisible(true);
-              // No need to manually navigate - AppNavigator will handle this automatically
-            } catch {}
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } catch (error) {
+              console.error('Logout failed:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
           }}
+          accessibilityLabel="Sign out of your account"
+          accessibilityRole="button"
         >
-          <Icon name="sign-out" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+          <Icon name="sign-out" size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
           <Text style={styles.ctaText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Developer Settings - Only visible to admin users */}
+      {profile?.is_admin && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Developer Settings</Text>
+          <ApiToggle 
+            onLogout={() => {
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            }}
+          />
+        </View>
+      )}
+
+      {/* Delete Account Section */}
+      <View style={[styles.section, { marginTop: spacing.xl }]}>
+        <Text style={styles.sectionTitle}>Danger Zone</Text>
+        <TouchableOpacity
+          style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.sm }]}
+          onPress={handleDeleteAccount}
+          accessibilityLabel="Delete your account permanently"
+          accessibilityRole="button"
+        >
+          <Icon name="trash" size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+          <Text style={styles.ctaText}>Delete Account</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+        accessibilityViewIsModal={true}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Icon name="alert" size={24} color={colors.error} />
+              <Text style={styles.modalTitle}>Final Confirmation</Text>
+            </View>
+            
+            <Text style={styles.modalMessage}>
+              This will permanently delete your account and all data. This action cannot be undone.
+            </Text>
+            
+            <Text style={styles.modalInstruction}>
+              Type <Text style={styles.deleteText}>DELETE</Text> to confirm:
+            </Text>
+            
+            <TextInput
+              style={styles.modalInput}
+              value={deleteConfirmationText}
+              onChangeText={setDeleteConfirmationText}
+              placeholder="Type DELETE here"
+              placeholderTextColor={colors.text.secondary}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              accessibilityLabel="Confirmation text input. Type DELETE to confirm account deletion"
+            />
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalCancelButton, deleting && { opacity: 0.5 }]}
+                onPress={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel account deletion"
+              >
+                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  styles.modalDeleteButton,
+                  (deleteConfirmationText !== 'DELETE' || deleting) && styles.modalDeleteButtonDisabled
+                ]}
+                onPress={handleConfirmDelete}
+                disabled={deleteConfirmationText !== 'DELETE' || deleting}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm and delete account permanently"
+              >
+                <Text style={styles.modalDeleteButtonText}>
+                  {deleting ? 'Deleting...' : 'Delete Account'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -428,6 +671,10 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     fontSize: typography.fontSize.sm,
   },
+  permissionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   rowHint: {
     color: colors.text.disabled,
     fontSize: typography.fontSize.sm,
@@ -456,6 +703,90 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ctaText: {
+    color: colors.secondary,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium as any,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  modalContainer: {
+    backgroundColor: colors.background.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold as any,
+    color: colors.text.primary,
+    marginLeft: spacing.sm,
+  },
+  modalMessage: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.primary,
+    marginBottom: spacing.md,
+    lineHeight: 22,
+  },
+  modalInstruction: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.primary,
+    marginBottom: spacing.sm,
+  },
+  deleteText: {
+    fontWeight: typography.fontWeight.bold as any,
+    color: colors.error,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: typography.fontSize.base,
+    color: colors.text.primary,
+    backgroundColor: colors.background.primary,
+    marginBottom: spacing.lg,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  modalCancelButton: {
+    backgroundColor: colors.background.surface,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  modalCancelButtonText: {
+    color: colors.text.primary,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium as any,
+  },
+  modalDeleteButton: {
+    backgroundColor: colors.error,
+  },
+  modalDeleteButtonDisabled: {
+    backgroundColor: colors.text.disabled,
+  },
+  modalDeleteButtonText: {
     color: colors.secondary,
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium as any,

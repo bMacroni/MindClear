@@ -99,12 +99,6 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
-        
-        // Optimize native builds - use only arm64 for faster builds
-        ndk {
-            abiFilters "arm64-v8a"
-            debugSymbolLevel 'none'
-        }
     }
     signingConfigs {
         debug {
@@ -120,6 +114,12 @@ android {
             keyPassword System.getenv("KEY_PASSWORD")
         }
     }
+    bundle {
+        abi { enableSplit = true }
+        density { enableSplit = true }
+        language { enableSplit = true }
+    }
+    
     buildTypes {
         debug {
             signingConfig signingConfigs.debug

@@ -1027,6 +1027,14 @@ export default function AIChatScreen({ navigation, route }: any) {
           }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* AI Disclaimer */}
+          <View style={styles.disclaimerContainer}>
+            <Icon name="info" size={16} color={colors.text.secondary} />
+            <Text style={styles.disclaimerText}>
+              AI-generated content. Please verify important information and use your best judgment.
+            </Text>
+          </View>
+          
           {currentConversation?.messages.map((msg) => renderMessage(msg))}
           {loading && (
             <View style={styles.aiMsg}>
@@ -1283,6 +1291,23 @@ const styles = StyleSheet.create({
     color: colors.secondary,
     fontWeight: typography.fontWeight.bold,
     fontSize: typography.fontSize.base,
+  },
+  disclaimerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background.surface,
+    padding: spacing.sm,
+    margin: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  disclaimerText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    marginLeft: spacing.xs,
+    flex: 1,
+    lineHeight: 18,
   },
   conversationsList: {
     flex: 1,

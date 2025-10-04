@@ -4,12 +4,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
-import { Input, PasswordInput, Button, ApiToggle, GoogleSignInButton } from '../../components/common';
+import { Input, PasswordInput, Button, GoogleSignInButton } from '../../components/common';
 import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
 import { Image } from 'react-native';
 
-export default function LoginScreen({ navigation }: any) {
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+type AuthStackParamList = {
+  Login: undefined;
+  Signup: undefined;
+};
+
+type LoginScreenProps = {
+  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+};
+
+export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -93,17 +104,6 @@ export default function LoginScreen({ navigation }: any) {
         </View>
         <Text style={styles.title}>Welcome Back</Text>
         <Text style={styles.subtitle}>Sign in to your Mind Clear account</Text>
-        
-        <View style={styles.tabContainer}>
-          <View style={styles.activeTab}>
-            <Text style={styles.activeTabText}>Email & Password</Text>
-          </View>
-          <View style={styles.inactiveTab}>
-            <Text style={styles.inactiveTabText}>JWT Token</Text>
-          </View>
-        </View>
-        
-        <ApiToggle />
         
         <Input
           placeholder="Email"
@@ -203,31 +203,6 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     marginBottom: spacing.md,
     textAlign: 'center',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    marginBottom: spacing.sm,
-  },
-  activeTab: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    marginRight: spacing.sm,
-  },
-  activeTabText: {
-    color: colors.secondary,
-    fontWeight: typography.fontWeight.bold,
-  },
-  inactiveTab: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  inactiveTabText: {
-    color: colors.text.disabled,
-    fontWeight: typography.fontWeight.bold,
   },
   button: {
     width: '100%',
