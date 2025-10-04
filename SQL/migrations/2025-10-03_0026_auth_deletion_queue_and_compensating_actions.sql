@@ -135,8 +135,7 @@ BEGIN
   WHERE q.status = 'processing'
     AND q.last_retry_at < now() - INTERVAL '10 minutes'
     AND q.retry_count < q.max_retries
-  ORDER BY q.created_at ASC;
-END;
+  ORDER BY created_at ASC;END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION get_pending_auth_deletions() IS 
@@ -166,26 +165,20 @@ BEGIN
   WHERE id = p_queue_id
   RETURNING TRUE INTO v_updated;
   
-  IF v_updated THEN
-CREATE OR REPLACE FUNCTION cleanup_old_auth_deletion_queue()
-RETURNS INTEGER AS $
-DECLARE
-  v_deleted_count INTEGER;
-BEGIN
-  -- Delete completed/cancelled items older than 90 days
-  DELETE FROM auth_deletion_queue
-  WHERE status IN ('completed', 'cancelled')
-    AND completed_at < (now() - INTERVAL '90 days');
-
-  GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
-
-  RAISE NOTICE 'Cleaned up % old auth deletion queue items', v_deleted_count;
-  RETURN v_deleted_count;
+  RETURN COALESCE(v_updated, FALSE);
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-COMMENT ON FUNCTION cleanup_old_auth_deletion_queue() IS 
-  'Removes completed/cancelled queue items older than 90 days for housekeeping';DECLARE
+COMMENT ON FUNCTION update_auth_deletion_queue_status(UUID, VARCHAR, TEXT, VARCHAR) IS 
+  'Updates the status and metadata of a queue item';
+
+-- ============================================================================
+-- STEP 5: Function to cleanup old completed queue items
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION cleanup_old_auth_deletion_queue()
+RETURNS INTEGER AS $$
+DECLARE
   v_deleted_count INTEGER;
 BEGIN
   -- Delete completed/cancelled items older than 90 days
@@ -229,14 +222,12 @@ ORDER BY q.created_at DESC;
 ALTER TABLE auth_deletion_queue ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypasses RLS by default in Supabase
+-- Service role bypasses RLS by default in Supabase
 -- No policy needed for service role access
 -- If you need admin access via authenticated role, add a proper policy:
 -- CREATE POLICY "Admins can manage queue" ON auth_deletion_queue
 -- FOR ALL TO authenticated
--- USING (auth.jwt() ->> 'role' = 'admin');ALTER TABLE auth_deletion_queue ENABLE ROW LEVEL SECURITY;
-
--- Only service role should access this table in production
--- This policy allows admins to view the queue
+-- USING (auth.jwt() ->> 'role' = 'admin');-- This policy allows admins to view the queue
 CREATE POLICY "Service role and admins can manage auth deletion queue"
 ON auth_deletion_queue
 FOR ALL

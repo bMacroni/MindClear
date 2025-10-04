@@ -461,62 +461,78 @@ export async function deleteUserAccount(req, res) {
       }
     );
 
-    // COMPENSATING ACTION 1: Mark user with failed deletion status
-    let markResult;
-    try {
-      markResult = await markUserDeletionFailed(user_id, {
-        error: authDeletionResult.error.message,
-        attempts: authDeletionResult.attempts,
-        db_deletion_result: deletionResult
-      });
-    } catch (markError) {
-      console.error('CRITICAL: Failed to mark user deletion as failed:', markError);
-      markResult = { error: markError.message };
-    }
-
-    // COMPENSATING ACTION 2: Enqueue for async/manual cleanup
-    const queueResult = await enqueueFailedOperation({
-      user_id,
-      operation_type: 'auth_deletion',
-      context: {
-        db_deletion_result: deletionResult,
-        audit_id: deletionResult?.audit_id,
-        deletion_reason: reason || 'User-initiated account deletion',
-        ip_address
-      },
-      retry_count: authDeletionResult.attempts,
-      last_error: authDeletionResult.error
+  });
+  
+  // Check if auth deletion succeeded
+  if (authDeletionResult.success) {
+    console.log('Auth account deletion completed successfully');
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Account and all associated data have been permanently deleted.',
+      audit_id: deletionResult?.audit_id
     });
+  }
 
-    // COMPENSATING ACTION 3: Send ops alert for manual intervention
-    await sendOpsAlert({
-      user_id,
-      operation_type: 'auth_deletion',
-      error_message: authDeletionResult.error.message,
-      retry_count: authDeletionResult.attempts,
-      context: {
-        db_deletion_result: deletionResult,
-        audit_id: deletionResult?.audit_id,
-        mark_result: markResult,
-        queue_result: queueResult
-      },
-      queue_id: queueResult?.data?.id
-    });
+  // Auth deletion failed after retries - execute compensating actions
+  console.error('Auth deletion failed after retries:', authDeletionResult.error);
 
-    // Return response indicating partial success
-    // DB deletion succeeded but auth deletion is pending
-    return res.status(202).json({ 
-      success: 'partial',
-      message: 'Database records deleted successfully. Authentication removal is pending manual intervention.',
-      details: {
-        db_deletion: 'completed',
-        auth_deletion: 'pending',
-        audit_id: deletionResult?.audit_id,
-        queue_id: queueResult?.data?.id,
-        action_required: 'Operations team has been notified and will complete the process.'
-      },
-      contact_support: true
+  // COMPENSATING ACTION 1: Mark user with failed deletion status
+  let markResult;
+  try {
+    markResult = await markUserDeletionFailed(user_id, {
+      error: authDeletionResult.error.message,
+      attempts: authDeletionResult.attempts,
+      db_deletion_result: deletionResult
     });
+  } catch (markError) {
+    console.error('CRITICAL: Failed to mark user deletion as failed:', markError);
+    markResult = { error: markError.message };
+  }
+
+  // COMPENSATING ACTION 2: Enqueue for async/manual cleanup
+  const queueResult = await enqueueFailedOperation({
+    user_id,
+    operation_type: 'auth_deletion',
+    context: {
+      db_deletion_result: deletionResult,
+      audit_id: deletionResult?.audit_id,
+      deletion_reason: reason || 'User-initiated account deletion',
+      ip_address
+    },
+    retry_count: authDeletionResult.attempts,
+    last_error: authDeletionResult.error
+  });
+
+  // COMPENSATING ACTION 3: Send ops alert for manual intervention
+  await sendOpsAlert({
+    user_id,
+    operation_type: 'auth_deletion',
+    error_message: authDeletionResult.error.message,
+    retry_count: authDeletionResult.attempts,
+    context: {
+      db_deletion_result: deletionResult,
+      audit_id: deletionResult?.audit_id,
+      mark_result: markResult,
+      queue_result: queueResult
+    },
+    queue_id: queueResult?.data?.id
+  });
+
+  // Return response indicating partial success
+  return res.status(202).json({ 
+    success: 'partial',
+    message: 'Database records deleted successfully. Authentication removal is pending manual intervention.',
+    details: {
+      db_deletion: 'completed',
+      auth_deletion: 'pending',
+      audit_id: deletionResult?.audit_id,
+      queue_id: queueResult?.data?.id,
+      action_required: 'Operations team has been notified and will complete the process.'
+    },
+    contact_support: true
+  });
+
+// Note: Removed the now-unreachable 200 success response at lines 521-525
     
     res.status(200).json({ 
       success: true, 
