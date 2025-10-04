@@ -370,8 +370,8 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
       
       // LONG-TERM FIX: Check Gemini's native safety ratings
       // If the response was blocked due to safety concerns, return a friendly fallback
-      if (response.response?.promptFeedback?.blockReason) {
-        const blockReason = response.response.promptFeedback.blockReason;
+      if (response.promptFeedback?.blockReason) {
+        const blockReason = response.promptFeedback.blockReason;
         logger.warn('Gemini blocked content due to safety:', {
           blockReason,
           messageLength: message.length
@@ -383,8 +383,8 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
       }
       
       // Check safety ratings in the response candidates
-      if (response.response?.candidates?.[0]?.safetyRatings) {
-        const safetyRatings = response.response.candidates[0].safetyRatings;
+      if (response.candidates?.[0]?.safetyRatings) {
+        const safetyRatings = response.candidates[0].safetyRatings;
         const blockedCategories = safetyRatings.filter(rating => 
           rating.probability === 'HIGH' || rating.probability === 'MEDIUM'
         );

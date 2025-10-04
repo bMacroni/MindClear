@@ -191,29 +191,54 @@ export default function ProfileScreen({ navigation }: any) {
     try {
       deletingRef.current = true;
       setDeleting(true);
-      await usersAPI.deleteAccount();
+      const result = await usersAPI.deleteAccount();
       
-      // Account deletion successful - show success message briefly then navigate to sign-in
-      setToastMessage('Account deleted successfully');
-      setToastVisible(true);
-      setShowDeleteModal(false);
+      // Check if deletion was partial (status 202 or success: 'partial')
+      if (result.status === 202 || result.payload.success === 'partial') {
+        // Partial deletion - show support contact message and keep modal open
+        Alert.alert(
+          'Account Deletion In Progress',
+          'Your account data has been deleted, but some authentication cleanup is still pending. Our support team has been notified and will complete the process. Please contact support if you have any questions.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Keep the delete modal open so user can try again if needed
+                // Don't close modal, don't logout, don't navigate
+              }
+            }
+          ]
+        );
+        return; // Exit early - don't proceed with logout/navigation
+      }
       
-      // Wait a moment for the toast to show, then navigate to sign-in
-      deleteTimeoutRef.current = setTimeout(async () => {
-        try {
-          // Clear any stored auth data
-          await authService.logout();
-          // Navigate to sign-in screen
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
-          });
-        } catch (navError) {
-          console.error('Error during post-deletion navigation:', navError);
-          // Fallback: just logout and let the app handle navigation
-          await authService.logout();
-        }
-      }, 2000) as unknown as number; // 2 second delay to show success message
+      // Full success (status 200 and success: true) - proceed with normal flow
+      if (result.status === 200 && result.payload.success === true) {
+        // Account deletion successful - show success message briefly then navigate to sign-in
+        setToastMessage('Account deleted successfully');
+        setToastVisible(true);
+        setShowDeleteModal(false);
+        
+        // Wait a moment for the toast to show, then navigate to sign-in
+        deleteTimeoutRef.current = setTimeout(async () => {
+          try {
+            // Clear any stored auth data
+            await authService.logout();
+            // Navigate to sign-in screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
+          } catch (navError) {
+            console.error('Error during post-deletion navigation:', navError);
+            // Fallback: just logout and let the app handle navigation
+            await authService.logout();
+          }
+        }, 2000) as unknown as number; // 2 second delay to show success message
+      } else {
+        // Unexpected response format - treat as error
+        throw new Error('Unexpected response format from account deletion');
+      }
       
     } catch (error) {
       console.error('Failed to delete account', error);

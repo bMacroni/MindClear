@@ -1182,7 +1182,7 @@ export const usersAPI = {
     return data.count || 0;
   },
 
-  deleteAccount: async (): Promise<void> => {
+  deleteAccount: async (): Promise<{ status: number; payload: any }> => {
     try {
       const token = await getAuthToken();
       const apiUrl = getSecureApiBaseUrl();
@@ -1195,18 +1195,21 @@ export const usersAPI = {
         body: JSON.stringify({ confirmDeletion: true }),
       });
       
-      if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      
+      // Only treat 4xx and 5xx as errors, 2xx are success responses
+      if (response.status >= 400) {
         if (response.status === 401) {
           const err = new Error('Authentication failed - user not logged in');
           (err as any).code = 'AUTH_REQUIRED';
           throw err;
         }
-        const errorText = await response.text();
+        const errorText = payload.error || 'Unknown error';
         throw new Error(`Failed to delete account: ${response.status} - ${errorText}`);
       }
       
-      // Account deletion successful - user will be logged out automatically
-      // The auth service should handle the logout
+      // Return both status and payload for the caller to inspect
+      return { status: response.status, payload };
     } catch (error) {
       console.error('Error deleting account:', error);
       throw error;

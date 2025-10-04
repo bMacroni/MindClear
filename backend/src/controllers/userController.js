@@ -530,14 +530,6 @@ export async function deleteUserAccount(req, res) {
     contact_support: true
   });
 
-// Note: Removed the now-unreachable 200 success response at lines 521-525
-    
-    res.status(200).json({ 
-      success: true, 
-      message: 'Account and all associated data have been permanently deleted.',
-      audit_id: deletionResult?.audit_id
-    });
-
   } catch (e) {
     console.error('Exception in deleteUserAccount:', e);
     res.status(500).json({ error: 'An unexpected error occurred during account deletion' });
