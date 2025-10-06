@@ -10,14 +10,10 @@ import { googleAuthService } from '../../services/googleAuth';
 import { Image } from 'react-native';
 
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-
-type AuthStackParamList = {
-  Login: undefined;
-  Signup: undefined;
-};
+import { RootStackParamList } from '../../navigation/types';
 
 type LoginScreenProps = {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
 };
 
 export default function LoginScreen({ navigation }: LoginScreenProps) {
@@ -144,6 +140,13 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           variant="outline"
           style={styles.signupButton}
         />
+        
+        <Text
+          style={styles.forgotPasswordLink}
+          onPress={() => navigation.navigate('ForgotPassword')}
+        >
+          Forgot password?
+        </Text>
 
         {/* Divider */}
         <View style={styles.divider}>
@@ -249,5 +252,14 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginBottom: spacing.xs,
     fontSize: typography.fontSize.sm,
+  },
+  forgotPasswordLink: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+    width: '100%',
+    maxWidth: 320,
   },
 });

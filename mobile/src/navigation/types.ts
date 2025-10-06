@@ -8,6 +8,8 @@ export type RootStackParamList = {
   TaskDetail: { taskId: string };
   Notifications: undefined;
   AnalyticsDashboard: undefined;
+  ForgotPassword: undefined;
+  ResetPassword: { access_token?: string } | undefined;
 };
 
 export type MainTabParamList = {
