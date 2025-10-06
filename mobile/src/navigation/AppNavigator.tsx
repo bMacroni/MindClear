@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavigationContainer, LinkingOptions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar, View, ActivityIndicator, Linking } from 'react-native';
@@ -26,7 +26,25 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const handledInitialLink = useRef(false);
   // Use shared navigationRef for global route awareness
+
+  // Handle initial URL only once on app launch
+  useEffect(() => {
+    if (handledInitialLink.current) return;
+    
+    const handleInitialUrl = (url?: string | null) => {
+      if (!url) return;
+      const { access_token, token } = parseAccessTokenFromUrl(url);
+      const navToken = access_token || token;
+      if (navToken && navigationRef.current) {
+        navigationRef.current.navigate('ResetPassword', { access_token: navToken });
+      }
+    };
+
+    Linking.getInitialURL().then(handleInitialUrl).catch(() => {});
+    handledInitialLink.current = true;
+  }, []); // Empty dependency array - runs only once
 
   useEffect(() => {
     // Deep link handler: navigate to ResetPassword when access_token is present
@@ -38,9 +56,6 @@ export default function AppNavigator() {
         navigationRef.current.navigate('ResetPassword', { access_token: navToken });
       }
     };
-
-    // Handle initial URL
-    Linking.getInitialURL().then(handleUrl).catch(() => {});
 
     // Subscribe to future URL events
     const sub = Linking.addEventListener('url', (event) => handleUrl(event.url));
@@ -93,7 +108,7 @@ export default function AppNavigator() {
       // @ts-ignore - RN returns an object with remove() in this version
       sub.remove?.();
     };
-  }, [isAuthenticated]);
+  }, []); // Empty dependency array - runs only once for auth setup and event listener
 
   if (isLoading) {
     return (

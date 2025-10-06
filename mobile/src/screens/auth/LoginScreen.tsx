@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, Linking, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -141,12 +141,19 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           style={styles.signupButton}
         />
         
-        <Text
-          style={styles.forgotPasswordLink}
+        <Pressable
+          style={({ pressed }) => [
+            styles.forgotPasswordContainer,
+            pressed && styles.forgotPasswordPressed
+          ]}
           onPress={() => navigation.navigate('ForgotPassword')}
+          accessibilityRole="button"
+          accessibilityLabel="Forgot password, navigate to reset"
         >
-          Forgot password?
-        </Text>
+          <Text style={styles.forgotPasswordText}>
+            Forgot password?
+          </Text>
+        </Pressable>
 
         {/* Divider */}
         <View style={styles.divider}>
@@ -253,13 +260,24 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     fontSize: typography.fontSize.sm,
   },
-  forgotPasswordLink: {
-    color: colors.primary,
-    fontSize: typography.fontSize.sm,
+  forgotPasswordContainer: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
-    textAlign: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
     width: '100%',
     maxWidth: 320,
+  },
+  forgotPasswordPressed: {
+    opacity: 0.7,
+  },
+  forgotPasswordText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
   },
 });

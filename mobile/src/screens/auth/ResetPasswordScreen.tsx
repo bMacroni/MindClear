@@ -63,7 +63,12 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
     <SafeAreaView style={styles.container}>
       {/* Header with back arrow and title */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()} 
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Icon name="arrow-left" size={24} color="#000000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reset</Text>
@@ -88,7 +93,7 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
         />
 
         {password.length > 0 && (
-          <Text style={styles.complexityText}>
+          <Text style={[styles.complexityText, meetsComplexity ? styles.complexitySuccess : styles.complexityError]}>
             {meetsComplexity ? 'Meets complexity requirements' : 'Must have upper, lower, number, special (min 8)'}
           </Text>
         )}
@@ -112,7 +117,7 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background.primary,
   },
   header: {
     flexDirection: 'row',
@@ -126,7 +131,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: typography.fontSize.lg,
-    color: '#000000',
+    color: colors.text.primary,
     fontWeight: typography.fontWeight.semibold as any,
     marginLeft: spacing.md,
   },
@@ -137,14 +142,14 @@ const styles = StyleSheet.create({
   },
   mainTitle: {
     fontSize: typography.fontSize['2xl'],
-    color: '#000000',
+    color: colors.text.primary,
     fontWeight: typography.fontWeight.bold as any,
     marginBottom: spacing.sm,
     textAlign: 'center',
   },
   instructionText: {
     fontSize: typography.fontSize.base,
-    color: '#666666',
+    color: colors.text.secondary,
     marginBottom: spacing.xl,
     textAlign: 'center',
   },
@@ -153,9 +158,14 @@ const styles = StyleSheet.create({
   },
   complexityText: {
     fontSize: typography.fontSize.sm,
-    color: colors.error,
     marginTop: spacing.xs,
     marginBottom: spacing.sm,
+  },
+  complexitySuccess: {
+    color: colors.success,
+  },
+  complexityError: {
+    color: colors.error,
   },
   error: {
     color: colors.error,
@@ -165,7 +175,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   resetButton: {
-    backgroundColor: '#FFD700', // Gold color
+    backgroundColor: colors.accent.gold,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     borderRadius: 8,
@@ -173,10 +183,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetButtonDisabled: {
-    backgroundColor: '#CCCCCC',
+    backgroundColor: colors.border.dark,
   },
   resetButtonText: {
-    color: '#000000',
+    color: colors.text.primary,
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold as any,
   },
