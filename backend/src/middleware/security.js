@@ -215,7 +215,8 @@ export const commonValidations = {
   // Email validation
   email: body('email')
     .isEmail()
-    .normalizeEmail()
+    .trim()
+    .toLowerCase()
     .withMessage('Please provide a valid email address'),
   
   // Password validation

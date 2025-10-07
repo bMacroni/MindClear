@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { body, validationResult } from 'express-validator';
 import { validateInput, commonValidations } from '../middleware/security.js';
 import { requireAuth, handleLogout } from '../middleware/enhancedAuth.js';
+import { logSecurityEvent, SecurityEventTypes } from '../utils/securityMonitor.js';
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
@@ -146,6 +147,83 @@ router.post('/login', [
   } catch (error) {
     logger.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Request password reset (preserve provider-specific email formatting)
+router.post('/request-password-reset', [
+  body('email')
+    .isEmail()
+    .trim()
+    .toLowerCase()
+    .withMessage('Please provide a valid email address')
+], validateInput, async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Log security event (LOW)
+    logSecurityEvent(SecurityEventTypes.PASSWORD_RESET_REQUESTED, 1, {
+      endpoint: '/api/auth/request-password-reset'
+    }, req);
+
+    // Use Supabase to send reset email with deep link to app
+    const redirectTo = 'mindclear://reset-password';
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) {
+        // Do not leak details; optionally log at warn
+        logger.warn('Password reset Supabase error', { code: error.code, message: error.message });
+      }
+    } catch (err) {
+      // Swallow errors to avoid enumeration; log minimal info
+      logger.warn('Password reset request failed', { message: err?.message });
+    }
+
+    return res.status(200).json({
+      message: 'If an account with this email exists, a password reset link has been sent.'
+    });
+  } catch (error) {
+    // Still return generic success to prevent enumeration
+    logger.error('Password reset request error', error);
+    return res.status(200).json({
+      message: 'If an account with this email exists, a password reset link has been sent.'
+    });
+  }
+});
+
+// Perform password reset using Supabase access_token
+router.post('/reset-password', [
+  body('access_token').isLength({ min: 10 }).withMessage('Valid access token is required'),
+  commonValidations.password
+], validateInput, async (req, res) => {
+  try {
+    const { access_token, password } = req.body;
+
+    // Create a client scoped to the provided access_token
+    const authedSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${access_token}` } }
+    });
+
+    // Resolve user from the access_token
+    const { data: userData, error: getUserError } = await authedSupabase.auth.getUser();
+    if (getUserError || !userData?.user?.id) {
+      logger.warn('Supabase getUser failed during password reset', { message: getUserError?.message || 'Unknown error' });
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    // Use Admin API (service role) to update the user's password by ID
+    const adminSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const { data: updateData, error: adminError } = await adminSupabase.auth.admin.updateUserById(userData.user.id, { password });
+    if (adminError) {
+      logger.warn('Supabase admin.updateUserById failed during password reset', { message: adminError.message });
+      return res.status(400).json({ error: 'Failed to reset password' });
+    }
+
+    logger.info('Password reset completed');
+    return res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    logger.error('Password reset error', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

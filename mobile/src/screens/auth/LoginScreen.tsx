@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, Linking, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -10,14 +10,10 @@ import { googleAuthService } from '../../services/googleAuth';
 import { Image } from 'react-native';
 
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-
-type AuthStackParamList = {
-  Login: undefined;
-  Signup: undefined;
-};
+import { RootStackParamList } from '../../navigation/types';
 
 type LoginScreenProps = {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
 };
 
 export default function LoginScreen({ navigation }: LoginScreenProps) {
@@ -144,6 +140,20 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           variant="outline"
           style={styles.signupButton}
         />
+        
+        <Pressable
+          style={({ pressed }) => [
+            styles.forgotPasswordContainer,
+            pressed && styles.forgotPasswordPressed
+          ]}
+          onPress={() => navigation.navigate('ForgotPassword')}
+          accessibilityRole="button"
+          accessibilityLabel="Forgot password, navigate to reset"
+        >
+          <Text style={styles.forgotPasswordText}>
+            Forgot password?
+          </Text>
+        </Pressable>
 
         {/* Divider */}
         <View style={styles.divider}>
@@ -249,5 +259,25 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginBottom: spacing.xs,
     fontSize: typography.fontSize.sm,
+  },
+  forgotPasswordContainer: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    maxWidth: 320,
+  },
+  forgotPasswordPressed: {
+    opacity: 0.7,
+  },
+  forgotPasswordText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
   },
 });

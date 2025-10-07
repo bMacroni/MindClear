@@ -38,6 +38,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- Deep link for password reset: mindclear://reset-password -->
+        <intent-filter android:autoVerify="false">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="mindclear" android:host="reset-password" />
+        </intent-filter>
       </activity>
       
       <!-- Firebase Cloud Messaging Service removed - using backend-only approach -->
