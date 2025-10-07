@@ -27,6 +27,7 @@ export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const handledInitialLink = useRef(false);
+  const cachedInitialToken = useRef<string | null>(null);
   // Use shared navigationRef for global route awareness
 
   // Handle initial URL only once on app launch
@@ -37,8 +38,14 @@ export default function AppNavigator() {
       if (!url) return;
       const { access_token, token } = parseAccessTokenFromUrl(url);
       const navToken = access_token || token;
-      if (navToken && navigationRef.current) {
-        navigationRef.current.navigate('ResetPassword', { access_token: navToken });
+      if (navToken) {
+        if (navigationRef.current) {
+          // Navigator is ready, navigate immediately
+          navigationRef.current.navigate('ResetPassword', { access_token: navToken });
+        } else {
+          // Navigator not ready, cache the token for later
+          cachedInitialToken.current = navToken;
+        }
       }
     };
 
@@ -94,7 +101,11 @@ export default function AppNavigator() {
 
       // Handle navigation when auth state changes
       if (navigationRef.current && !authState.isLoading) {
-        if (authState.isAuthenticated && !wasAuthenticated) {
+        // Check for cached initial token when auth is no longer loading
+        if (cachedInitialToken.current) {
+          navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
+          cachedInitialToken.current = null; // Clear the cached token after navigation
+        } else if (authState.isAuthenticated && !wasAuthenticated) {
           navigationRef.current.reset({ index: 0, routes: [{ name: 'Main' }] });
         } else if (!authState.isAuthenticated && wasAuthenticated) {
           navigationRef.current.reset({ index: 0, routes: [{ name: 'Login' }] });
@@ -127,8 +138,16 @@ export default function AppNavigator() {
     },
   };
 
+  // Handle cached initial token when navigator is ready
+  const handleNavigatorReady = () => {
+    if (cachedInitialToken.current && navigationRef.current) {
+      navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
+      cachedInitialToken.current = null; // Clear the cached token after navigation
+    }
+  };
+
   return (
-    <NavigationContainer ref={navigationRef} linking={linking}>
+    <NavigationContainer ref={navigationRef} linking={linking} onReady={handleNavigatorReady}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.secondary} animated />
       <Stack.Navigator 
         initialRouteName={isAuthenticated ? "Main" : "Login"}

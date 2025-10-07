@@ -42,6 +42,7 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
           style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Go back"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Icon name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
@@ -95,7 +96,11 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   backButton: {
-    padding: spacing.xs,
+    padding: spacing.sm,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: typography.fontSize.lg,
