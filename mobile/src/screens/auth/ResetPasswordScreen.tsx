@@ -70,7 +70,8 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Icon name="arrow-left" size={24} color={colors.text.primary} />        </TouchableOpacity>
+          <Icon name="arrow-left" size={24} color={colors.text.primary} />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Reset</Text>
       </View>
 
