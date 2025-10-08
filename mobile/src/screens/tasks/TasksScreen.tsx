@@ -324,6 +324,17 @@ const TasksScreen: React.FC = () => {
     try {
       const updatedTask = await tasksAPI.updateTask(taskId, { status: 'not_started' });
       setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
+      
+      // Handle calendar event - remove any associated calendar events since task is no longer completed
+      try {
+        const events = await enhancedAPI.getEventsForTask(taskId);
+        for (const event of events) {
+          await enhancedAPI.deleteEvent(event.id);
+        }
+      } catch (error) {
+        console.warn('Failed to remove calendar event:', error);
+      }
+      
       setToastMessage('Task marked as incomplete');
       setToastCalendarEvent(false);
       setShowToast(true);

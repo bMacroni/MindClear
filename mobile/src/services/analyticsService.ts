@@ -126,8 +126,18 @@ class AnalyticsService {
 
     try {
       // Check authentication before sending
-      const { authService } = await import('./auth');
-      const token = await authService.getAuthToken();
+      let token;
+      try {
+        const { authService } = await import('./auth');
+        token = await authService.getAuthToken();
+      } catch (importError) {
+        logger.error('Analytics: Failed to import auth service or retrieve token', { 
+          error: importError.message,
+          stack: importError.stack 
+        });
+        await this.queueEvent(event);
+        return;
+      }
 
       if (!token) {
         logger.info(`Analytics: No auth token available, queuing event: ${event.eventName}`);
@@ -482,13 +492,19 @@ class AnalyticsService {
       logger.info('Analytics: Testing endpoint connectivity...');
       
       // Import authService to check token status
-      const { authService } = await import('./auth');
-      const token = await authService.getAuthToken();
-      logger.info('Analytics: Auth token status:', { 
-        hasToken: !!token, 
-        tokenLength: token?.length || 0,
-        tokenPreview: token ? token.substring(0, 20) + '...' : 'none'
-      });
+      let token: string | null = null;
+      try {
+        const { authService } = await import('./auth');
+        token = await authService.getAuthToken();
+      } catch (importError) {
+        return {
+          success: false,
+          error: 'Failed to import auth service',
+          details: importError
+        };
+      }
+      logger.info('Analytics: Auth token status:', { hasToken: !!token });
+      logger.info('Analytics: Auth token status:', { hasToken: !!token });
       
       const response: ApiResponse<any> = await apiService.post('/analytics/track', {
         event_name: 'connectivity_test',
@@ -520,10 +536,17 @@ class AnalyticsService {
 // Export singleton instance
 const analyticsService = new AnalyticsService();
 
-// TEMPORARY: Force disable analytics due to backend issues
-// This prevents the app from breaking while backend is down
-// Remove this after backend issues are resolved
-analyticsService.forceDisableAnalytics(30); // Disable for 30 minutes
+// Emergency analytics disable - only when explicitly configured
+const forceDisableMinutes = process.env.ANALYTICS_FORCE_DISABLE_MINUTES;
+if (forceDisableMinutes) {
+  const minutes = parseInt(forceDisableMinutes, 10);
+  if (!isNaN(minutes) && minutes > 0) {
+    console.warn(`[Analytics] Emergency disable activated for ${minutes} minutes via ANALYTICS_FORCE_DISABLE_MINUTES`);
+    analyticsService.forceDisableAnalytics(minutes);
+  } else {
+    console.warn(`[Analytics] Invalid ANALYTICS_FORCE_DISABLE_MINUTES value: "${forceDisableMinutes}". Must be a positive integer.`);
+  }
+}
 
 export default analyticsService;
 
