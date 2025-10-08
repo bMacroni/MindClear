@@ -184,7 +184,7 @@ class SecureConfigService {
 
     // Final fallback based on environment
     const finalFallback = __DEV__
-      ? 'http://localhost:5000/api'  // Development: use localhost with adb reverse
+      ? 'http://192.168.1.66:5000/api'  // Development: use computer IP address
       : 'https://foci-production.up.railway.app/api';  // Production: use Railway
     logger.warn('Using final fallback API base URL:', finalFallback, `(${__DEV__ ? 'development' : 'production'})`);
     return finalFallback;

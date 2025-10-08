@@ -1431,8 +1431,9 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
     // Removed ambiguous single words (kill, harm, drug, hack, explicit, offensive, etc.)
     // Changed patterns to target unambiguous phrases or require multiple indicators/context
     const harmfulPatterns = [
-      // Direct threats with verbs + targets (strict word boundaries)
-      { pattern: /\b(going to kill|will kill|gonna kill|i'll kill|want to kill|plan to kill)\b/, name: 'direct_threat' },
+      // Direct threats with verbs + targets (strict word boundaries, exclude productivity contexts)
+      { pattern: /\b(going to kill|will kill|gonna kill|i'll kill)\s+(you|him|her|them|myself)\b/, name: 'direct_threat' },
+      { pattern: /\b(plan to kill|want to kill)\s+(you|him|her|them|myself)\b/, name: 'direct_threat' },
       { pattern: /\b(commit suicide|end my life|kill myself)\b/, name: 'self_harm_intent' },
       
       // Explicit slurs (examples - add specific slurs as needed with strict boundaries)
@@ -1442,11 +1443,11 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
       { pattern: /\b(watch porn|pornographic (content|material|video)|explicit sex)\b/, name: 'pornographic_phrase' },
       
       // Illegal activity with intent indicators (requires context)
-      { pattern: /\b(how to (make|build|create) (bomb|explosive|weapon))\b/, name: 'illegal_weapon_instruction' },
+      { pattern: /\b(how to (make|build|create|construct) (bomb|explosive|weapon|dynamite|grenade))\b/, name: 'illegal_weapon_instruction' },
       { pattern: /\b(sell drugs|buy drugs|drug dealer)\b/, name: 'drug_transaction' },
       
-      // Coordinated spam patterns (excessive repetition checked separately)
-      { pattern: /\b(click here now|act now|limited time offer|free money|you've won)\b/, name: 'spam_phrase' },
+      // Coordinated spam patterns (more specific to avoid productivity contexts)
+      { pattern: /\b(click here now|limited time offer|free money|you've won|act now and get)\b/, name: 'spam_phrase' },
     ];
 
     // Check for harmful patterns
@@ -1462,7 +1463,7 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
 
     // Check for excessive repetition (potential spam)
     const words = lowerMessage.split(/\s+/);
-    const excludedWords = ['task', 'goal', 'event', 'schedule', 'meet', 'meeting', 'plan', 'planning'];
+    const excludedWords = ['task', 'goal', 'event', 'schedule', 'meet', 'meeting', 'plan', 'planning', 'need', 'want', 'help', 'create', 'update', 'delete', 'set', 'get', 'find', 'work', 'project', 'deadline', 'time', 'today', 'tomorrow', 'week', 'month', 'year'];
     const wordCounts = {};
     for (const word of words) {
       if (word.length > 3 && !excludedWords.includes(word)) {
@@ -1470,10 +1471,10 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
       }
     }
 
-    // Block if any word appears more than 10 times or comprises >30% of the message
+    // Block if any word appears more than 15 times or comprises >40% of the message (more lenient)
     for (const [word, count] of Object.entries(wordCounts)) {
       const ratio = count / words.length;
-      if (count > 10 || ratio > 0.3) {
+      if (count > 15 || ratio > 0.4) {
         logger.warn('Blocked repetitive content:', { word, count, messageLength: message.length });
         return { content: message, blocked: true, pattern: 'excessive_repetition' };
       }

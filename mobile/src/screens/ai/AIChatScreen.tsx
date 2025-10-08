@@ -167,10 +167,16 @@ export default function AIChatScreen({ navigation, route }: any) {
   const deleteConversation = async (conversationId: string) => {
     setLoading(true);
     try {
-      // Attempt server delete (soft delete)
-      if (conversationId && conversationId.includes('-')) {
+      // Attempt server delete (soft delete) for all conversations
+      // Let the server handle validation of conversation IDs
+      try {
         await conversationService.deleteThread(conversationId);
+      } catch (serverError) {
+        // If server delete fails (e.g., conversation doesn't exist on server),
+        // still proceed with local state update for consistency
+        logger.warn('Server delete failed, proceeding with local delete:', serverError);
       }
+      
       const updatedConversations = conversations.filter(c => c.id !== conversationId);
       setConversations(updatedConversations);
       if (conversationId === currentConversationId && updatedConversations.length > 0) {
@@ -768,6 +774,13 @@ export default function AIChatScreen({ navigation, route }: any) {
             setConversations(prev => [conv, ...prev]);
             setCurrentConversationId(conv.id);
           }
+          // Add the user's initial message to the conversation first
+          const userMessage: Message = { id: Date.now(), text: initialMessage, sender: 'user' };
+          const threadIdFinal = (route.params?.threadId as string) || (navigation.getState && threadIdToUse) || threadIdToUse;
+          if (threadIdFinal) {
+            setConversations(prev => prev.map(c => (c.id === threadIdFinal ? { ...c, messages: [...c.messages, userMessage], lastMessageAt: new Date() } : c)));
+          }
+
           // Clear the route params to prevent re-triggering
           navigation.setParams({ initialMessage: undefined, threadId: threadIdToUse });
           const response = await axios.post(
@@ -782,7 +795,6 @@ export default function AIChatScreen({ navigation, route }: any) {
           const actions = responseData.actions || [];
           
           const aiMessage: Message = { id: Date.now() + 1, text: message, sender: 'ai' };
-          const threadIdFinal = (route.params?.threadId as string) || (navigation.getState && threadIdToUse) || threadIdToUse;
           if (threadIdFinal) {
             setConversations(prev => prev.map(c => (c.id === threadIdFinal ? { ...c, messages: [...c.messages, aiMessage], lastMessageAt: new Date() } : c)));
           }
@@ -896,19 +908,18 @@ export default function AIChatScreen({ navigation, route }: any) {
     })();
 
     return (
-      <View key={msg.id} style={[
-        styles.aiMsg,
-        // Remove padding when showing structured content to let the component control its own spacing
-        (hasScheduleContent || hasGoalBreakdownContent || hasGoalTitlesContent || hasTaskContent) && styles.aiMsgNoPadding
-      ]}>
-        {/* Show conversational text even when structured content exists (strip JSON blocks) */}
+      <View key={msg.id} style={styles.aiMsg}>
+        {/* Show conversational text with proper padding */}
         {conversationalText && (
-          <Markdown
-            style={markdownStyles}
-          >
-            {conversationalText}
-          </Markdown>
+          <View style={styles.conversationalTextContainer}>
+            <Markdown
+              style={markdownStyles}
+            >
+              {conversationalText}
+            </Markdown>
+          </View>
         )}
+        {/* Structured content components handle their own padding */}
         {hasScheduleContent && (
           <ScheduleDisplay text={msg.text} taskTitle={route?.params?.taskTitle} />
         )}
@@ -1173,8 +1184,9 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontSize: typography.fontSize.base,
   },
-  aiMsgNoPadding: {
-    padding: 0,
+  conversationalTextContainer: {
+    // This container ensures conversational text has proper padding
+    // while allowing structured content components to handle their own spacing
   },
   inputRow: {
     flexDirection: 'row',

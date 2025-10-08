@@ -13,6 +13,7 @@ import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
 import { TaskCard } from '../../components/tasks/TaskCard';
+import { CompletedTaskCard } from '../../components/tasks/CompletedTaskCard';
 import QuickScheduleRadial from '../../components/tasks/QuickScheduleRadial';
 import { TaskForm } from '../../components/tasks/TaskForm';
 import { AutoSchedulingPreferencesModal } from '../../components/tasks/AutoSchedulingPreferencesModal';
@@ -317,6 +318,44 @@ const TasksScreen: React.FC = () => {
     }
   }, [tasks]);
 
+  const handleResetCompletedTask = useCallback(async (taskId: string) => {
+    const prevTasks = tasks;
+    setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: 'not_started' } as any : task));
+    try {
+      const updatedTask = await tasksAPI.updateTask(taskId, { status: 'not_started' });
+      setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
+      
+      // Handle calendar event - remove any associated calendar events since task is no longer completed
+      try {
+        const events = await enhancedAPI.getEventsForTask(taskId);
+        for (const event of events) {
+          await enhancedAPI.deleteEvent(event.id);
+        }
+      } catch (error) {
+        console.warn('Failed to remove calendar event:', error);
+      }
+      
+      setToastMessage('Task marked as incomplete');
+      setToastCalendarEvent(false);
+      setShowToast(true);
+    } catch (error) {
+      console.error('Error resetting task status:', error);
+      setTasks(prevTasks);
+      Alert.alert('Error', 'Failed to reset task status');
+    }
+  }, [tasks]);
+
+  // Helper function to format due date for display
+  const formatDueDate = (dueDate: string | undefined): string => {
+    if (!dueDate) return 'none';
+    try {
+      const date = new Date(dueDate);
+      return date.toLocaleDateString();
+    } catch {
+      return 'none';
+    }
+  };
+
   const handleAddToCalendar = useCallback(async (_taskId: string) => {
     try {
       const task = tasks.find(t => t.id === _taskId);
@@ -334,10 +373,10 @@ const TasksScreen: React.FC = () => {
         if (needsDueDate) { missingParts.push('due date'); }
 
         const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-        const duePart = task.due_date ? task.due_date : 'none';
+        const duePart = formatDueDate(task.due_date);
         const durationPart = Number.isFinite((task as any).estimated_duration_minutes) ? String((task as any).estimated_duration_minutes) : 'none';
 
-        const prompt = `Help me schedule this task on my calendar. Ask me conversational clarifying questions to fill any missing values and then summarize the final values. After that, suggest one tiny micro-step to help me begin.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Task ID: ${task.id}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
+        const prompt = `Help me schedule this task on my calendar. Ask me conversational clarifying questions to fill any missing values and then summarize the final values. After that, suggest one tiny micro-step to help me begin.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
 
         (navigation as any).navigate('AIChat', { initialMessage: prompt, taskTitle: task.title });
         return;
@@ -380,11 +419,11 @@ const TasksScreen: React.FC = () => {
   const handleAIHelp = useCallback(async (task: Task) => {
     try {
       const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-      const duePart = task.due_date ? task.due_date : 'none';
+      const duePart = formatDueDate(task.due_date);
       const durationPart = Number.isFinite((task as any).estimated_duration_minutes)
         ? String((task as any).estimated_duration_minutes)
         : 'none';
-      const prompt = `Help me think through and schedule this task. Ask conversational clarifying questions if needed, then summarize final values and suggest one tiny micro-step.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Task ID: ${task.id}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}`;
+      const prompt = `Help me think through and schedule this task. Ask conversational clarifying questions if needed, then summarize final values and suggest one tiny micro-step.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}`;
       (navigation as any).navigate('AIChat', { initialMessage: prompt, taskTitle: task.title });
     } catch {
       Alert.alert('Error', 'Failed to open AI assistant');
@@ -635,10 +674,10 @@ const TasksScreen: React.FC = () => {
         if (needsDueDate) { missingParts.push('due date'); }
 
         const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-        const duePart = task.due_date ? task.due_date : 'none';
+        const duePart = formatDueDate(task.due_date);
         const durationPart = Number.isFinite((task as any).estimated_duration_minutes) ? String((task as any).estimated_duration_minutes) : 'none';
 
-        const prompt = `I want to schedule this task now. Please ask me conversationally to confirm or fill in any missing values needed for scheduling, then summarize the final values. Also propose one tiny micro-step to get started.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Task ID: ${task.id}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
+        const prompt = `I want to schedule this task now. Please ask me conversationally to confirm or fill in any missing values needed for scheduling, then summarize the final values. Also propose one tiny micro-step to get started.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
 
         (navigation as any).navigate('AIChat', { initialMessage: prompt, taskTitle: task.title });
         return;
@@ -1449,18 +1488,10 @@ const TasksScreen: React.FC = () => {
             <View style={styles.completedSection}>
               <Text style={styles.completedSectionTitle}>Completed</Text>
               {completedTasks.slice(0, 10).map(task => (
-                <TaskCard
+                <CompletedTaskCard
                   key={task.id}
                   task={task}
-                  onPress={handleTaskPress}
-                  onDelete={handleDeleteTask}
-                  onToggleStatus={handleToggleStatus}
-                  onAddToCalendar={handleAddToCalendar}
-                  onToggleAutoSchedule={handleToggleAutoSchedule}
-                  onScheduleNow={handleScheduleNow}
-                  onOpenQuickSchedule={handleOpenQuickSchedule}
-                  onQuickSchedule={handleQuickSchedule}
-                  onAIHelp={handleAIHelp}
+                  onResetStatus={handleResetCompletedTask}
                 />
               ))}
               {completedTasks.length > 10 && (

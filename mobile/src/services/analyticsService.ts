@@ -28,6 +28,18 @@ interface OfflineQueueItem {
 class AnalyticsService {
   private isOnline: boolean = true;
   private syncInProgress: boolean = false;
+  private timeoutStats = {
+    totalRequests: 0,
+    timeoutCount: 0,
+    lastTimeout: null as Date | null,
+  };
+  private circuitBreaker = {
+    isOpen: false,
+    failureCount: 0,
+    lastFailureTime: null as Date | null,
+    failureThreshold: 3, // Open circuit after 3 consecutive failures
+    recoveryTimeout: 30000, // 30 seconds before trying again
+  };
 
   constructor() {
     this.initializeNetworkListener();
@@ -65,6 +77,13 @@ class AnalyticsService {
       return;
     }
 
+    // Check if analytics should be temporarily disabled due to persistent failures
+    if (this.shouldDisableAnalytics()) {
+      logger.info(`Analytics: Temporarily disabled due to persistent failures, skipping event: ${eventName}`);
+      return;
+    }
+
+
     const event: AnalyticsEvent = {
       id: this.generateEventId(),
       eventName,
@@ -88,12 +107,49 @@ class AnalyticsService {
    * Send event directly to backend
    */
   private async sendEvent(event: AnalyticsEvent): Promise<void> {
+    // Check circuit breaker - if open and not yet time to retry, queue immediately
+    if (this.circuitBreaker.isOpen) {
+      const timeSinceLastFailure = Date.now() - (this.circuitBreaker.lastFailureTime?.getTime() || 0);
+      if (timeSinceLastFailure < this.circuitBreaker.recoveryTimeout) {
+        logger.info(`Analytics: Circuit breaker is open, queuing event instead of sending: ${event.eventName}`);
+        await this.queueEvent(event);
+        return;
+      } else {
+        // Reset circuit breaker for retry
+        this.circuitBreaker.isOpen = false;
+        this.circuitBreaker.failureCount = 0;
+        logger.info('Analytics: Circuit breaker reset, attempting to send events again');
+      }
+    }
+
+    this.timeoutStats.totalRequests++;
+
     try {
-      // Short timeout for analytics to avoid blocking UI; server responds 202 quickly
+      // Check authentication before sending
+      let token;
+      try {
+        const { authService } = await import('./auth');
+        token = await authService.getAuthToken();
+      } catch (importError) {
+        logger.error('Analytics: Failed to import auth service or retrieve token', { 
+          error: importError.message,
+          stack: importError.stack 
+        });
+        await this.queueEvent(event);
+        return;
+      }
+
+      if (!token) {
+        logger.info(`Analytics: No auth token available, queuing event: ${event.eventName}`);
+        await this.queueEvent(event);
+        return;
+      }
+
+      // Reduced timeout for faster failure detection
       const response: ApiResponse<any> = await apiService.post('/analytics/track', {
         event_name: event.eventName,
         payload: event.payload,
-      }, { timeoutMs: 4000 });
+      }, { timeoutMs: 3000 }); // Reduced to 3 seconds for even faster failure detection
 
       if (!response.ok) {
         const errorMessage = typeof response.data === 'object' && response.data?.error
@@ -101,7 +157,32 @@ class AnalyticsService {
           : 'Failed to send analytics event';
         throw new Error(errorMessage);
       }
+
+      // Success - reset circuit breaker
+      this.circuitBreaker.failureCount = 0;
+      this.circuitBreaker.isOpen = false;
+
     } catch (error) {
+      // Update circuit breaker
+      this.circuitBreaker.failureCount++;
+      this.circuitBreaker.lastFailureTime = new Date();
+
+      if (this.circuitBreaker.failureCount >= this.circuitBreaker.failureThreshold) {
+        this.circuitBreaker.isOpen = true;
+        logger.warn(`Analytics: Circuit breaker opened after ${this.circuitBreaker.failureCount} consecutive failures`);
+      }
+
+      // Track timeout statistics
+      if (error instanceof Error && error.message.includes('timeout')) {
+        this.timeoutStats.timeoutCount++;
+        this.timeoutStats.lastTimeout = new Date();
+        logger.warn(`Analytics: Timeout detected (${this.timeoutStats.timeoutCount}/${this.timeoutStats.totalRequests} total timeouts)`, {
+          eventName: event.eventName,
+          timeoutRate: (this.timeoutStats.timeoutCount / this.timeoutStats.totalRequests * 100).toFixed(1) + '%',
+          circuitBreakerOpen: this.circuitBreaker.isOpen
+        });
+      }
+
       logger.warn('Analytics: Failed to send event, queuing for later:', event.eventName, error);
       await this.queueEvent(event);
       throw error; // Re-throw the error so callers can detect failure
@@ -164,15 +245,23 @@ class AnalyticsService {
       for (const item of queue) {
         try {
           await this.sendEvent(item.event);
+          
+          // Small delay between successful sends to avoid overwhelming the server
+          await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
           item.retryCount += 1;
 
-          // Keep events that have failed less than 3 times
-          if (item.retryCount < 3) {
+          // Keep events that have failed less than 5 times (increased from 3)
+          // This gives more chances for network issues to resolve
+          if (item.retryCount < 5) {
             failedEvents.push(item);
+            logger.info(`Analytics: Event ${item.event.eventName} failed (attempt ${item.retryCount}/5), will retry later`);
           } else {
-            logger.warn('Analytics: Dropping event after 3 failed attempts:', item.event.eventName);
+            logger.warn('Analytics: Dropping event after 5 failed attempts:', item.event.eventName);
           }
+          
+          // Add delay between failed attempts to avoid rapid retries
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
 
@@ -268,8 +357,196 @@ class AnalyticsService {
       logger.error('Analytics: Failed to clear offline queue:', error);
     }
   }
+
+  /**
+   * Manually trigger sync of offline events (useful for testing or manual retry)
+   */
+  async forceSync(): Promise<void> {
+    logger.info('Analytics: Manual sync triggered');
+    await this.syncOfflineEvents();
+  }
+
+  /**
+   * Check current network status and update internal state
+   */
+  async refreshNetworkStatus(): Promise<boolean> {
+    try {
+      const state = await NetInfo.fetch();
+      const wasOnline = this.isOnline;
+      this.isOnline = state.isConnected ?? false;
+      
+      if (!wasOnline && this.isOnline) {
+        logger.info('Analytics: Network connection restored, triggering sync');
+        this.syncOfflineEvents();
+      }
+      
+      return this.isOnline;
+    } catch (error) {
+      logger.error('Analytics: Failed to refresh network status:', error);
+      return this.isOnline;
+    }
+  }
+
+  /**
+   * Get timeout statistics for debugging
+   */
+  getTimeoutStats() {
+    return {
+      ...this.timeoutStats,
+      timeoutRate: this.timeoutStats.totalRequests > 0 
+        ? (this.timeoutStats.timeoutCount / this.timeoutStats.totalRequests * 100).toFixed(1) + '%'
+        : '0%'
+    };
+  }
+
+  /**
+   * Reset timeout statistics
+   */
+  resetTimeoutStats() {
+    this.timeoutStats = {
+      totalRequests: 0,
+      timeoutCount: 0,
+      lastTimeout: null,
+    };
+  }
+
+  /**
+   * Get circuit breaker status
+   */
+  getCircuitBreakerStatus() {
+    return {
+      ...this.circuitBreaker,
+      timeUntilRetry: this.circuitBreaker.isOpen && this.circuitBreaker.lastFailureTime
+        ? Math.max(0, this.circuitBreaker.recoveryTimeout - (Date.now() - this.circuitBreaker.lastFailureTime.getTime()))
+        : 0
+    };
+  }
+
+  /**
+   * Reset circuit breaker (for testing or manual recovery)
+   */
+  resetCircuitBreaker() {
+    this.circuitBreaker = {
+      isOpen: false,
+      failureCount: 0,
+      lastFailureTime: null,
+      failureThreshold: 3,
+      recoveryTimeout: 30000,
+    };
+    logger.info('Analytics: Circuit breaker manually reset');
+  }
+
+  /**
+   * Check if analytics should be temporarily disabled due to persistent failures
+   */
+  private shouldDisableAnalytics(): boolean {
+    // Disable analytics if circuit breaker has been open for more than 2 minutes
+    if (this.circuitBreaker.isOpen && this.circuitBreaker.lastFailureTime) {
+      const timeSinceLastFailure = Date.now() - this.circuitBreaker.lastFailureTime.getTime();
+      const disableThreshold = 2 * 60 * 1000; // 2 minutes
+
+      if (timeSinceLastFailure > disableThreshold) {
+        logger.warn('Analytics: Temporarily disabled due to persistent backend failures');
+        return true;
+      }
+    }
+
+    // Disable analytics if timeout rate is above 90% with at least 5 requests
+    if (this.timeoutStats.totalRequests >= 5) {
+      const timeoutRate = this.timeoutStats.timeoutCount / this.timeoutStats.totalRequests;
+      if (timeoutRate > 0.9) {
+        logger.warn('Analytics: Temporarily disabled due to high timeout rate');
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Force disable analytics (for debugging or when backend is completely down)
+   */
+  forceDisableAnalytics(durationMinutes: number = 10): void {
+    this.circuitBreaker.isOpen = true;
+    this.circuitBreaker.lastFailureTime = new Date();
+    this.circuitBreaker.recoveryTimeout = durationMinutes * 60 * 1000; // Convert to milliseconds
+    logger.warn(`Analytics: Force disabled for ${durationMinutes} minutes`);
+  }
+
+  /**
+   * Re-enable analytics (for debugging or after fixing backend issues)
+   */
+  reEnableAnalytics(): void {
+    this.circuitBreaker.isOpen = false;
+    this.circuitBreaker.failureCount = 0;
+    this.circuitBreaker.lastFailureTime = null;
+    this.circuitBreaker.recoveryTimeout = 30000; // Reset to default 30 seconds
+    logger.info('Analytics: Force re-enabled');
+  }
+
+  /**
+   * Test analytics endpoint connectivity (for debugging)
+   */
+  async testAnalyticsEndpoint(): Promise<{ success: boolean; error?: string; details?: any }> {
+    try {
+      logger.info('Analytics: Testing endpoint connectivity...');
+      
+      // Import authService to check token status
+      let token: string | null = null;
+      try {
+        const { authService } = await import('./auth');
+        token = await authService.getAuthToken();
+      } catch (importError) {
+        return {
+          success: false,
+          error: 'Failed to import auth service',
+          details: importError
+        };
+      }
+      logger.info('Analytics: Auth token status:', { hasToken: !!token });
+      logger.info('Analytics: Auth token status:', { hasToken: !!token });
+      
+      const response: ApiResponse<any> = await apiService.post('/analytics/track', {
+        event_name: 'connectivity_test',
+        payload: { test: true, timestamp: Date.now() },
+      }, { timeoutMs: 5000 });
+
+      if (response.ok) {
+        logger.info('Analytics: Endpoint test successful');
+        return { success: true, details: response.data };
+      } else {
+        logger.warn('Analytics: Endpoint test failed with response:', response);
+        return { 
+          success: false, 
+          error: `HTTP ${response.status}: ${JSON.stringify(response.data)}`,
+          details: response.data 
+        };
+      }
+    } catch (error) {
+      logger.error('Analytics: Endpoint test failed with error:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        details: error 
+      };
+    }
+  }
 }
 
 // Export singleton instance
-export default new AnalyticsService();
+const analyticsService = new AnalyticsService();
+
+// Emergency analytics disable - only when explicitly configured
+const forceDisableMinutes = process.env.ANALYTICS_FORCE_DISABLE_MINUTES;
+if (forceDisableMinutes) {
+  const minutes = parseInt(forceDisableMinutes, 10);
+  if (!isNaN(minutes) && minutes > 0) {
+    console.warn(`[Analytics] Emergency disable activated for ${minutes} minutes via ANALYTICS_FORCE_DISABLE_MINUTES`);
+    analyticsService.forceDisableAnalytics(minutes);
+  } else {
+    console.warn(`[Analytics] Invalid ANALYTICS_FORCE_DISABLE_MINUTES value: "${forceDisableMinutes}". Must be a positive integer.`);
+  }
+}
+
+export default analyticsService;
 
