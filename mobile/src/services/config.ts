@@ -26,10 +26,15 @@ class ConfigService {
   private googleAndroidClientId: string | undefined;
   private googleIosClientId: string | undefined;
 
-  constructor() {
-    this.loadConfig();
-  }
+  // replace the public constructor with a private one…
+  private constructor() {}
 
+  // …and expose an async initializer that fully loads the config
+  static async initialize(): Promise<ConfigService> {
+    const service = new ConfigService();
+    await service.loadConfig();
+    return service;
+  }
   async loadConfig(): Promise<void> {
     try {
       // In development mode, always use local config regardless of saved settings
@@ -59,12 +64,16 @@ class ConfigService {
   }
 
   async setConfig(configKey: string): Promise<void> {
-    if (API_CONFIGS[configKey]) {
-      this.currentConfig = API_CONFIGS[configKey];
-      await AsyncStorage.setItem(this.configKey, JSON.stringify(this.currentConfig));
+    try {
+      if (API_CONFIGS[configKey]) {
+        this.currentConfig = API_CONFIGS[configKey];
+        await AsyncStorage.setItem(this.configKey, JSON.stringify(this.currentConfig));
+      }
+    } catch (error) {
+      console.error('Failed to save API config:', error);
+      throw error; // Re-throw to allow caller to handle
     }
   }
-
   getCurrentConfig(): ApiConfig {
     return this.currentConfig;
   }
