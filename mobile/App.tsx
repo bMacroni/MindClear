@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -70,8 +71,12 @@ function App() {
     
     // Setting up Google Sign-In...
     try {
+      const webClientId = configService.getGoogleWebClientId();
+      const androidClientId = configService.getGoogleAndroidClientId();
+      const iosClientId = configService.getGoogleIosClientId();
+      
       const baseConfig: any = {
-        webClientId: configService.getGoogleWebClientId(), // Firebase web client ID
+        webClientId: webClientId, // Firebase web client ID
         offlineAccess: true, // Required for getting the access token
         forceCodeForRefreshToken: true, // Required for getting the refresh token
         scopes: [
@@ -83,8 +88,17 @@ function App() {
         // Use backend OAuth endpoint for sensitive scopes
         redirectUri: `${configService.getBaseUrl()}/auth/google/callback`,
       };
+
+      // Add platform-specific client IDs
+      if (Platform.OS === 'android') {
+        baseConfig.androidClientId = androidClientId;
+      }
+
+      if (Platform.OS === 'ios') {
+        baseConfig.iosClientId = iosClientId;
+      }
+
       GoogleSignin.configure(baseConfig);
-      // Google Sign-In configured successfully
     } catch (e) {
       console.warn('Failed to configure Google Sign-In at app init:', e);
     }

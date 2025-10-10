@@ -9,18 +9,18 @@
 - [ ] Verify keystore is excluded from git (.gitignore contains `*.keystore`)
 
 ### 2. Google Play Console Setup (One-time only)
-- [ ] Create Google Play Console account ($25 one-time fee)
-- [ ] Create new app in console
+- [x] Create Google Play Console account ($25 one-time fee)
+- [x] Create new app in console
 - [ ] Complete Store Listing:
-  - [ ] App name: "Mind Clear"
+  - [x] App name: "Mind Clear for the ADHD Brain"
   - [ ] Short description (80 chars max)
   - [ ] Full description
-  - [ ] App icon (512x512 PNG)
+  - [x] App icon (512x512 PNG)
   - [ ] Feature graphic (1024x500 PNG)
-  - [ ] Screenshots (at least 2, up to 8)
-- [ ] Complete Content Rating questionnaire
-- [ ] Set up Privacy Policy URL (required)
-- [ ] Configure App Content declarations
+  - [x] Screenshots (at least 2, up to 8)
+- [x] Complete Content Rating questionnaire
+- [x] Set up Privacy Policy URL (required)
+- [x] Configure App Content declarations
 - [ ] Set up Internal Testing track
 
 ## Release Process

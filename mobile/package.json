@@ -13,7 +13,7 @@
     "analyze-bundle-ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios-bundle.js --assets-dest ios-assets && npx react-native-bundle-visualizer --bundle ios-bundle.js --out bundle-report-ios.html",
     "optimize-images": "node scripts/optimize-images.js",
     "optimize-assets": "npm run optimize-images && npm run gen:android:icons",
-    "build:aab": "cd android && ./gradlew bundleRelease"
+    "build:aab": "cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
