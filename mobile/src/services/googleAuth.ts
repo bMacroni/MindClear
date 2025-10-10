@@ -71,24 +71,17 @@ class GoogleAuthService {
         ],
       };
 
-      if (Platform.OS === 'ios') {
-        baseConfig.iosClientId = iosClientId;
-        console.log(`[GoogleAuth] iOS configuration added: ${iosClientId ? 'YES' : 'NO'}`);
+      // Add platform-specific client IDs
+      if (Platform.OS === 'android') {
+        baseConfig.androidClientId = androidClientId;
       }
 
-      console.log('[GoogleAuth] Final configuration:', {
-        webClientId: webClientId ? 'SET' : 'NOT SET',
-        iosClientId: iosClientId ? 'SET' : 'NOT SET',
-        androidClientId: androidClientId ? 'SET' : 'NOT SET',
-        platform: Platform.OS,
-        offlineAccess: baseConfig.offlineAccess,
-        forceCodeForRefreshToken: baseConfig.forceCodeForRefreshToken,
-        scopes: baseConfig.scopes
-      });
+      if (Platform.OS === 'ios') {
+        baseConfig.iosClientId = iosClientId;
+      }
 
       GoogleSignin.configure(baseConfig);
       this.isConfigured = true;
-      console.log('[GoogleAuth] Google Sign-In configured successfully');
     } catch (error) {
       console.error('[GoogleAuth] Failed to configure Google Sign-In:', error);
     }
@@ -110,24 +103,11 @@ class GoogleAuthService {
         throw new Error('Google Sign-In not configured. Client IDs not available.');
       }
 
-      console.log('[GoogleAuth] Starting sign-in flow...');
-      console.log(`[GoogleAuth] Using webClientId: ${configService.getGoogleWebClientId() ? `${configService.getGoogleWebClientId().slice(0, 17)}...${configService.getGoogleWebClientId().slice(-6)}` : 'NOT SET'}`);
-      
       // Check if Google Play Services are available (Android only)
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      console.log('[GoogleAuth] Play Services check passed');
 
       // Sign in with Google
-      console.log('[GoogleAuth] Calling GoogleSignin.signIn()...');
       const userInfo = await GoogleSignin.signIn();
-      console.log('[GoogleAuth] GoogleSignin.signIn() completed');
-      console.log('[GoogleAuth] User info received:', {
-        hasIdToken: !!userInfo.idToken,
-        hasServerAuthCode: !!userInfo.serverAuthCode,
-        hasAccessToken: !!userInfo.serverAuthCode,
-        userEmail: userInfo.user?.email || 'N/A',
-        userId: userInfo.user?.id || 'N/A'
-      });
       
       if (!userInfo.idToken) {
         throw new Error('No ID token received from Google');
