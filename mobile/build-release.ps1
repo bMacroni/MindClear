@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$KeyPassword,
     
-    [string]$KeystorePath = "mindclear-release-key.keystore",
+    [string]$KeystorePath = "android/app/mindclear-release-key.keystore",
     [string]$KeyAlias = "mindclear-key-alias"
 )
 
@@ -23,10 +23,9 @@ $env:KEY_PASSWORD = $KeyPassword
 Write-Host "Keystore Path: $KeystorePath" -ForegroundColor Cyan
 Write-Host "Key Alias: $KeyAlias" -ForegroundColor Cyan
 
-# Verify keystore file exists (check from mobile directory)
-$keystoreFullPath = "android/app/$KeystorePath"
-if (-not (Test-Path $keystoreFullPath)) {
-    Write-Error "Keystore file not found at: $keystoreFullPath"
+# Verify keystore file exists
+if (-not (Test-Path $KeystorePath)) {
+    Write-Error "Keystore file not found at: $KeystorePath"
     Write-Host "Please ensure the keystore file exists before running this script." -ForegroundColor Red
     exit 1
 }
