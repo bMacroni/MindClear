@@ -155,6 +155,46 @@ export const conversationController = {
     }
   },
 
+  async getRecentMessages(threadId, userId, limit = 10) {
+    try {
+      const supabase = createClient(
+        process.env.SUPABASE_URL, 
+        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+      );
+
+      // Verify thread belongs to user
+      const { data: thread, error: threadError } = await supabase
+        .from('conversation_threads')
+        .select('id')
+        .eq('id', threadId)
+        .eq('user_id', userId)
+        .single();
+
+      if (threadError || !thread) {
+        return [];
+      }
+
+      // Get only the most recent N messages
+      const { data: messages, error: messagesError } = await supabase
+        .from('conversation_messages')
+        .select('*')
+        .eq('thread_id', threadId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (messagesError) {
+        console.error('Error fetching recent messages:', messagesError);
+        return [];
+      }
+
+      // Reverse to get chronological order
+      return (messages || []).reverse();
+    } catch (error) {
+      console.error('Error fetching recent messages:', error);
+      return [];
+    }
+  },
+
   async addMessage(threadId, content, role, metadata, jwt = null) {
     try {
       // Enforce ownership before inserting the message
