@@ -1463,7 +1463,7 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
 
     // Check for excessive repetition (potential spam)
     const words = lowerMessage.split(/\s+/);
-    const excludedWords = ['task', 'goal', 'event', 'schedule', 'meet', 'meeting', 'plan', 'planning', 'need', 'want', 'help', 'create', 'update', 'delete', 'set', 'get', 'find', 'work', 'project', 'deadline', 'time', 'today', 'tomorrow', 'week', 'month', 'year'];
+    const excludedWords = ['task', 'goal', 'event', 'schedule', 'meet', 'meeting', 'plan', 'planning', 'need', 'want', 'help', 'create', 'update', 'delete', 'set', 'get', 'find', 'work', 'project', 'deadline', 'time', 'today', 'tomorrow', 'week', 'month', 'year', 'perfect', 'great', 'good', 'excellent', 'amazing', 'wonderful', 'fantastic'];
     const wordCounts = {};
     for (const word of words) {
       if (word.length > 3 && !excludedWords.includes(word)) {
@@ -1472,9 +1472,10 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
     }
 
     // Block if any word appears more than 15 times or comprises >40% of the message (more lenient)
+    // Only apply ratio check for messages with at least 5 words to avoid blocking single words
     for (const [word, count] of Object.entries(wordCounts)) {
       const ratio = count / words.length;
-      if (count > 15 || ratio > 0.4) {
+      if (count > 15 || (words.length >= 5 && ratio > 0.4)) {
         logger.warn('Blocked repetitive content:', { word, count, messageLength: message.length });
         return { content: message, blocked: true, pattern: 'excessive_repetition' };
       }
