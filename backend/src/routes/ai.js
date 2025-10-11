@@ -30,7 +30,7 @@ router.post('/chat', requireAuth, async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     // Process message with Gemini service, passing token and mood in userContext
-    const response = await geminiService.processMessage(message, userId, { token, mood: moodHeader, timeZone: timeZoneHeader });
+    const response = await geminiService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
 
     // Track AI message processing event
     const { createClient } = await import('@supabase/supabase-js');
