@@ -61,7 +61,7 @@ const taskValidation = [
   commonValidations.json('preferred_time_windows'),
   commonValidations.integer('max_daily_tasks', 1, 50),
   commonValidations.integer('buffer_time_minutes', 0, 120),
-  commonValidations.enum('task_type', ['work', 'personal', 'health', 'learning', 'other']),
+  commonValidations.enum('task_type', ['indoor', 'outdoor', 'travel', 'virtual', 'other']),
   commonValidations.boolean('is_today_focus'),
   commonValidations.string('category', 0, 100)
 ];

@@ -488,6 +488,17 @@ export const tasksAPI = {
         throw new Error('Cannot create more than 50 tasks at once');
       }
 
+      // Filter out null values from each task
+      const filteredTasks = tasks.map(task => {
+        const filteredTask = { ...task } as any;
+        Object.keys(filteredTask).forEach(key => {
+          if (filteredTask[key] === null) {
+            delete filteredTask[key];
+          }
+        });
+        return filteredTask;
+      });
+
       // Making API call with tasks wrapped in tasks property
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/bulk`, {
         method: 'POST',
@@ -495,7 +506,7 @@ export const tasksAPI = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
-        body: JSON.stringify({ tasks }),
+        body: JSON.stringify({ tasks: filteredTasks }),
       });
       if (!response.ok) {
         const text = await response.text();
@@ -536,13 +547,21 @@ export const tasksAPI = {
   // Create a new task
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
     try {
+      // Filter out null values that cause validation errors
+      const filteredTaskData = { ...taskData } as any;
+      Object.keys(filteredTaskData).forEach(key => {
+        if (filteredTaskData[key] === null) {
+          delete filteredTaskData[key];
+        }
+      });
+
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
-        body: JSON.stringify(taskData),
+        body: JSON.stringify(filteredTaskData),
       });
 
       if (!response.ok) {
@@ -582,6 +601,16 @@ export const tasksAPI = {
   // Update an existing task
   updateTask: async (taskId: string, taskData: Partial<Task>): Promise<Task> => {
     try {
+      // Filter out null values that cause validation errors
+      const filteredTaskData = { ...taskData } as any;
+      Object.keys(filteredTaskData).forEach(key => {
+        if (filteredTaskData[key] === null) {
+          delete filteredTaskData[key];
+        }
+      });
+
+      console.log('🔍 DEBUG: updateTask filtered data:', JSON.stringify(filteredTaskData, null, 2));
+
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}`, {
         method: 'PUT',
@@ -589,7 +618,7 @@ export const tasksAPI = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(taskData),
+        body: JSON.stringify(filteredTaskData),
       });
 
       if (!response.ok) {
@@ -1241,10 +1270,9 @@ class WebSocketService {
           return;
         }
         
-        // Check if token is expired by attempting to refresh it
-        const isTokenValid = await authService.refreshToken();
-        if (!isTokenValid) {
-          logger.debug('WebSocket: Skipping connection - token is invalid/expired');
+        // Check if user is still authenticated (without attempting refresh)
+        if (!authService.isAuthenticated()) {
+          logger.debug('WebSocket: Skipping connection - user not authenticated');
           return;
         }
       } catch (error) {

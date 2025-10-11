@@ -228,6 +228,7 @@ export const commonValidations = {
   
   // UUID validation
   uuid: (field) => body(field)
+    .optional()
     .isUUID()
     .withMessage(`${field} must be a valid UUID`),
   

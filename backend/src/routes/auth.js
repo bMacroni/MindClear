@@ -243,6 +243,42 @@ router.get('/profile', requireAuth, async (req, res) => {
   }
 });
 
+// Token refresh endpoint
+router.post('/refresh', requireAuth, async (req, res) => {
+  try {
+    // Get the current user from the request (already validated by requireAuth middleware)
+    const userId = req.user.id;
+    
+    // Create a new Supabase client to get a fresh token
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+    
+    // Get user data from Supabase
+    const { data: userData, error: getUserError } = await supabase.auth.getUser(req.headers.authorization?.split(' ')[1]);
+    
+    if (getUserError || !userData?.user) {
+      logger.warn('Token refresh failed - invalid user:', getUserError?.message);
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    
+    // For now, return the same token (in a real implementation, you'd generate a new one)
+    // This endpoint validates that the token is still valid
+    res.json({
+      message: 'Token is valid',
+      token: req.headers.authorization?.split(' ')[1],
+      user: {
+        id: userData.user.id,
+        email: userData.user.email,
+        email_confirmed_at: userData.user.email_confirmed_at,
+        created_at: userData.user.created_at,
+        updated_at: userData.user.updated_at
+      }
+    });
+  } catch (error) {
+    logger.error('Token refresh error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Logout endpoint with token blacklisting
 router.post('/logout', requireAuth, handleLogout);
 

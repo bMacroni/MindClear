@@ -362,6 +362,14 @@ class AuthService {
   // Get authentication token
   public async getAuthToken(): Promise<string | null> {
     if (this.authState.token) {
+      // Check if the current token is expired
+      if (isTokenExpired(this.authState.token)) {
+        // Token is expired, clear auth data and require re-login
+        await this.clearAuthData();
+        this.setUnauthenticatedState();
+        this.notifyListeners();
+        return null;
+      }
       return this.authState.token;
     }
     
@@ -370,6 +378,7 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
+          // Token is expired, clear auth data and require re-login
           await this.clearAuthData();
           this.setUnauthenticatedState();
           this.notifyListeners();
@@ -435,19 +444,40 @@ class AuthService {
     await this.initializeAuth();
   }
 
+  // Debug method to check auth state
+  public debugAuthState(): void {
+    console.log('🔍 DEBUG: Auth State:', {
+      isAuthenticated: this.authState.isAuthenticated,
+      hasToken: !!this.authState.token,
+      tokenLength: this.authState.token?.length || 0,
+      tokenPreview: this.authState.token?.substring(0, 20) + '...',
+      hasUser: !!this.authState.user,
+      isLoading: this.authState.isLoading,
+      initialized: this.initialized
+    });
+  }
+
   // Refresh token (if needed)
   public async refreshToken(): Promise<boolean> {
     try {
-      const token = await this.getAuthToken();
+      // Get token directly from storage to avoid circular dependency
+      const token = this.authState.token || await secureStorage.get('auth_token');
       if (!token) {
         return false;
       }
 
-      const { ok, status, data } = await apiFetch('/auth/profile', {
-        method: 'GET',
+      // Try to refresh the token using the refresh endpoint
+      const { ok, status, data } = await apiFetch('/auth/refresh', {
+        method: 'POST',
       }, 15000);
 
-      if (ok) {
+      if (ok && data.token) {
+        // Token is still valid, update user data if provided
+        if (data.user) {
+          await secureStorage.set('auth_user', JSON.stringify(data.user));
+          this.authState.user = data.user;
+          this.notifyListeners();
+        }
         return true;
       } else {
         // Token is invalid, logout user

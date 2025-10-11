@@ -62,6 +62,14 @@ interface Task {
   weather_dependent?: boolean;
   location?: string;
   travel_time_minutes?: number;
+  // Required backend fields
+  preferred_time_of_day?: 'morning' | 'afternoon' | 'evening';
+  deadline_type?: 'soft' | 'hard';
+  recurrence_pattern?: 'none' | 'daily' | 'weekly' | 'monthly';
+  scheduling_preferences?: any;
+  max_daily_tasks?: number;
+  buffer_time_minutes?: number;
+  task_type?: 'indoor' | 'outdoor' | 'travel' | 'virtual' | 'other';
 }
 
 interface Goal {
@@ -257,14 +265,19 @@ const TasksScreen: React.FC = () => {
   const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
+      console.log('🔍 DEBUG: TasksScreen handleSaveTask called with taskData:', JSON.stringify(taskData, null, 2));
+      console.log('🔍 DEBUG: editingTask:', editingTask ? 'exists' : 'null');
+      
       if (editingTask) {
         // Update existing task
+        console.log('🔍 DEBUG: Calling updateTask with ID:', editingTask.id);
         const updatedTask = await tasksAPI.updateTask(editingTask.id, taskData);
         setTasks(prev => prev.map(task => 
           task.id === editingTask.id ? updatedTask : task
         ));
       } else {
         // Create new task
+        console.log('🔍 DEBUG: Calling createTask');
         const newTask = await tasksAPI.createTask(taskData);
         setTasks(prev => [newTask, ...prev]);
       }

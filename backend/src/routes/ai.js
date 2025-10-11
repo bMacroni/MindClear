@@ -20,9 +20,9 @@ router.post('/chat', requireAuth, async (req, res) => {
     const moodHeader = req.headers['x-user-mood'];
     const timeZoneHeader = req.headers['x-user-timezone'];
 
-    if (!message || typeof message !== 'string') {
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ 
-        error: 'Message is required and must be a string' 
+        error: 'Message is required and must be a non-empty string' 
       });
     }
 
@@ -30,7 +30,21 @@ router.post('/chat', requireAuth, async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     // Process message with Gemini service, passing token and mood in userContext
+    logger.info('Processing AI chat message', { 
+      userId, 
+      threadId, 
+      messageLength: message.length,
+      messagePreview: message.substring(0, 100)
+    });
+    
     const response = await geminiService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
+    
+    logger.info('AI response received', { 
+      userId, 
+      threadId, 
+      responseMessageLength: response.message?.length || 0,
+      hasActions: response.actions?.length > 0
+    });
 
     // Track AI message processing event
     const { createClient } = await import('@supabase/supabase-js');
@@ -62,8 +76,19 @@ router.post('/chat', requireAuth, async (req, res) => {
     }
 
     const safeMessage = typeof response.message === 'string' ? response.message : '';
+    
+    // Log if we get an empty response
+    if (!safeMessage || safeMessage.trim().length === 0) {
+      logger.warn('Empty AI response received', { 
+        userId, 
+        threadId, 
+        originalMessage: message,
+        response: response
+      });
+    }
+    
     const finalResponse = {
-      message: safeMessage,
+      message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
       actions: Array.isArray(response.actions) ? response.actions : []
     };
 

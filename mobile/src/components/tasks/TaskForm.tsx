@@ -34,6 +34,14 @@ interface Task {
   location?: string;
   preferred_time_windows?: string[];
   travel_time_minutes?: number;
+  // Required backend fields
+  preferred_time_of_day?: 'morning' | 'afternoon' | 'evening';
+  deadline_type?: 'soft' | 'hard';
+  recurrence_pattern?: 'none' | 'daily' | 'weekly' | 'monthly';
+  scheduling_preferences?: any;
+  max_daily_tasks?: number;
+  buffer_time_minutes?: number;
+  task_type?: 'indoor' | 'outdoor' | 'travel' | 'virtual' | 'other';
 }
 
 interface Goal {
@@ -85,7 +93,15 @@ export const TaskForm: React.FC<TaskFormProps> = ({
     weather_dependent: false,
     location: '',
     preferred_time_windows: [],
-    travel_time_minutes: undefined,
+    travel_time_minutes: 0,
+    // Required backend fields with defaults
+    preferred_time_of_day: 'morning',
+    deadline_type: 'soft',
+    recurrence_pattern: 'none',
+    scheduling_preferences: null,
+    max_daily_tasks: 10,
+    buffer_time_minutes: 15,
+    task_type: 'other',
   });
 
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -105,7 +121,15 @@ export const TaskForm: React.FC<TaskFormProps> = ({
         weather_dependent: task.weather_dependent ?? false,
         location: task.location ?? '',
         preferred_time_windows: task.preferred_time_windows ?? [],
-        travel_time_minutes: task.travel_time_minutes,
+        travel_time_minutes: task.travel_time_minutes ?? 0,
+        // Ensure required backend fields have defaults
+        preferred_time_of_day: (task as any).preferred_time_of_day ?? 'morning',
+        deadline_type: (task as any).deadline_type ?? 'soft',
+        recurrence_pattern: (task as any).recurrence_pattern ?? 'none',
+        scheduling_preferences: (task as any).scheduling_preferences ?? null,
+        max_daily_tasks: (task as any).max_daily_tasks ?? 10,
+        buffer_time_minutes: (task as any).buffer_time_minutes ?? 15,
+        task_type: (task as any).task_type ?? 'other',
       });
       if (task.due_date) {
         setSelectedDate(new Date(task.due_date));
@@ -125,6 +149,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       return;
     }
 
+    console.log('🔍 DEBUG: TaskForm handleSave called with formData:', JSON.stringify(formData, null, 2));
     onSave(formData);
   };
 
