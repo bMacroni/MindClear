@@ -146,11 +146,11 @@ const TasksScreen: React.FC = () => {
   useFocusEffect(
     React.useCallback(() => {
       // Set help scope for this screen and reset overlay when leaving
-      try { setHelpScope('tasks'); } catch {}
-      try { setHelpContent(getTasksHelpContent()); } catch {}
+      try { setHelpScope('tasks'); } catch (e) { if (__DEV__) console.warn('setHelpScope failed:', e); }
+      try { setHelpContent(getTasksHelpContent()); } catch (e) { if (__DEV__) console.warn('setHelpContent failed:', e); }
       // If user navigated with overlay ON from a previous screen, ensure tooltips will populate
       // by briefly toggling it off (state stays off due to blur reset anyway)
-      try { setIsHelpOverlayActive(false); } catch {}
+      try { setIsHelpOverlayActive(false); } catch (e) { if (__DEV__) console.warn('setIsHelpOverlayActive failed:', e); }
       // Avoid showing a spinner if we already have content; fetch fresh in background
       loadData({ silent: true });
       return () => {
@@ -158,7 +158,6 @@ const TasksScreen: React.FC = () => {
       };
     }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent])
   );
-
   const loadSchedulingPreferences = async () => {
     try {
       const prefs = await (enhancedAPI as any).getSchedulingPreferences();
@@ -263,10 +262,12 @@ const TasksScreen: React.FC = () => {
   }, []);
 
   const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
+  const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
-      console.log('🔍 DEBUG: TasksScreen handleSaveTask called with taskData:', JSON.stringify(taskData, null, 2));
-      console.log('🔍 DEBUG: editingTask:', editingTask ? 'exists' : 'null');
+-      console.log('🔍 DEBUG: TasksScreen handleSaveTask called with taskData:', JSON.stringify(taskData, null, 2));
+      if (__DEV__) console.log('🔍 DEBUG: TasksScreen handleSaveTask called with taskData:', JSON.stringify(taskData, null, 2));
+      if (__DEV__) console.log('🔍 DEBUG: editingTask:', editingTask ? 'exists' : 'null');
       
       if (editingTask) {
         // Update existing task
@@ -289,9 +290,7 @@ const TasksScreen: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [editingTask]);
-
-  const handleDeleteTask = useCallback(async (taskId: string) => {
+  }, [editingTask]);  const handleDeleteTask = useCallback(async (taskId: string) => {
     const prevTasks = tasks;
     setTasks(prev => prev.filter(task => task.id !== taskId));
     try {
@@ -822,9 +821,7 @@ const TasksScreen: React.FC = () => {
 
     try {
       // Set the task as today's focus (immediate UI feedback)
-      const updated = await tasksAPI.updateTask(task.id, { ...(undefined as any), is_today_focus: true } as any);
-
-      // Update state optimistically for immediate UI feedback
+      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true } as any);      // Update state optimistically for immediate UI feedback
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, is_today_focus: false }));
 
       // Show immediate feedback

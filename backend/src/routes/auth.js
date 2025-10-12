@@ -244,35 +244,49 @@ router.get('/profile', requireAuth, async (req, res) => {
 });
 
 // Token refresh endpoint
-router.post('/refresh', requireAuth, async (req, res) => {
+router.post('/refresh', async (req, res) => {
   try {
-    // Get the current user from the request (already validated by requireAuth middleware)
-    const userId = req.user.id;
-    
-    // Create a new Supabase client to get a fresh token
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-    
-    // Get user data from Supabase
-    const { data: userData, error: getUserError } = await supabase.auth.getUser(req.headers.authorization?.split(' ')[1]);
-    
-    if (getUserError || !userData?.user) {
-      logger.warn('Token refresh failed - invalid user:', getUserError?.message);
-      return res.status(401).json({ error: 'Invalid token' });
+    // Validate input - require refresh_token in request body
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      logger.warn('Token refresh failed - no refresh_token provided');
+      return res.status(400).json({ error: 'refresh_token is required' });
     }
     
-    // For now, return the same token (in a real implementation, you'd generate a new one)
-    // This endpoint validates that the token is still valid
+    // Create Supabase client using service role key for refresh operations
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    
+    // Attempt to refresh the session using the refresh token
+    const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession({
+      refresh_token
+    });
+    
+    if (refreshError || !sessionData?.session) {
+      logger.warn('Token refresh failed:', refreshError?.message || 'No session returned');
+      return res.status(401).json({ 
+        error: 'Invalid or expired refresh token',
+        details: refreshError?.message 
+      });
+    }
+    
+    const { session } = sessionData;
+    
+    // Return the new tokens and user info
     res.json({
-      message: 'Token is valid',
-      token: req.headers.authorization?.split(' ')[1],
+      message: 'Token refreshed successfully',
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
       user: {
-        id: userData.user.id,
-        email: userData.user.email,
-        email_confirmed_at: userData.user.email_confirmed_at,
-        created_at: userData.user.created_at,
-        updated_at: userData.user.updated_at
+        id: session.user.id,
+        email: session.user.email,
+        email_confirmed_at: session.user.email_confirmed_at,
+        created_at: session.user.created_at,
+        updated_at: session.user.updated_at
       }
     });
+    
+    logger.info('Token refresh successful for user:', session.user.id);
   } catch (error) {
     logger.error('Token refresh error:', error);
     res.status(500).json({ error: 'Internal server error' });

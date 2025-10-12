@@ -33,10 +33,8 @@ router.post('/chat', requireAuth, async (req, res) => {
     logger.info('Processing AI chat message', { 
       userId, 
       threadId, 
-      messageLength: message.length,
-      messagePreview: message.substring(0, 100)
-    });
-    
+      messageLength: message.length
+    });    
     const response = await geminiService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
     
     logger.info('AI response received', { 
@@ -78,17 +76,13 @@ router.post('/chat', requireAuth, async (req, res) => {
     const safeMessage = typeof response.message === 'string' ? response.message : '';
     
     // Log if we get an empty response
+    // Log if we get an empty response
     if (!safeMessage || safeMessage.trim().length === 0) {
-      logger.warn('Empty AI response received', { 
-        userId, 
-        threadId, 
-        originalMessage: message,
-        response: response
+      logger.warn('Empty AI response received', {
+        userId,
+        threadId
       });
-    }
-    
-    const finalResponse = {
-      message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
+    }      message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
       actions: Array.isArray(response.actions) ? response.actions : []
     };
 

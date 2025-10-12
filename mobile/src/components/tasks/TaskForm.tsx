@@ -123,14 +123,13 @@ export const TaskForm: React.FC<TaskFormProps> = ({
         preferred_time_windows: task.preferred_time_windows ?? [],
         travel_time_minutes: task.travel_time_minutes ?? 0,
         // Ensure required backend fields have defaults
-        preferred_time_of_day: (task as any).preferred_time_of_day ?? 'morning',
-        deadline_type: (task as any).deadline_type ?? 'soft',
-        recurrence_pattern: (task as any).recurrence_pattern ?? 'none',
-        scheduling_preferences: (task as any).scheduling_preferences ?? null,
-        max_daily_tasks: (task as any).max_daily_tasks ?? 10,
-        buffer_time_minutes: (task as any).buffer_time_minutes ?? 15,
-        task_type: (task as any).task_type ?? 'other',
-      });
+        preferred_time_of_day: task.preferred_time_of_day ?? 'morning',
+        deadline_type: task.deadline_type ?? 'soft',
+        recurrence_pattern: task.recurrence_pattern ?? 'none',
+        scheduling_preferences: task.scheduling_preferences ?? null,
+        max_daily_tasks: task.max_daily_tasks ?? 10,
+        buffer_time_minutes: task.buffer_time_minutes ?? 15,
+        task_type: task.task_type ?? 'other',      });
       if (task.due_date) {
         setSelectedDate(new Date(task.due_date));
       }

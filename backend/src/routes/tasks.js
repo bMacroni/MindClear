@@ -32,7 +32,10 @@ import {
 const archiveLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute window
   limit: 2, // Maximum 2 requests per window per user
-  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip), // Use user ID if authenticated, fallback to IP with IPv6 support
+  keyGenerator: (req) =>
+    req.user?.id !== undefined
+      ? `user:${req.user.id}`
+      : `ip:${ipKeyGenerator(req.ip)}`, // Use user ID if authenticated, fallback to IP with IPv6 support
   message: {
     error: 'Too many archive requests. Please wait a moment before trying again.',
     retryAfter: '1 minute'
@@ -41,6 +44,21 @@ const archiveLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
+// Rate limiter for auto-scheduling trigger endpoint to prevent abuse
+const autoScheduleTriggerLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minute window
+  limit: 10, // Maximum 10 requests per window per user
+  keyGenerator: (req) =>
+    req.user?.id !== undefined
+      ? `user:${req.user.id}`
+      : `ip:${ipKeyGenerator(req.ip)}`, // Use user ID if authenticated, fallback to IP with IPv6 support
+  message: {
+    error: 'Too many auto-scheduling trigger requests. Please wait before trying again.',
+    retryAfter: '5 minutes'
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
 const router = express.Router();
 
 // Task validation rules
@@ -74,6 +92,17 @@ const bulkTaskValidation = [
   body('tasks.*.priority').optional().isIn(['low', 'medium', 'high']),
   body('tasks.*.goal_id').optional().isUUID(),
   body('tasks.*.category').optional().isLength({ max: 100 }).trim().escape()
+];
+
+// Auto-scheduling trigger validation
+const autoScheduleTriggerValidation = [
+  body('force_reschedule').optional().isBoolean().withMessage('force_reschedule must be a boolean'),
+  body('date_range').optional().isObject().withMessage('date_range must be an object'),
+  body('date_range.start_date').optional().isISO8601().withMessage('start_date must be a valid ISO8601 date'),
+  body('date_range.end_date').optional().isISO8601().withMessage('end_date must be a valid ISO8601 date'),
+  body('task_ids').optional().isArray().withMessage('task_ids must be an array'),
+  body('task_ids.*').optional().isUUID().withMessage('Each task_id must be a valid UUID'),
+  body('preferences_override').optional().isObject().withMessage('preferences_override must be an object')
 ];
 
 router.post('/', requireAuth, taskValidation, validateInput, createTask);
@@ -181,8 +210,49 @@ router.put('/:id/toggle-auto-schedule', requireAuth, [
 ], validateInput, toggleAutoSchedule);
 router.get('/auto-scheduling/dashboard', requireAuth, getAutoSchedulingDashboard);
 router.get('/auto-scheduling/preferences', requireAuth, getUserSchedulingPreferences);
-router.put('/auto-scheduling/preferences', requireAuth, updateUserSchedulingPreferences);
-router.get('/auto-scheduling/history/:task_id?', requireAuth, getTaskSchedulingHistory);
-router.post('/auto-scheduling/trigger', requireAuth, triggerAutoScheduling);
+router.put(
+  '/auto-scheduling/preferences',
+  requireAuth,
+  [
+    body('scheduling_preferences')
+      .optional()
+      .isJSON()
+      .withMessage('Scheduling preferences must be valid JSON'),
+    body('max_daily_tasks')
+      .optional()
+      .isInt({ min: 1, max: 50 })
+      .withMessage('Max daily tasks must be between 1 and 50'),
+    body('buffer_time_minutes')
+      .optional()
+      .isInt({ min: 0, max: 120 })
+      .withMessage('Buffer time must be between 0 and 120 minutes'),
+    body('preferred_time_windows')
+      .optional()
+      .isJSON()
+      .withMessage('Preferred time windows must be valid JSON')
+  ],
+  validateInput,
+  updateUserSchedulingPreferences
+);// before
+router.get(
+  '/auto-scheduling/history/:task_id?',
+  requireAuth,
+  getTaskSchedulingHistory
+);
+
+// after
+router.get(
+  '/auto-scheduling/history/:task_id?',
+  requireAuth,
+  [
+    param('task_id')
+      .optional()
+      .isUUID()
+      .withMessage('Task ID must be a valid UUID')
+  ],
+  validateInput,
+  getTaskSchedulingHistory
+);
+router.post('/auto-scheduling/trigger', autoScheduleTriggerLimiter, requireAuth, autoScheduleTriggerValidation, validateInput, triggerAutoScheduling);
 
 export default router; 
