@@ -27,7 +27,7 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { ErrorToast } from '../../components/common/ErrorToast';
 import { useFocusEffect } from '@react-navigation/native';
 
-type Item = { id: string; text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
+type Item = { id: string; text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level?: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
 
 export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const params = route?.params || {};
@@ -44,14 +44,23 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       .trim();
   };
 
+  // Normalize item data to handle legacy items with missing fields
+  const normalizeItem = (item: any): Item => {
+    return {
+      id: item.id || generateId(),
+      text: sanitizeText(item.text || ''),
+      type: item.type || 'task', // Default to 'task' for legacy data
+      confidence: item.confidence,
+      category: item.category || null,
+      stress_level: item.stress_level || undefined, // Keep undefined for missing stress_level
+      priority: item.priority || 'medium' // Default to 'medium' priority for legacy data
+    };
+  };
+
   // Initialize with sanitized items if provided via route; otherwise we'll load from storage
   const [editedItems, setEditedItems] = useState<Item[]>(() =>
     (Array.isArray(params?.items) ? (params.items as Item[]) : (items as unknown as Item[]))
-      .map((it: Item) => ({ 
-        ...it, 
-        id: it.id || generateId(),
-        text: sanitizeText(it.text) 
-      }))
+      .map((it: any) => normalizeItem(it))
       .filter((it: Item) => it.text.length > 0)
   );
   const [toastVisible, setToastVisible] = useState(false);
@@ -73,11 +82,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         const parsed = itemsStr ? JSON.parse(itemsStr) : [];
         if (tid) { setThreadId(tid); }
         if (Array.isArray(parsed) && parsed.length > 0 && editedItems.length === 0 && (items?.length ?? 0) === 0) {
-          setEditedItems(parsed.map((it: Item) => ({ 
-            ...it, 
-            id: it.id || generateId(),
-            text: sanitizeText((it as any)?.text) 
-          } as Item)).filter((it: Item) => it.text.length > 0));
+          setEditedItems(parsed.map((it: any) => normalizeItem(it)).filter((it: Item) => it.text.length > 0));
         }
       } catch {}
     })();
@@ -222,7 +227,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
   const goToPrioritize = () => {
     if (tasks.length === 0) {return;}
-    const payload = tasks.map(t => ({ text: sanitizeText(t.text), priority: t.priority, category: t.category ?? undefined }));
+    const payload = tasks.map(t => ({ id: t.id, text: sanitizeText(t.text), priority: t.priority, category: t.category ?? undefined }));
     navigation.navigate('BrainDumpPrioritization', { tasks: payload });
   };
 
