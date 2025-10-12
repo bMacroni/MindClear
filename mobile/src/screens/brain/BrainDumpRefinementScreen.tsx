@@ -28,13 +28,17 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { ErrorToast } from '../../components/common/ErrorToast';
 import { useFocusEffect } from '@react-navigation/native';
 
-type Item = { text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
+type Item = { id: string; text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
 
 export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const params = route?.params || {};
   const { threadId, setThreadId, items, setItems } = useBrainDump();
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<'task'|'goal'>('task');
+  
+  // Helper function to generate unique IDs
+  const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
   const sanitizeText = (text: string): string => {
     return String(text || '')
       .replace(/\r?\n|\r/g, ' ')
@@ -46,7 +50,11 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   // Initialize with sanitized items if provided via route; otherwise we'll load from storage
   const [editedItems, setEditedItems] = useState<Item[]>(() =>
     (Array.isArray(params?.items) ? (params.items as Item[]) : (items as unknown as Item[]))
-      .map((it: Item) => ({ ...it, text: sanitizeText(it.text) }))
+      .map((it: Item) => ({ 
+        ...it, 
+        id: it.id || generateId(),
+        text: sanitizeText(it.text) 
+      }))
       .filter((it: Item) => it.text.length > 0)
   );
   const [toastVisible, setToastVisible] = useState(false);
@@ -69,7 +77,11 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         const parsed = itemsStr ? JSON.parse(itemsStr) : [];
         if (tid) { setThreadId(tid); }
         if (Array.isArray(parsed) && parsed.length > 0 && editedItems.length === 0 && (items?.length ?? 0) === 0) {
-          setEditedItems(parsed.map((it: Item) => ({ ...it, text: sanitizeText((it as any)?.text) } as Item)).filter((it: Item) => it.text.length > 0));
+          setEditedItems(parsed.map((it: Item) => ({ 
+            ...it, 
+            id: it.id || generateId(),
+            text: sanitizeText((it as any)?.text) 
+          } as Item)).filter((it: Item) => it.text.length > 0));
         }
       } catch {}
     })();
@@ -128,7 +140,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
   const createFocusTask = async (item: Item) => {
     if (saving) {return;}
-    const key = normalizeKey(item.text);
+    const key = item.id;
     if (inFlightKeys.has(key)) {return;}
     setInFlightKeys(prev => new Set(prev).add(key));
     setSaving(true);
@@ -250,7 +262,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       // Error toast is already shown above, so we don't need to show it again here
     }
     // Remove the goal from the refinement list
-    setEditedItems(prev => prev.filter(i => !(i.type === 'goal' && i.text === item.text)));
+    setEditedItems(prev => prev.filter(i => i.id !== item.id));
     // Navigate to chat with the prefilled message so title can be inferred
     navigation.navigate('AIChat', { initialMessage: `Help me break down this goal: ${item.text}`, threadId });
   };
@@ -285,7 +297,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const flipType = (target: Item) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditedItems(prev => prev.map(it => {
-      if (it.text === target.text) {
+      if (it.id === target.id) {
         const newType = it.type === 'task' ? 'goal' : 'task';
         setToastMessage(`Marked as ${newType}.`);
         setToastVisible(true);
@@ -299,7 +311,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
     if (target.type === newType) {return;}
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditedItems(prev => prev.map(it => {
-      if (it.text === target.text) {
+      if (it.id === target.id) {
         return { ...it, type: newType } as Item;
       }
       return it;
@@ -312,7 +324,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
   const onChangeItemText = (target: Item, text: string) => {
     const sanitized = sanitizeText(text);
-    setEditedItems(prev => prev.map(it => (it === target || it.text === target.text) ? { ...it, text: sanitized } : it));
+    setEditedItems(prev => prev.map(it => it.id === target.id ? { ...it, text: sanitized } : it));
   };
 
   const goToPrioritize = () => {
@@ -342,7 +354,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
       <FlatList
         data={tab==='task' ? tasks : goals}
-        keyExtractor={(it, idx)=>`${idx}-${it.text}`}
+        keyExtractor={(it) => it.id}
         contentContainerStyle={{ padding: spacing.md }}
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -370,7 +382,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
               )}
               <View style={[styles.badge, styles[item.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{item.priority}</Text></View>
             </View>
-            {editingKey === item.text ? (
+            {editingKey === item.id ? (
               <TextInput
                 style={[styles.input, { marginTop: spacing.xs }]}
                 value={item.text}
@@ -379,7 +391,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                 autoFocus
               />
             ) : (
-              <Text onPress={()=>setEditingKey(item.text)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
+              <Text onPress={()=>setEditingKey(item.id)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
             )}
             {item.type==='goal' ? (
               <TouchableOpacity onPress={() => startGoalBreakdown(item)}>

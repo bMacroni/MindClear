@@ -20,51 +20,18 @@ type TaskItem = { id: string; text: string; priority: Priority; category?: strin
 type DraggableTaskProps = {
   item: TaskItem;
   onDragStart: (taskId: string) => void;
-  onDragEnd: (taskId: string, dropX: number, dropY: number) => void;
-  onDragMove: (dropX: number, dropY: number) => void;
   isDragging: boolean;
 };
 
-const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, onDragEnd, onDragMove, isDragging }) => {
+const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDragging }) => {
   const pan = useRef(new Animated.ValueXY()).current;
   const scale = useRef(new Animated.Value(1)).current;
   
-  const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (_evt, gestureState) => {
-      return Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3;
-    },
-    onPanResponderGrant: () => {
-      onDragStart(item.id);
-      Animated.spring(scale, { toValue: 1.05, useNativeDriver: true }).start();
-    },
-    onPanResponderMove: (evt, _gestureState) => {
-      pan.setValue({ x: _gestureState.dx, y: _gestureState.dy });
-      
-      // Use the gesture location relative to the screen
-      const dropX = evt.nativeEvent.pageX;
-      const dropY = evt.nativeEvent.pageY;
-      onDragMove(dropX, dropY);
-    },
-    onPanResponderRelease: (evt, _gestureState) => {
-      // Calculate the final drop position more accurately
-      const dropX = evt.nativeEvent.pageX;
-      const dropY = evt.nativeEvent.pageY;
-      onDragEnd(item.id, dropX, dropY);
-      
-      Animated.parallel([
-        Animated.timing(pan, { 
-          toValue: { x: 0, y: 0 }, 
-          duration: 200,
-          useNativeDriver: true 
-        }),
-        Animated.timing(scale, { 
-          toValue: 1, 
-          duration: 200,
-          useNativeDriver: true 
-        })
-      ]).start();
-    }
-  });
+  // Use TouchableOpacity for drag initiation instead of PanResponder
+  const handleLongPress = () => {
+    onDragStart(item.id);
+    Animated.spring(scale, { toValue: 1.05, useNativeDriver: true }).start();
+  };
 
   const animatedStyle: any = {
     transform: [
@@ -77,27 +44,30 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, onDrag
   };
 
   return (
-    <Animated.View 
-      {...panResponder.panHandlers}
-      style={[animatedStyle, { opacity: isDragging ? 0 : 1 }]}
-    >
-      <View style={[
-        styles.card,
-        item.priority === 'high' && styles.cardHigh,
-        item.priority === 'medium' && styles.cardMedium,
-        item.priority === 'low' && styles.cardLow,
-      ]}>
-        <View style={styles.row}>
-          <View style={[
-            styles.sectionStripe, 
-            item.priority === 'high' && styles.stripeHigh, 
-            item.priority === 'medium' && styles.stripeMedium, 
-            item.priority === 'low' && styles.stripeLow
-          ]} />
-          <Text style={styles.text} numberOfLines={3} selectable={false}>{item.text}</Text>
-          <Icon name="grabber" size={16} color={colors.text.secondary} style={{ marginLeft: 8 }} />
+    <Animated.View style={[animatedStyle, { opacity: isDragging ? 0 : 1 }]}>
+      <TouchableOpacity
+        onLongPress={handleLongPress}
+        delayLongPress={300}
+        activeOpacity={0.8}
+      >
+        <View style={[
+          styles.card,
+          item.priority === 'high' && styles.cardHigh,
+          item.priority === 'medium' && styles.cardMedium,
+          item.priority === 'low' && styles.cardLow,
+        ]}>
+          <View style={styles.row}>
+            <View style={[
+              styles.sectionStripe, 
+              item.priority === 'high' && styles.stripeHigh, 
+              item.priority === 'medium' && styles.stripeMedium, 
+              item.priority === 'low' && styles.stripeLow
+            ]} />
+            <Text style={styles.text} numberOfLines={3} selectable={false}>{item.text}</Text>
+            <Icon name="grabber" size={16} color={colors.text.secondary} style={{ marginLeft: 8 }} />
+          </View>
         </View>
-      </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 };
@@ -179,9 +149,32 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const [toastMessage, setToastMessage] = useState('');
   const [showOverlay, setShowOverlay] = useState(false);
   const [ghostPosition, setGhostPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [scrollEnabled, setScrollEnabled] = useState(true);
   
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
   const zoneHeight = SCREEN_HEIGHT / 3;
+
+  // Single PanResponder for the entire screen to handle dragging
+  const screenPanResponder = PanResponder.create({
+    onMoveShouldSetPanResponder: (_evt, gestureState) => {
+      // Only respond if we're currently dragging
+      return draggingId !== null;
+    },
+    onPanResponderMove: (evt, _gestureState) => {
+      if (draggingId) {
+        const dropX = evt.nativeEvent.pageX;
+        const dropY = evt.nativeEvent.pageY;
+        onDragMove(dropX, dropY);
+      }
+    },
+    onPanResponderRelease: (evt, _gestureState) => {
+      if (draggingId) {
+        const dropX = evt.nativeEvent.pageX;
+        const dropY = evt.nativeEvent.pageY;
+        onDragEnd(draggingId, dropX, dropY);
+      }
+    }
+  });
 
   useEffect(() => {
     // Persist order in session so it's preserved if user navigates away and back
@@ -238,11 +231,28 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const handleDragStart = (taskId: string) => {
     setDraggingId(taskId);
     setShowOverlay(true);
+    setScrollEnabled(false); // Disable scrolling during drag
   };
 
-  const handleDragEnd = (taskId: string, dropX: number, dropY: number) => {
+  const onDragMove = (dropX: number, dropY: number) => {
+    let targetZone: Priority | null = null;
+    
+    if (dropY < zoneHeight) {
+      targetZone = 'high';
+    } else if (dropY < zoneHeight * 2) {
+      targetZone = 'medium';
+    } else {
+      targetZone = 'low';
+    }
+    
+    setHighlightedZone(targetZone);
+    setGhostPosition({ x: dropX, y: dropY });
+  };
+
+  const onDragEnd = (taskId: string, dropX: number, dropY: number) => {
     setDraggingId(null);
     setShowOverlay(false);
+    setScrollEnabled(true); // Re-enable scrolling after drag
     
     // Determine which zone the task was dropped in based on Y position
     let targetPriority: Priority | null = null;
@@ -269,22 +279,6 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
     setHighlightedZone(null);
   };
 
-
-
-  const handleDragMove = (dropX: number, dropY: number) => {
-    let targetZone: Priority | null = null;
-    
-    if (dropY < zoneHeight) {
-      targetZone = 'high';
-    } else if (dropY < zoneHeight * 2) {
-      targetZone = 'medium';
-    } else {
-      targetZone = 'low';
-    }
-    
-    setHighlightedZone(targetZone);
-    setGhostPosition({ x: dropX, y: dropY });
-  };
 
   // Group tasks by priority
   const tasksByPriority = useMemo(() => {
@@ -405,7 +399,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']} {...screenPanResponder.panHandlers}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Prioritize your tasks</Text>
       </View>
@@ -413,7 +407,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       
       <View style={styles.infoBanner}>
         <Icon name="grabber" size={14} color={colors.text.secondary} style={{ marginRight: 6 }} />
-        <Text style={styles.infoText}>Drag tasks to the colored zones to set priority</Text>
+        <Text style={styles.infoText}>Long-press tasks to drag them to priority zones</Text>
       </View>
 
       <View style={styles.legendRow}>
@@ -435,14 +429,13 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
         style={styles.zonesContainer}
         contentContainerStyle={styles.zonesContentContainer}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={scrollEnabled}
       >
         {sortedTasks.map(task => (
           <DraggableTask
             key={task.id}
             item={task}
             onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragMove={handleDragMove}
             isDragging={draggingId === task.id}
           />
         ))}
