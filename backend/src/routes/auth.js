@@ -253,8 +253,8 @@ router.post('/refresh', async (req, res) => {
       return res.status(400).json({ error: 'refresh_token is required' });
     }
     
-    // Create Supabase client using service role key for refresh operations
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    // Create Supabase client for refresh operations
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
     
     // Attempt to refresh the session using the refresh token
     const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession({

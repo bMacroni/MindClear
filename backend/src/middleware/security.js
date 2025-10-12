@@ -22,11 +22,10 @@ export const helmetConfig = helmet({
       connectSrc: [
         "'self'",
         ...(process.env.NODE_ENV === 'development'
-          ? ["http://localhost:5000"]
+          ? ["http://localhost:5000", "https://localhost:5000"]
           : []),
-        "https://localhost:5000"
-      ],      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
+      ],
+      fontSrc: ["'self'"],      objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
     },
