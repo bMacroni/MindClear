@@ -65,6 +65,13 @@ export class GeminiService {
   }
 
   /**
+   * Generate consistent history key for userId and threadId combination
+   */
+  _getHistoryKey(userId, threadId) {
+    return threadId ? `${userId}:${threadId}` : `${userId}:null`;
+  }
+
+  /**
    * Parse brain dump text into structured items.
    * Returns an array of normalized items with fields:
    * [{ text, type: 'task'|'goal', confidence: number, category: string|null, stress_level: 'low'|'medium'|'high', priority: 'low'|'medium'|'high' }]
@@ -166,7 +173,7 @@ Respond ONLY with a JSON array.`;
   /**
    * Main entry point for processing a user message using Gemini function calling API.
    */
-  async processMessage(message, userId, userContext = {}) {
+  async processMessage(message, userId, threadId = null, userContext = {}) {
     try {
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Starting processMessage');
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Input message:', message);
@@ -191,7 +198,7 @@ Respond ONLY with a JSON array.`;
       }
 
       // Update conversation history
-      this._addToHistory(userId, { role: 'user', content: filteredMessage.content });
+      this._addToHistory(userId, threadId, { role: 'user', content: filteredMessage.content });
       // Add a system prompt to instruct Gemini to use functions
       // --- Add today's date to the prompt ---
       const today = new Date();
@@ -341,8 +348,20 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
       // System prompt loaded
 
       // Trim conversation history to the last MAX_HISTORY_MESSAGES
-      const MAX_HISTORY_MESSAGES = 10;
-      const fullHistory = this.conversationHistory.get(userId) || [];
+      const MAX_HISTORY_MESSAGES = 20;
+      const historyKey = this._getHistoryKey(userId, threadId);
+      let fullHistory = this.conversationHistory.get(historyKey) || [];
+      
+      // If cache is empty and we have a threadId, try to load from database
+      if (fullHistory.length === 0 && threadId) {
+        if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Cache empty, loading history from database for thread:', threadId);
+        fullHistory = await this._loadHistoryFromDatabase(userId, threadId);
+        // Store loaded history in cache
+        if (fullHistory.length > 0) {
+          this.conversationHistory.set(historyKey, fullHistory);
+        }
+      }
+      
       const trimmedHistory = fullHistory.slice(-MAX_HISTORY_MESSAGES);
       
       if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Conversation history length:', trimmedHistory.length);
@@ -789,7 +808,7 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
         }
         
         // Add to conversation history
-        this._addToHistory(userId, { role: 'model', content: message });
+        this._addToHistory(userId, threadId, { role: 'model', content: message });
         
         // Defensive check to ensure actions is always an array
         if (!actions || !Array.isArray(actions)) {
@@ -816,7 +835,7 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
         // Ensure general JSON-only replies render in clients that strip code blocks
         message = this._sanitizeMessageForFrontend(message);
         
-        this._addToHistory(userId, { role: 'model', content: message });
+        this._addToHistory(userId, threadId, { role: 'model', content: message });
         
         // Defensive check to ensure actions is always an array
         if (!actions || !Array.isArray(actions)) {
@@ -1290,10 +1309,33 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
   }
 
   /**
+   * Load conversation history from database for a specific thread
+   */
+  async _loadHistoryFromDatabase(userId, threadId) {
+    try {
+      // Return empty array immediately if no threadId
+      if (!threadId) {
+        return [];
+      }
+      
+      const { conversationController } = await import('../controllers/conversationController.js');
+      const messages = await conversationController.getRecentMessages(threadId, userId, 10);
+      return messages.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        content: msg.content
+      }));
+    } catch (error) {
+      if (this.DEBUG) console.log('🔍 [GEMINI DEBUG] Failed to load history from database:', error);
+      return [];
+    }
+  }
+
+  /**
    * Add message to conversation history
    */
-  _addToHistory(userId, message) {
-    const userHistory = this.conversationHistory.get(userId) || [];
+  _addToHistory(userId, threadId, message) {
+    const historyKey = this._getHistoryKey(userId, threadId);
+    const userHistory = this.conversationHistory.get(historyKey) || [];
     userHistory.push(message);
     
     // Keep only last 20 exchanges to prevent memory bloat
@@ -1301,14 +1343,27 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
       userHistory.splice(0, userHistory.length - 20);
     }
     
-    this.conversationHistory.set(userId, userHistory);
+    this.conversationHistory.set(historyKey, userHistory);
   }
 
   /**
    * Clear conversation history for a user
    */
-  clearHistory(userId) {
-    this.conversationHistory.delete(userId);
+  clearHistory(userId, threadId = null) {
+    if (threadId) {
+      // Clear specific thread history
+      const historyKey = this._getHistoryKey(userId, threadId);
+      this.conversationHistory.delete(historyKey);
+    } else {
+      // Clear all thread histories for the user
+      const keysToDelete = [];
+      for (const key of this.conversationHistory.keys()) {
+        if (key.startsWith(`${userId}:`)) {
+          keysToDelete.push(key);
+        }
+      }
+      keysToDelete.forEach(key => this.conversationHistory.delete(key));
+    }
   }
 
   /**

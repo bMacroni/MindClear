@@ -83,6 +83,7 @@ router.post('/signup', [
         res.json({
           message: 'User created and logged in successfully',
           token: sessionData.session.access_token,
+          refresh_token: sessionData.session.refresh_token,
           user: sessionData.user
         });
       } catch (loginError) {
@@ -142,6 +143,7 @@ router.post('/login', [
     res.json({
       message: 'Login successful',
       token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
       user: data.user
     });
   } catch (error) {
@@ -239,6 +241,57 @@ router.get('/profile', requireAuth, async (req, res) => {
     });
   } catch (error) {
     logger.error('Profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Token refresh endpoint
+router.post('/refresh', async (req, res) => {
+  try {
+    // Validate input - require refresh_token in request body
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      logger.warn('Token refresh failed - no refresh_token provided');
+      return res.status(400).json({ error: 'refresh_token is required' });
+    }
+    
+    // Create Supabase client for refresh operations
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+    
+    // Attempt to refresh the session using the refresh token
+    const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession({
+      refresh_token
+    });
+    
+    if (refreshError || !sessionData?.session) {
+      logger.warn('Token refresh failed:', refreshError?.message || 'No session returned');
+      return res.status(401).json({ 
+        error: 'Invalid or expired refresh token',
+        details: refreshError?.message 
+      });
+    }
+    
+    const { session } = sessionData;
+    
+    // Return the new tokens and user info
+    res.json({
+      message: 'Token refreshed successfully',
+      token: session.access_token,
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        email_confirmed_at: session.user.email_confirmed_at,
+        created_at: session.user.created_at,
+        updated_at: session.user.updated_at
+      }
+    });
+    
+    logger.info('Token refresh successful for user:', session.user.id);
+  } catch (error) {
+    logger.error('Token refresh error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -19,7 +19,12 @@ export const helmetConfig = helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "http://localhost:5000", "https://localhost:5000"],
+      connectSrc: [
+        "'self'",
+        ...(process.env.NODE_ENV === 'development'
+          ? ["http://localhost:5000", "https://localhost:5000"]
+          : []),
+      ],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
@@ -31,18 +36,7 @@ export const helmetConfig = helmet({
   // DNS Prefetch Control
   dnsPrefetchControl: true,
   // Expect-CT header
-  expectCt: {
-    maxAge: 86400,
-    enforce: true,
-  },
   // Feature Policy
-  featurePolicy: {
-    features: {
-      camera: ["'none'"],
-      microphone: ["'none'"],
-      geolocation: ["'none'"],
-    },
-  },
   // Hide X-Powered-By header
   hidePoweredBy: true,
   // HSTS (HTTP Strict Transport Security)
@@ -223,11 +217,11 @@ export const commonValidations = {
   password: body('password')
     .isLength({ min: 8, max: 128 })
     .withMessage('Password must be between 8 and 128 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),
-  
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
+    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character'),  
   // UUID validation
   uuid: (field) => body(field)
+    .optional()
     .isUUID()
     .withMessage(`${field} must be a valid UUID`),
   

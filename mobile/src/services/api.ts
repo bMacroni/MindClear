@@ -39,6 +39,17 @@ const getSecureApiBaseUrl = (): string => {
     : 'https://foci-production.up.railway.app/api';  // Production: use Railway
   return finalFallback;
 };
+
+// Helper function to filter out null values from objects
+function filterNullValues<T extends Record<string, any>>(obj: T): Partial<T> {
+  const filtered = { ...obj };
+  Object.keys(filtered).forEach(key => {
+    if (filtered[key] === null) {
+      delete filtered[key];
+    }
+  });
+  return filtered;
+}
 import {
   SchedulingPreferences,
   TaskSchedulingStatus,
@@ -488,6 +499,9 @@ export const tasksAPI = {
         throw new Error('Cannot create more than 50 tasks at once');
       }
 
+      // Filter out null values from each task
+      const filteredTasks = tasks.map(task => filterNullValues(task));
+
       // Making API call with tasks wrapped in tasks property
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/bulk`, {
         method: 'POST',
@@ -495,7 +509,7 @@ export const tasksAPI = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
-        body: JSON.stringify({ tasks }),
+        body: JSON.stringify({ tasks: filteredTasks }),
       });
       if (!response.ok) {
         const text = await response.text();
@@ -536,13 +550,16 @@ export const tasksAPI = {
   // Create a new task
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
     try {
+      // Filter out null values that cause validation errors
+      const filteredTaskData = filterNullValues(taskData);
+
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
-        body: JSON.stringify(taskData),
+        body: JSON.stringify(filteredTaskData),
       });
 
       if (!response.ok) {
@@ -582,6 +599,10 @@ export const tasksAPI = {
   // Update an existing task
   updateTask: async (taskId: string, taskData: Partial<Task>): Promise<Task> => {
     try {
+      // Filter out null values that cause validation errors
+      const filteredTaskData = filterNullValues(taskData);
+
+
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}`, {
         method: 'PUT',
@@ -589,7 +610,7 @@ export const tasksAPI = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(taskData),
+        body: JSON.stringify(filteredTaskData),
       });
 
       if (!response.ok) {
@@ -1241,10 +1262,9 @@ class WebSocketService {
           return;
         }
         
-        // Check if token is expired by attempting to refresh it
-        const isTokenValid = await authService.refreshToken();
-        if (!isTokenValid) {
-          logger.debug('WebSocket: Skipping connection - token is invalid/expired');
+        // Check if user is still authenticated (without attempting refresh)
+        if (!authService.isAuthenticated()) {
+          logger.debug('WebSocket: Skipping connection - user not authenticated');
           return;
         }
       } catch (error) {

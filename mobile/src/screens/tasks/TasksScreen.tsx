@@ -62,6 +62,14 @@ interface Task {
   weather_dependent?: boolean;
   location?: string;
   travel_time_minutes?: number;
+  // Required backend fields
+  preferred_time_of_day?: 'morning' | 'afternoon' | 'evening';
+  deadline_type?: 'soft' | 'hard';
+  recurrence_pattern?: 'none' | 'daily' | 'weekly' | 'monthly';
+  scheduling_preferences?: any;
+  max_daily_tasks?: number;
+  buffer_time_minutes?: number;
+  task_type?: 'indoor' | 'outdoor' | 'travel' | 'virtual' | 'other';
 }
 
 interface Goal {
@@ -138,11 +146,11 @@ const TasksScreen: React.FC = () => {
   useFocusEffect(
     React.useCallback(() => {
       // Set help scope for this screen and reset overlay when leaving
-      try { setHelpScope('tasks'); } catch {}
-      try { setHelpContent(getTasksHelpContent()); } catch {}
+      try { setHelpScope('tasks'); } catch (e) { if (__DEV__) console.warn('setHelpScope failed:', e); }
+      try { setHelpContent(getTasksHelpContent()); } catch (e) { if (__DEV__) console.warn('setHelpContent failed:', e); }
       // If user navigated with overlay ON from a previous screen, ensure tooltips will populate
       // by briefly toggling it off (state stays off due to blur reset anyway)
-      try { setIsHelpOverlayActive(false); } catch {}
+      try { setIsHelpOverlayActive(false); } catch (e) { if (__DEV__) console.warn('setIsHelpOverlayActive failed:', e); }
       // Avoid showing a spinner if we already have content; fetch fresh in background
       loadData({ silent: true });
       return () => {
@@ -150,7 +158,6 @@ const TasksScreen: React.FC = () => {
       };
     }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent])
   );
-
   const loadSchedulingPreferences = async () => {
     try {
       const prefs = await (enhancedAPI as any).getSchedulingPreferences();
@@ -257,6 +264,7 @@ const TasksScreen: React.FC = () => {
   const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
+      
       if (editingTask) {
         // Update existing task
         const updatedTask = await tasksAPI.updateTask(editingTask.id, taskData);
@@ -809,7 +817,7 @@ const TasksScreen: React.FC = () => {
 
     try {
       // Set the task as today's focus (immediate UI feedback)
-      const updated = await tasksAPI.updateTask(task.id, { ...(undefined as any), is_today_focus: true } as any);
+      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true } as any);
 
       // Update state optimistically for immediate UI feedback
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, is_today_focus: false }));
