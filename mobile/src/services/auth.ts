@@ -364,8 +364,8 @@ class AuthService {
     if (this.authState.token) {
       // Check if the current token is expired
       if (isTokenExpired(this.authState.token)) {
-        // Token is expired, clear auth data and require re-login
-        await this.clearAuthData();
+        // Token is expired, clear access token and user data but preserve refresh token
+        await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
         this.setUnauthenticatedState();
         this.notifyListeners();
         return null;
@@ -378,8 +378,8 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          // Token is expired, clear auth data and require re-login
-          await this.clearAuthData();
+          // Token is expired, clear access token and user data but preserve refresh token
+          await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
           this.setUnauthenticatedState();
           this.notifyListeners();
           return null;
@@ -465,19 +465,12 @@ class AuthService {
       }, 15000);
 
       if (ok && data.access_token) {
-        await secureStorage.set('auth_token', data.access_token);
-        this.authState.token = data.access_token;
-
-        if (data.refresh_token) {
-          await secureStorage.set('auth_refresh_token', data.refresh_token);
-        }
-
-        if (data.user) {
-          await secureStorage.set('auth_user', JSON.stringify(data.user));
-          this.authState.user = data.user;
-        }
-
-        this.notifyListeners();
+        // Use setAuthData for atomic updates of all auth state
+        await this.setAuthData(
+          data.access_token, 
+          data.user, 
+          data.refresh_token
+        );
         return true;
       } else {
         // Token is invalid, logout user

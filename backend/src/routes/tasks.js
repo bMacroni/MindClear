@@ -97,12 +97,22 @@ const bulkTaskValidation = [
 // Auto-scheduling trigger validation
 const autoScheduleTriggerValidation = [
   body('force_reschedule').optional().isBoolean().withMessage('force_reschedule must be a boolean'),
-  body('date_range').optional().isObject().withMessage('date_range must be an object'),
+  body('date_range').optional().custom((value) => {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      return true;
+    }
+    throw new Error('date_range must be an object');
+  }),
   body('date_range.start_date').optional().isISO8601().withMessage('start_date must be a valid ISO8601 date'),
   body('date_range.end_date').optional().isISO8601().withMessage('end_date must be a valid ISO8601 date'),
   body('task_ids').optional().isArray().withMessage('task_ids must be an array'),
   body('task_ids.*').optional().isUUID().withMessage('Each task_id must be a valid UUID'),
-  body('preferences_override').optional().isObject().withMessage('preferences_override must be an object')
+  body('preferences_override').optional().custom((value) => {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      return true;
+    }
+    throw new Error('preferences_override must be an object');
+  })
 ];
 
 router.post('/', requireAuth, taskValidation, validateInput, createTask);
