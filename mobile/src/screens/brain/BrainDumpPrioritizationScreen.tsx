@@ -24,19 +24,24 @@ type DraggableTaskProps = {
 };
 
 const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDragging }) => {
-  const pan = useRef(new Animated.ValueXY()).current;
+  // Removed unused pan animated value
   const scale = useRef(new Animated.Value(1)).current;
-  
+
   // Use TouchableOpacity for drag initiation instead of PanResponder
   const handleLongPress = () => {
     onDragStart(item.id);
     Animated.spring(scale, { toValue: 1.05, useNativeDriver: true }).start();
   };
 
+  // Reset scale when dragging stops
+  useEffect(() => {
+    if (!isDragging) {
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+    }
+  }, [isDragging, scale]);
+
   const animatedStyle: any = {
     transform: [
-      { translateX: pan.x },
-      { translateY: pan.y },
       { scale: scale }
     ],
     zIndex: isDragging ? 1000 : 1,
@@ -49,6 +54,9 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDrag
         onLongPress={handleLongPress}
         delayLongPress={300}
         activeOpacity={0.8}
+        accessibilityLabel={`${item.text}. Long press to drag to a priority zone.`}
+        accessibilityRole="button"
+        accessibilityHint="Long press to drag this task to a different priority zone"
       >
         <View style={[
           styles.card,
@@ -64,7 +72,13 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDrag
               item.priority === 'low' && styles.stripeLow
             ]} />
             <Text style={styles.text} numberOfLines={3} selectable={false}>{item.text}</Text>
-            <Icon name="grabber" size={16} color={colors.text.secondary} style={{ marginLeft: 8 }} />
+            <Icon
+              name="grabber"
+              size={16}
+              color={colors.text.secondary}
+              style={{ marginLeft: 8 }}
+              accessible={false}
+            />
           </View>
         </View>
       </TouchableOpacity>
@@ -150,9 +164,26 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const [showOverlay, setShowOverlay] = useState(false);
   const [ghostPosition, setGhostPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [zoneBoundaries, setZoneBoundaries] = useState<{
+    high: { top: number; bottom: number } | null;
+    medium: { top: number; bottom: number } | null;
+    low: { top: number; bottom: number } | null;
+  }>({
+    high: null,
+    medium: null,
+    low: null,
+  });
   
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-  const zoneHeight = SCREEN_HEIGHT / 3;
+
+  // Function to measure overlay zone boundaries
+  const handleZoneLayout = (zone: Priority, event: any) => {
+    const { y, height } = event.nativeEvent.layout;
+    setZoneBoundaries(prev => ({
+      ...prev,
+      [zone]: { top: y, bottom: y + height }
+    }));
+  };
 
   // Single PanResponder for the entire screen to handle dragging
   const screenPanResponder = PanResponder.create({
@@ -237,12 +268,25 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const onDragMove = (dropX: number, dropY: number) => {
     let targetZone: Priority | null = null;
     
-    if (dropY < zoneHeight) {
-      targetZone = 'high';
-    } else if (dropY < zoneHeight * 2) {
-      targetZone = 'medium';
+    // Use measured zone boundaries if available, otherwise fall back to screen-based calculation
+    if (zoneBoundaries.high && zoneBoundaries.medium && zoneBoundaries.low) {
+      if (dropY >= zoneBoundaries.high.top && dropY < zoneBoundaries.high.bottom) {
+        targetZone = 'high';
+      } else if (dropY >= zoneBoundaries.medium.top && dropY < zoneBoundaries.medium.bottom) {
+        targetZone = 'medium';
+      } else if (dropY >= zoneBoundaries.low.top && dropY < zoneBoundaries.low.bottom) {
+        targetZone = 'low';
+      }
     } else {
-      targetZone = 'low';
+      // Fallback to original calculation if zones haven't been measured yet
+      const zoneHeight = SCREEN_HEIGHT / 3;
+      if (dropY < zoneHeight) {
+        targetZone = 'high';
+      } else if (dropY < zoneHeight * 2) {
+        targetZone = 'medium';
+      } else {
+        targetZone = 'low';
+      }
     }
     
     setHighlightedZone(targetZone);
@@ -253,16 +297,30 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
     setDraggingId(null);
     setShowOverlay(false);
     setScrollEnabled(true); // Re-enable scrolling after drag
+    setHighlightedZone(null); // Clear highlight
     
     // Determine which zone the task was dropped in based on Y position
     let targetPriority: Priority | null = null;
     
-    if (dropY < zoneHeight) {
-      targetPriority = 'high';
-    } else if (dropY < zoneHeight * 2) {
-      targetPriority = 'medium';
+    // Use measured zone boundaries if available, otherwise fall back to screen-based calculation
+    if (zoneBoundaries.high && zoneBoundaries.medium && zoneBoundaries.low) {
+      if (dropY >= zoneBoundaries.high.top && dropY < zoneBoundaries.high.bottom) {
+        targetPriority = 'high';
+      } else if (dropY >= zoneBoundaries.medium.top && dropY < zoneBoundaries.medium.bottom) {
+        targetPriority = 'medium';
+      } else if (dropY >= zoneBoundaries.low.top && dropY < zoneBoundaries.low.bottom) {
+        targetPriority = 'low';
+      }
     } else {
-      targetPriority = 'low';
+      // Fallback to original calculation if zones haven't been measured yet
+      const zoneHeight = SCREEN_HEIGHT / 3;
+      if (dropY < zoneHeight) {
+        targetPriority = 'high';
+      } else if (dropY < zoneHeight * 2) {
+        targetPriority = 'medium';
+      } else {
+        targetPriority = 'low';
+      }
     }
 
     if (targetPriority) {
@@ -444,13 +502,22 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       {/* Overlay zones for drag and drop */}
       {showOverlay && (
         <View style={styles.overlayContainer}>
-          <View style={[styles.overlayZone, styles.highZone, highlightedZone === 'high' && styles.highlightedZone]}>
+          <View 
+            style={[styles.overlayZone, styles.highZone, highlightedZone === 'high' && styles.highlightedZone]}
+            onLayout={(event) => handleZoneLayout('high', event)}
+          >
             <Text style={styles.overlayText}>High Priority</Text>
           </View>
-          <View style={[styles.overlayZone, styles.mediumZone, highlightedZone === 'medium' && styles.highlightedZone]}>
+          <View 
+            style={[styles.overlayZone, styles.mediumZone, highlightedZone === 'medium' && styles.highlightedZone]}
+            onLayout={(event) => handleZoneLayout('medium', event)}
+          >
             <Text style={styles.overlayText}>Medium Priority</Text>
           </View>
-          <View style={[styles.overlayZone, styles.lowZone, highlightedZone === 'low' && styles.highlightedZone]}>
+          <View 
+            style={[styles.overlayZone, styles.lowZone, highlightedZone === 'low' && styles.highlightedZone]}
+            onLayout={(event) => handleZoneLayout('low', event)}
+          >
             <Text style={styles.overlayText}>Low Priority</Text>
           </View>
         </View>
