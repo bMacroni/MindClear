@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$KeyPassword,
     
-    [string]$KeystorePath = "android/app/mindclear-release-key.keystore",
+    [string]$KeystorePath = "C:\Users\bmcor\MindGarden\mindgarden\mobile\android\app\mindclear-release-key.keystore",
     [string]$KeyAlias = "mindclear-key-alias"
 )
 
