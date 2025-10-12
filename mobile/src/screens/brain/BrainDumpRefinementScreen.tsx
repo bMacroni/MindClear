@@ -1,13 +1,12 @@
 import * as React from 'react';
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, LayoutAnimation, Platform, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, LayoutAnimation, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import { tasksAPI } from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { authService } from '../../services/auth';
@@ -28,25 +27,40 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { ErrorToast } from '../../components/common/ErrorToast';
 import { useFocusEffect } from '@react-navigation/native';
 
-type Item = { text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
+type Item = { id: string; text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level?: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
 
 export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const params = route?.params || {};
   const { threadId, setThreadId, items, setItems } = useBrainDump();
-  const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<'task'|'goal'>('task');
+  
+  // Helper function to generate unique IDs
+  const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
   const sanitizeText = (text: string): string => {
     return String(text || '')
       .replace(/\r?\n|\r/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   };
-  const normalizeKey = (text: string): string => sanitizeText(text).toLowerCase();
+
+  // Normalize item data to handle legacy items with missing fields
+  const normalizeItem = (item: any): Item => {
+    return {
+      id: item.id || generateId(),
+      text: sanitizeText(item.text || ''),
+      type: item.type || 'task', // Default to 'task' for legacy data
+      confidence: item.confidence,
+      category: item.category || null,
+      stress_level: item.stress_level || undefined, // Keep undefined for missing stress_level
+      priority: item.priority || 'medium' // Default to 'medium' priority for legacy data
+    };
+  };
 
   // Initialize with sanitized items if provided via route; otherwise we'll load from storage
   const [editedItems, setEditedItems] = useState<Item[]>(() =>
     (Array.isArray(params?.items) ? (params.items as Item[]) : (items as unknown as Item[]))
-      .map((it: Item) => ({ ...it, text: sanitizeText(it.text) }))
+      .map((it: any) => normalizeItem(it))
       .filter((it: Item) => it.text.length > 0)
   );
   const [toastVisible, setToastVisible] = useState(false);
@@ -54,7 +68,6 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const [errorToastVisible, setErrorToastVisible] = useState(false);
   const [errorToastMessage, setErrorToastMessage] = useState('');
   const [initialToastShown, setInitialToastShown] = useState(false);
-  const [inFlightKeys, setInFlightKeys] = useState<Set<string>>(new Set());
 
   const list = useMemo(()=> Array.isArray(editedItems) ? editedItems : [], [editedItems]);
   const tasks = useMemo(()=> list.filter(i=>i.type==='task'), [list]);
@@ -69,7 +82,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         const parsed = itemsStr ? JSON.parse(itemsStr) : [];
         if (tid) { setThreadId(tid); }
         if (Array.isArray(parsed) && parsed.length > 0 && editedItems.length === 0 && (items?.length ?? 0) === 0) {
-          setEditedItems(parsed.map((it: Item) => ({ ...it, text: sanitizeText((it as any)?.text) } as Item)).filter((it: Item) => it.text.length > 0));
+          setEditedItems(parsed.map((it: any) => normalizeItem(it)).filter((it: Item) => it.text.length > 0));
         }
       } catch {}
     })();
@@ -126,72 +139,11 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
   // LayoutAnimation enabling is a no-op in the New Architecture; avoid calling to prevent warnings.
 
-  const createFocusTask = async (item: Item) => {
-    if (saving) {return;}
-    const key = normalizeKey(item.text);
-    if (inFlightKeys.has(key)) {return;}
-    setInFlightKeys(prev => new Set(prev).add(key));
-    setSaving(true);
-    try {
-      // 1) Create the focus task
-      await tasksAPI.createTask({
-        title: sanitizeText(item.text),
-        description: '',
-        priority: item.priority,
-        category: item.category || undefined,
-        is_today_focus: true,
-      } as any);
-
-      // 2) Save remaining tasks to Inbox (non-focus)
-      const remainder = tasks
-        .filter(t => t.text !== item.text)
-        .reduce((acc: Item[], cur) => {
-          const k = normalizeKey(cur.text);
-          if (!acc.some(x => normalizeKey(x.text) === k)) {acc.push(cur);}
-          return acc;
-        }, []);
-      if (remainder.length > 0) {
-        const bulk = remainder.map((it) => ({
-          title: sanitizeText(it.text),
-          description: '',
-          priority: it.priority,
-          category: it.category || undefined,
-          is_today_focus: false,
-        }));
-        await tasksAPI.bulkCreateTasks(bulk as any);
-      }
-
-      // 3) Update UI: remove task items from refinement list
-      setEditedItems(prev => prev.filter(i => i.type !== 'task'));
-
-      // 4) Persist a flag to hint Tasks screen to refresh on focus
-      try { await AsyncStorage.setItem('needsTasksRefresh', '1'); } catch {}
-
-      // 5) Show confirmation toast
-      const savedCount = remainder.length;
-      const message = savedCount > 0
-        ? `Set "${sanitizeText(item.text)}" as Today's Focus and saved ${savedCount} task${savedCount === 1 ? '' : 's'} to your Inbox.`
-        : `Set "${sanitizeText(item.text)}" as Today's Focus.`;
-      setToastMessage(message);
-      setToastVisible(true);
-    } catch (_e) {
-      setToastMessage('Something went wrong setting Today\'s Focus.');
-      setToastVisible(true);
-    } finally {
-      setSaving(false);
-      setInFlightKeys(prev => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
 
   const startGoalBreakdown = async (item: Item) => {
     try {
       // Skip if threadId is missing
       if (!threadId) {
-        console.warn('Cannot update thread title: threadId is missing');
         return;
       }
 
@@ -228,13 +180,10 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
           
           // Handle different error types
           if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-            console.error('Thread title update timed out');
             setErrorToastMessage('Could not update conversation title - request timed out');
           } else if (fetchError instanceof Error) {
-            console.error('Error updating thread title:', fetchError.message);
             setErrorToastMessage('Could not update conversation title');
           } else {
-            console.error('Unknown error updating thread title:', fetchError);
             setErrorToastMessage('Could not update conversation title');
           }
           
@@ -246,60 +195,21 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         }
       }
     } catch (error) {
-      console.error('Error updating thread title:', error);
       // Error toast is already shown above, so we don't need to show it again here
     }
     // Remove the goal from the refinement list
-    setEditedItems(prev => prev.filter(i => !(i.type === 'goal' && i.text === item.text)));
+    setEditedItems(prev => prev.filter(i => i.id !== item.id));
     // Navigate to chat with the prefilled message so title can be inferred
     navigation.navigate('AIChat', { initialMessage: `Help me break down this goal: ${item.text}`, threadId });
   };
 
-  const saveRemainderToInbox = async () => {
-    if (saving) {return;}
-    setSaving(true);
-    try {
-      // De-dupe within the list on normalized title
-      const uniqueTasks = tasks.reduce((acc: Item[], cur) => {
-        const k = normalizeKey(cur.text);
-        if (!acc.some(x => normalizeKey(x.text) === k)) {acc.push(cur);}
-        return acc;
-      }, []);
-      const savedCount = uniqueTasks.length;
-      const bulk = uniqueTasks.map((it)=>({
-        title: sanitizeText(it.text),
-        description: '',
-        priority: it.priority,
-        category: it.category || undefined,
-        is_today_focus: false,
-      }));
-      await tasksAPI.bulkCreateTasks(bulk as any);
-      setToastMessage(savedCount === 1 ? 'Saved 1 task to your Inbox under Tasks.' : `Saved ${savedCount} tasks to your Inbox under Tasks.`);
-      setToastVisible(true);
-      // Hide saved tasks from the refinement screen
-      setEditedItems(prev => prev.filter(i => i.type !== 'task'));
-    } catch {}
-    setSaving(false);
-  };
 
-  const flipType = (target: Item) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setEditedItems(prev => prev.map(it => {
-      if (it.text === target.text) {
-        const newType = it.type === 'task' ? 'goal' : 'task';
-        setToastMessage(`Marked as ${newType}.`);
-        setToastVisible(true);
-        return { ...it, type: newType } as Item;
-      }
-      return it;
-    }));
-  };
 
   const setType = (target: Item, newType: 'task'|'goal') => {
     if (target.type === newType) {return;}
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditedItems(prev => prev.map(it => {
-      if (it.text === target.text) {
+      if (it.id === target.id) {
         return { ...it, type: newType } as Item;
       }
       return it;
@@ -312,12 +222,12 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
   const onChangeItemText = (target: Item, text: string) => {
     const sanitized = sanitizeText(text);
-    setEditedItems(prev => prev.map(it => (it === target || it.text === target.text) ? { ...it, text: sanitized } : it));
+    setEditedItems(prev => prev.map(it => it.id === target.id ? { ...it, text: sanitized } : it));
   };
 
   const goToPrioritize = () => {
     if (tasks.length === 0) {return;}
-    const payload = tasks.map(t => ({ text: sanitizeText(t.text), priority: t.priority, category: t.category ?? undefined }));
+    const payload = tasks.map(t => ({ id: t.id, text: sanitizeText(t.text), priority: t.priority, category: t.category ?? undefined }));
     navigation.navigate('BrainDumpPrioritization', { tasks: payload });
   };
 
@@ -342,7 +252,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
       <FlatList
         data={tab==='task' ? tasks : goals}
-        keyExtractor={(it, idx)=>`${idx}-${it.text}`}
+        keyExtractor={(it) => it.id}
         contentContainerStyle={{ padding: spacing.md }}
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -370,7 +280,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
               )}
               <View style={[styles.badge, styles[item.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{item.priority}</Text></View>
             </View>
-            {editingKey === item.text ? (
+            {editingKey === item.id ? (
               <TextInput
                 style={[styles.input, { marginTop: spacing.xs }]}
                 value={item.text}
@@ -379,7 +289,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                 autoFocus
               />
             ) : (
-              <Text onPress={()=>setEditingKey(item.text)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
+              <Text onPress={()=>setEditingKey(item.id)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
             )}
             {item.type==='goal' ? (
               <TouchableOpacity onPress={() => startGoalBreakdown(item)}>
