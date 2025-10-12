@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, PanResponder, Animated, Dimensions, type LayoutChangeEvent, ScrollView, Modal } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, PanResponder, Animated, Dimensions, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
 import { colors } from '../../themes/colors';
@@ -12,14 +12,13 @@ import { tasksAPI } from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type Priority = 'low'|'medium'|'high';
 type TaskItem = { id: string; text: string; priority: Priority; category?: string|null };
 
 type DraggableTaskProps = {
   item: TaskItem;
-  onDragStart: (taskId: string) => void;
+  onDragStart: (_taskId: string) => void;
   isDragging: boolean;
 };
 
@@ -86,58 +85,6 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDrag
   );
 };
 
-type DropZoneProps = {
-  priority: Priority;
-  children: React.ReactNode;
-  isHighlighted: boolean;
-  isDragging: boolean;
-  onLayout: (event: LayoutChangeEvent) => void;
-};
-
-const DropZone: React.FC<DropZoneProps> = ({ priority, children, isHighlighted, isDragging, onLayout }) => {
-  const priorityColors: Record<Priority, { bg: string; border: string }> = {
-    high: { bg: '#FFEBEE', border: '#F44336' },
-    medium: { bg: '#FFFBF0', border: '#FF9800' },
-    low: { bg: '#F1F8E9', border: '#4CAF50' }
-  };
-  
-  const colors_zone = priorityColors[priority];
-  
-  return (
-    <View 
-      style={[
-        styles.dropZone,
-        { 
-          backgroundColor: isHighlighted ? colors_zone.bg : colors.background.surface,
-          borderColor: isHighlighted ? colors_zone.border : colors.border.light,
-          borderWidth: isHighlighted ? 3 : (isDragging ? 2 : 1),
-          borderStyle: isHighlighted ? 'dashed' : 'solid',
-          opacity: isDragging && !isHighlighted ? 0.7 : 1,
-        }
-      ]}
-      onLayout={onLayout}
-    >
-      <View style={styles.sectionHeader}>
-        <Text style={[
-          styles.sectionHeaderText,
-          isHighlighted && { color: colors_zone.border, fontWeight: 'bold' }
-        ]}>
-          {priority === 'high' ? 'High Priority' : 
-           priority === 'medium' ? 'Medium Priority' : 
-           'Low Priority'}
-        </Text>
-        <Icon 
-          name={priority === 'high' ? 'flame' : priority === 'medium' ? 'dash' : 'chevron-down'} 
-          size={16} 
-          color={isHighlighted ? colors_zone.border : colors.text.secondary} 
-        />
-      </View>
-      <View style={styles.dropZoneContent}>
-        {children}
-      </View>
-    </View>
-  );
-};
 
 export default function BrainDumpPrioritizationScreen({ navigation, route }: any) {
   const incomingTasks = (route?.params?.tasks as Array<{ text: string; priority: Priority; category?: string|null }> | undefined) ?? [];
@@ -187,7 +134,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
 
   // Single PanResponder for the entire screen to handle dragging
   const screenPanResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (_evt, gestureState) => {
+    onMoveShouldSetPanResponder: (_evt, _gestureState) => {
       // Only respond if we're currently dragging
       return draggingId !== null;
     },
@@ -338,14 +285,6 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   };
 
 
-  // Group tasks by priority
-  const tasksByPriority = useMemo(() => {
-    return {
-      high: tasks.filter(t => t.priority === 'high'),
-      medium: tasks.filter(t => t.priority === 'medium'),
-      low: tasks.filter(t => t.priority === 'low')
-    };
-  }, [tasks]);
 
   const sortedTasks = useMemo(() => {
     const weight: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
@@ -441,8 +380,6 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       // Navigate after a short delay so the toast is visible briefly
       setTimeout(() => { navigation.navigate('Tasks'); }, 300);
     } catch (error: any) {
-      console.error('Brain dump save error:', error);
-      
       // Handle specific focus constraint violation
       if (String(error?.message || '').includes('already have a task set as today\'s focus') || 
           error?.code === 'FOCUS_CONSTRAINT_VIOLATION') {
