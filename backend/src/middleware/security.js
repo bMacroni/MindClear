@@ -25,7 +25,8 @@ export const helmetConfig = helmet({
           ? ["http://localhost:5000", "https://localhost:5000"]
           : []),
       ],
-      fontSrc: ["'self'"],      objectSrc: ["'none'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
     },

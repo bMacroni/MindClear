@@ -444,18 +444,6 @@ class AuthService {
     await this.initializeAuth();
   }
 
-  // Debug method to check auth state
-  public debugAuthState(): void {
-    console.log('🔍 DEBUG: Auth State:', {
-      isAuthenticated: this.authState.isAuthenticated,
-      hasToken: !!this.authState.token,
-      tokenLength: this.authState.token?.length || 0,
-      tokenPreview: this.authState.token?.substring(0, 20) + '...',
-      hasUser: !!this.authState.user,
-      isLoading: this.authState.isLoading,
-      initialized: this.initialized
-    });
-  }
 
   // Refresh token (if needed)
   public async refreshToken(): Promise<boolean> {

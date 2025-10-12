@@ -22,7 +22,7 @@ function validateSupabaseConfig(): { url: string; key: string } {
     );
   }
   
-  return { url, key };
+  return { url: url!, key: key! };
 }
 
 /**

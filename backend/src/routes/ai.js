@@ -76,21 +76,19 @@ router.post('/chat', requireAuth, async (req, res) => {
     const safeMessage = typeof response.message === 'string' ? response.message : '';
     
     // Log if we get an empty response
-    if (!safeMessage || safeMessage.trim().length === 0) {    if (!safeMessage || safeMessage.trim().length === 0) {
+    if (!safeMessage || safeMessage.trim().length === 0) {
       logger.warn('Empty AI response received', {
         userId,
         threadId
       });
-    }      message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
-     userId,
-     threadId
-   });
- }
- 
- const finalResponse = {
-   message: safeMessage || 'I apologize, but I\'d didn\'t receive a proper response. Please try again.',
-   actions: Array.isArray(response.actions) ? response.actions : []
- };    // Send a notification to the user
+    }
+
+    const finalResponse = {
+      message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
+      actions: Array.isArray(response.actions) ? response.actions : []
+    };
+
+    // Send a notification to the user
     const notification = {
       notification_type: 'new_message',
       title: 'New message from your AI assistant',

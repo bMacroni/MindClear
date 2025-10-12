@@ -609,7 +609,6 @@ export const tasksAPI = {
         }
       });
 
-      console.log('🔍 DEBUG: updateTask filtered data:', JSON.stringify(filteredTaskData, null, 2));
 
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}`, {

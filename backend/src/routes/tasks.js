@@ -233,7 +233,8 @@ router.put(
   ],
   validateInput,
   updateUserSchedulingPreferences
-);// before
+);
+
 router.get(
   '/auto-scheduling/history/:task_id?',
   requireAuth,
@@ -245,7 +246,9 @@ router.get(
   ],
   validateInput,
   getTaskSchedulingHistory
-);router.post(
+);
+
+router.post(
   '/auto-scheduling/trigger',
   requireAuth,
   autoScheduleTriggerLimiter,
@@ -253,4 +256,5 @@ router.get(
   validateInput,
   triggerAutoScheduling
 );
+
 export default router; 

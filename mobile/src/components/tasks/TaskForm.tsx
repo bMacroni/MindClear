@@ -148,7 +148,6 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       return;
     }
 
-    console.log('🔍 DEBUG: TaskForm handleSave called with formData:', JSON.stringify(formData, null, 2));
     onSave(formData);
   };
 

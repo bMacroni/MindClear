@@ -262,23 +262,17 @@ const TasksScreen: React.FC = () => {
   }, []);
 
   const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
-  const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
--      console.log('🔍 DEBUG: TasksScreen handleSaveTask called with taskData:', JSON.stringify(taskData, null, 2));
-      if (__DEV__) console.log('🔍 DEBUG: TasksScreen handleSaveTask called with taskData:', JSON.stringify(taskData, null, 2));
-      if (__DEV__) console.log('🔍 DEBUG: editingTask:', editingTask ? 'exists' : 'null');
       
       if (editingTask) {
         // Update existing task
-        console.log('🔍 DEBUG: Calling updateTask with ID:', editingTask.id);
         const updatedTask = await tasksAPI.updateTask(editingTask.id, taskData);
         setTasks(prev => prev.map(task => 
           task.id === editingTask.id ? updatedTask : task
         ));
       } else {
         // Create new task
-        console.log('🔍 DEBUG: Calling createTask');
         const newTask = await tasksAPI.createTask(taskData);
         setTasks(prev => [newTask, ...prev]);
       }
@@ -290,7 +284,9 @@ const TasksScreen: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [editingTask]);  const handleDeleteTask = useCallback(async (taskId: string) => {
+  }, [editingTask]);
+
+  const handleDeleteTask = useCallback(async (taskId: string) => {
     const prevTasks = tasks;
     setTasks(prev => prev.filter(task => task.id !== taskId));
     try {
@@ -821,7 +817,9 @@ const TasksScreen: React.FC = () => {
 
     try {
       // Set the task as today's focus (immediate UI feedback)
-      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true } as any);      // Update state optimistically for immediate UI feedback
+      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true } as any);
+
+      // Update state optimistically for immediate UI feedback
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, is_today_focus: false }));
 
       // Show immediate feedback
