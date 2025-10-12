@@ -39,6 +39,17 @@ const getSecureApiBaseUrl = (): string => {
     : 'https://foci-production.up.railway.app/api';  // Production: use Railway
   return finalFallback;
 };
+
+// Helper function to filter out null values from objects
+function filterNullValues<T extends Record<string, any>>(obj: T): Partial<T> {
+  const filtered = { ...obj };
+  Object.keys(filtered).forEach(key => {
+    if (filtered[key] === null) {
+      delete filtered[key];
+    }
+  });
+  return filtered;
+}
 import {
   SchedulingPreferences,
   TaskSchedulingStatus,
@@ -489,15 +500,7 @@ export const tasksAPI = {
       }
 
       // Filter out null values from each task
-      const filteredTasks = tasks.map(task => {
-        const filteredTask = { ...task } as any;
-        Object.keys(filteredTask).forEach(key => {
-          if (filteredTask[key] === null) {
-            delete filteredTask[key];
-          }
-        });
-        return filteredTask;
-      });
+      const filteredTasks = tasks.map(task => filterNullValues(task));
 
       // Making API call with tasks wrapped in tasks property
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/bulk`, {
@@ -548,12 +551,7 @@ export const tasksAPI = {
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
     try {
       // Filter out null values that cause validation errors
-      const filteredTaskData = { ...taskData } as any;
-      Object.keys(filteredTaskData).forEach(key => {
-        if (filteredTaskData[key] === null) {
-          delete filteredTaskData[key];
-        }
-      });
+      const filteredTaskData = filterNullValues(taskData);
 
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks`, {
         method: 'POST',
@@ -602,12 +600,7 @@ export const tasksAPI = {
   updateTask: async (taskId: string, taskData: Partial<Task>): Promise<Task> => {
     try {
       // Filter out null values that cause validation errors
-      const filteredTaskData = { ...taskData } as any;
-      Object.keys(filteredTaskData).forEach(key => {
-        if (filteredTaskData[key] === null) {
-          delete filteredTaskData[key];
-        }
-      });
+      const filteredTaskData = filterNullValues(taskData);
 
 
       const token = await getAuthToken();

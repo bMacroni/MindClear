@@ -35,7 +35,7 @@ const archiveLimiter = rateLimit({
   keyGenerator: (req) =>
     req.user?.id !== undefined
       ? `user:${req.user.id}`
-      : `ip:${ipKeyGenerator(req.ip)}`, // Use user ID if authenticated, fallback to IP with IPv6 support
+      : `ip:${ipKeyGenerator(req)}`, // Use user ID if authenticated, fallback to IP with IPv6 support
   message: {
     error: 'Too many archive requests. Please wait a moment before trying again.',
     retryAfter: '1 minute'
@@ -51,7 +51,7 @@ const autoScheduleTriggerLimiter = rateLimit({
   keyGenerator: (req) =>
     req.user?.id !== undefined
       ? `user:${req.user.id}`
-      : `ip:${ipKeyGenerator(req.ip)}`, // Use user ID if authenticated, fallback to IP with IPv6 support
+      : `ip:${ipKeyGenerator(req)}`, // Use user ID if authenticated, fallback to IP with IPv6 support
   message: {
     error: 'Too many auto-scheduling trigger requests. Please wait before trying again.',
     retryAfter: '5 minutes'
@@ -216,7 +216,7 @@ router.put(
   [
     body('scheduling_preferences')
       .optional()
-      .isJSON()
+      .custom(value => typeof value === 'object' && value !== null)
       .withMessage('Scheduling preferences must be valid JSON'),
     body('max_daily_tasks')
       .optional()
@@ -228,7 +228,7 @@ router.put(
       .withMessage('Buffer time must be between 0 and 120 minutes'),
     body('preferred_time_windows')
       .optional()
-      .isJSON()
+      .custom(value => typeof value === 'object' && value !== null)
       .withMessage('Preferred time windows must be valid JSON')
   ],
   validateInput,

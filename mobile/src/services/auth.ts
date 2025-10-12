@@ -224,7 +224,7 @@ class AuthService {
 
   private async clearAuthData() {
     try {
-      await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
+      await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'authToken', 'authUser']);
     } catch (error) {
       console.error('Error clearing auth data:', error);
     }
@@ -274,7 +274,7 @@ class AuthService {
 
       if (ok && data.token) {
         // Successfully created user and got token
-        await this.setAuthData(data.token, data.user);
+        await this.setAuthData(data.token, data.user, data.refresh_token);
         return { success: true, message: data.message, user: data.user };
       } else if (ok && data.userCreated) {
         // User created but needs email confirmation
@@ -304,7 +304,7 @@ class AuthService {
       });
 
       if (ok && data.token) {
-        await this.setAuthData(data.token, data.user);
+        await this.setAuthData(data.token, data.user, data.refresh_token);
         return { success: true, message: data.message, user: data.user };
       } else {
         return { success: false, message: data.error || 'Login failed' };
@@ -394,7 +394,7 @@ class AuthService {
   }
 
   // Set authentication data
-  private async setAuthData(token: string, user: User): Promise<void> {
+  private async setAuthData(token: string, user: User, refreshToken?: string): Promise<void> {
     // Validate token before storing
     if (!token || token === 'undefined' || token === 'null') {
       throw new Error('Invalid authentication token');
@@ -408,6 +408,11 @@ class AuthService {
     await secureStorage.set('auth_token', token);
     await secureStorage.set('auth_user', JSON.stringify(user));
     
+    // Store refresh token if provided
+    if (refreshToken) {
+      await secureStorage.set('auth_refresh_token', refreshToken);
+    }
+    
     this.authState = {
       user,
       token,
@@ -419,8 +424,8 @@ class AuthService {
   }
 
   // Set session (public method for external use)
-  public async setSession(token: string, user: User): Promise<void> {
-    await this.setAuthData(token, user);
+  public async setSession(token: string, user: User, refreshToken?: string): Promise<void> {
+    await this.setAuthData(token, user, refreshToken);
   }
 
   // Check if user is authenticated
@@ -448,24 +453,31 @@ class AuthService {
   // Refresh token (if needed)
   public async refreshToken(): Promise<boolean> {
     try {
-      // Get token directly from storage to avoid circular dependency
-      const token = this.authState.token || await secureStorage.get('auth_token');
-      if (!token) {
+      const refreshTokenValue = await secureStorage.get('auth_refresh_token');
+      if (!refreshTokenValue) {
+        await this.logout();
         return false;
       }
 
-      // Try to refresh the token using the refresh endpoint
-      const { ok, status, data } = await apiFetch('/auth/refresh', {
+      const { ok, data } = await apiFetch('/auth/refresh', {
         method: 'POST',
+        body: JSON.stringify({ refresh_token: refreshTokenValue }),
       }, 15000);
 
-      if (ok && data.token) {
-        // Token is still valid, update user data if provided
+      if (ok && data.access_token) {
+        await secureStorage.set('auth_token', data.access_token);
+        this.authState.token = data.access_token;
+
+        if (data.refresh_token) {
+          await secureStorage.set('auth_refresh_token', data.refresh_token);
+        }
+
         if (data.user) {
           await secureStorage.set('auth_user', JSON.stringify(data.user));
           this.authState.user = data.user;
-          this.notifyListeners();
         }
+
+        this.notifyListeners();
         return true;
       } else {
         // Token is invalid, logout user

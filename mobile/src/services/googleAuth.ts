@@ -185,7 +185,7 @@ class GoogleAuthService {
       if (response.ok) {
         // Successful authentication
         console.log('[GoogleAuth] Authentication successful, setting session...');
-        await authService.setSession(data.token, data.user);
+        await authService.setSession(data.token, data.user, data.refresh_token);
         console.log('[GoogleAuth] Session set successfully');
         
         // If we have a user ID, trigger the OAuth flow for calendar permissions

@@ -287,6 +287,7 @@ router.post('/mobile-signin', async (req, res) => {
     // Return successful response
     res.json({
       token: userSession.session.access_token,
+      refresh_token: userSession.session.refresh_token,
       user: {
         id: userSession.user.id,
         email: userSession.user.email,

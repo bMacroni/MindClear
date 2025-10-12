@@ -83,6 +83,7 @@ router.post('/signup', [
         res.json({
           message: 'User created and logged in successfully',
           token: sessionData.session.access_token,
+          refresh_token: sessionData.session.refresh_token,
           user: sessionData.user
         });
       } catch (loginError) {
@@ -142,6 +143,7 @@ router.post('/login', [
     res.json({
       message: 'Login successful',
       token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
       user: data.user
     });
   } catch (error) {
@@ -274,6 +276,7 @@ router.post('/refresh', async (req, res) => {
     // Return the new tokens and user info
     res.json({
       message: 'Token refreshed successfully',
+      token: session.access_token,
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
