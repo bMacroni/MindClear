@@ -21,6 +21,10 @@ api.interceptors.request.use(
     // Add security headers
     const securityHeaders = getSecurityHeaders();
     Object.assign(config.headers, securityHeaders);
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) config.headers['X-User-Timezone'] = tz;
+    } catch (_) {}
     
     return config;
   },
@@ -102,7 +106,8 @@ export const aiAPI = {
       delete api.defaults.headers.common['X-User-Mood'];
     }
   },
-  sendMessage: (message, threadId) => api.post('/ai/chat', { message, threadId }),
+  // Route legacy AI chat through new Assistant UI endpoint in JSON fallback mode
+  sendMessage: (message, threadId) => api.post('/chat?stream=false', { message, threadId }),
   getGoalSuggestions: (goalTitle) => api.post('/ai/goal-suggestions', { goalTitle }),
   getGoalBreakdown: (goalTitle, goalDescription) => api.post('/ai/goal-breakdown', { goalTitle, goalDescription }),
   createThread: ({ title, summary, messages }) => api.post('/ai/threads', { title, summary, messages }),

@@ -43,6 +43,7 @@ import authRouter from './routes/auth.js'
 import calendarRouter from './routes/calendar.js'
 import aiRouter from './routes/ai.js'
 import conversationsRouter from './routes/conversations.js'
+import assistantChatRouter from './routes/assistantChat.js'
 import userRouter from './routes/user.js'
 import analyticsRouter from './routes/analytics.js'
 import cron from 'node-cron';
@@ -136,7 +137,14 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Mood', 'X-User-Timezone'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-User-Mood',
+    'X-User-Timezone',
+    'X-CSRF-Token',
+    'X-Requested-With'
+  ],
   exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']
 };
 
@@ -244,6 +252,11 @@ app.use('/api/user', userRouter);
 if (process.env.DEBUG_LOGS === 'true') logger.info('Registering analytics router...');
 app.use('/api/analytics', analyticsRouter);
 if (process.env.DEBUG_LOGS === 'true') logger.info('Analytics router registered');
+
+// Assistant UI streaming chat route (additive, does not affect mobile)
+if (process.env.DEBUG_LOGS === 'true') logger.info('Registering assistant chat router...');
+app.use('/api/chat', assistantChatRouter);
+if (process.env.DEBUG_LOGS === 'true') logger.info('Assistant chat router registered');
 
 async function getAllUserIds() {
   // Check if Supabase is initialized

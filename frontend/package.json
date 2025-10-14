@@ -29,7 +29,19 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.8.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "@assistant-ui/react": "*",
+    "motion": "^11.16.0",
+    "zustand": "^5.0.0",
+    "@assistant-ui/react-ai-sdk": "*"
+  },
+  "dependencyNotes": {
+    "2025-10-13 CST": [
+      "@assistant-ui/react",
+      "@assistant-ui/react-ai-sdk",
+      "motion",
+      "zustand"
+    ]
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

@@ -111,7 +111,7 @@ describe('Content Security Policy', () => {
       expect(config['script-src']).toContain("'unsafe-inline'");
     });
 
-    it('should maintain all other CSP directives regardless of environment', () => {
+    it('should maintain most CSP directives regardless of environment (except connect-src dev http allowance)', () => {
       const developmentConfig = getCSPConfig();
       process.env.NODE_ENV = 'production';
       const productionConfig = getCSPConfig();
@@ -121,13 +121,16 @@ describe('Content Security Policy', () => {
       expect(developmentConfig['style-src']).toEqual(productionConfig['style-src']);
       expect(developmentConfig['font-src']).toEqual(productionConfig['font-src']);
       expect(developmentConfig['img-src']).toEqual(productionConfig['img-src']);
-      expect(developmentConfig['connect-src']).toEqual(productionConfig['connect-src']);
       expect(developmentConfig['frame-src']).toEqual(productionConfig['frame-src']);
       expect(developmentConfig['object-src']).toEqual(productionConfig['object-src']);
       expect(developmentConfig['base-uri']).toEqual(productionConfig['base-uri']);
       expect(developmentConfig['form-action']).toEqual(productionConfig['form-action']);
       expect(developmentConfig['frame-ancestors']).toEqual(productionConfig['frame-ancestors']);
       expect(developmentConfig['upgrade-insecure-requests']).toEqual(productionConfig['upgrade-insecure-requests']);
+      
+      // Development should include http: in connect-src; production should not add it
+      expect(developmentConfig['connect-src']).toContain('http:');
+      expect(productionConfig['connect-src']).not.toContain('http:');
     });
   });
 
@@ -142,7 +145,8 @@ describe('Content Security Policy', () => {
       expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
       expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
       expect(csp).toContain("img-src 'self' data: https:");
-      expect(csp).toContain("connect-src 'self' ws: wss: https:");
+      // In development connect-src should allow http: as well for local APIs
+      expect(csp).toContain("connect-src 'self' ws: wss: https: http:");
       expect(csp).toContain("frame-src 'none'");
       expect(csp).toContain("object-src 'none'");
       expect(csp).toContain("base-uri 'self'");

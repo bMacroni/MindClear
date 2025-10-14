@@ -890,7 +890,7 @@ You’re making great strides!
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-black"></div>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   {sortedThreads.map((thread) => {
                     // Try to extract type, summary, and created_at from thread
                     let type = 'General';
@@ -912,25 +912,35 @@ You’re making great strides!
                       createdAt = thread.last_message.created_at;
                     }
                     const formattedDate = formatRelativeTime(createdAt);
+                    const preview = thread.last_message?.content ? String(thread.last_message.content).slice(0, 80) + (String(thread.last_message.content).length > 80 ? '…' : '') : '';
+                    const msgCount = typeof thread.message_count === 'number' ? thread.message_count : undefined;
                     const isPinned = pinnedThreads.has(thread.id);
                     
                     return (
                       <div
                         key={thread.id}
-                        className={`group relative p-3 rounded-xl cursor-pointer transition-colors ${
+                        className={`group relative p-3 rounded-lg cursor-pointer transition-colors border ${
                           currentThreadId === thread.id
-                            ? 'bg-black text-white'
-                            : 'hover:bg-gray-100'
+                            ? 'bg-amber-50 border-amber-200'
+                            : 'border-transparent hover:bg-gray-50'
                         }`}
                         onClick={() => {
                           loadConversationThread(thread.id);
                           setShowMobileSidebar(false);
                         }}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className={`truncate text-sm font-medium ${currentThreadId === thread.id ? 'text-white' : 'text-black'}`}>{summary}</span>
-                          <span className={`ml-2 text-xs whitespace-nowrap ${currentThreadId === thread.id ? 'text-white' : 'text-gray-500'}`}>{formattedDate}</span>
-                          </div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`truncate text-sm font-medium text-black`}>{summary}</span>
+                          <span className={`ml-2 text-xs whitespace-nowrap text-gray-500`}>{formattedDate}</span>
+                        </div>
+                        {preview && (
+                          <p className="text-xs text-gray-500 line-clamp-2">{preview}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-2">
+                          {typeof msgCount === 'number' && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200">{msgCount} messages</span>
+                          )}
+                        </div>
                         
                         {/* Thread Menu */}
                         {showThreadMenu === thread.id && (
@@ -980,24 +990,15 @@ You’re making great strides!
               <h3 className="text-lg font-bold text-black">Conversations</h3>
               <button
                 onClick={() => { createNewThread(); setShowMobileSidebar(false); }}
-                className="p-2 text-gray-500 hover:text-black transition-colors"
+                className="h-8 w-8 p-0 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-center"
+                aria-label="New Conversation"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12M6 12h12" />
                 </svg>
               </button>
             </div>
-            <button
-              onClick={() => { createNewThread(); setShowMobileSidebar(false); }}
-              className="w-full px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm font-medium"
-            >
-              <span className="flex items-center justify-center space-x-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span>New Conversation</span>
-              </span>
-            </button>
+            {/* Full-width New Conversation button removed per design (use header + icon) */}
           </div>
           {/* Search Bar */}
           <div className="p-4 border-b border-black/10">
@@ -1021,7 +1022,7 @@ You’re making great strides!
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-black"></div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {sortedThreads.map((thread) => {
                   // Try to extract type, summary, and created_at from thread
                   let type = 'General';
@@ -1043,22 +1044,35 @@ You’re making great strides!
                     createdAt = thread.last_message.created_at;
                   }
                   const formattedDate = formatRelativeTime(createdAt);
+                  const preview = thread.last_message?.content ? String(thread.last_message.content).slice(0, 80) + (String(thread.last_message.content).length > 80 ? '…' : '') : '';
+                  const msgCount = typeof thread.message_count === 'number' ? thread.message_count : undefined;
                   const isPinned = pinnedThreads.has(thread.id);
                   
                   return (
                     <div
                       key={thread.id}
-                      className={`group relative p-3 rounded-xl cursor-pointer transition-colors ${
+                      className={`group relative p-3 rounded-lg cursor-pointer transition-colors border focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 ${
                         currentThreadId === thread.id
-                          ? 'bg-black text-white'
-                          : 'hover:bg-gray-100'
+                          ? 'bg-amber-50 border-amber-200'
+                          : 'border-transparent hover:bg-gray-50 hover:border-gray-200 hover:shadow-sm'
                       }`}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => loadConversationThread(thread.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadConversationThread(thread.id); } }}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className={`truncate text-sm font-medium ${currentThreadId === thread.id ? 'text-white' : 'text-black'}`}>{summary}</span>
-                        <span className={`ml-2 text-xs whitespace-nowrap ${currentThreadId === thread.id ? 'text-white' : 'text-gray-500'}`}>{formattedDate}</span>
-                        </div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`truncate text-sm font-medium text-black`}>{summary}</span>
+                        <span className={`ml-2 text-xs whitespace-nowrap text-gray-500`}>{formattedDate}</span>
+                      </div>
+                      {preview && (
+                        <p className="text-xs text-gray-500 line-clamp-2">{preview}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        {typeof msgCount === 'number' && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200">{msgCount} messages</span>
+                        )}
+                      </div>
                       
                       {/* Thread Menu */}
                       {showThreadMenu === thread.id && (
@@ -1102,6 +1116,31 @@ You’re making great strides!
       {/* Wrap the main return JSX in a full-height flex column container */}
       {/* This wrapper ensures sticky input works by making the chat fill the viewport */}
       <div className="h-screen flex flex-col w-full">
+        {/* Sticky Chat Header */}
+        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-black/10 z-10">
+          <div className="px-4 py-3 flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-semibold text-black">
+                {(() => {
+                  if (!currentThreadId) return 'Get Organized Help';
+                  const thread = conversationThreads.find(t => t.id === currentThreadId);
+                  if (!thread) return 'Conversation';
+                  // Extract summary as in sidebar
+                  if (thread.title && thread.title.startsWith('[')) {
+                    const match = thread.title.match(/^\[(.*?)\]\s(.+)/);
+                    if (match) return match[2];
+                  }
+                  return thread.title || 'Conversation';
+                })()}
+              </h1>
+              <p className="text-xs text-gray-500">AI Assistant</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Action buttons reserved for future (rename, delete, more) */}
+              <button className="h-8 w-8 rounded-md border border-gray-200 text-gray-600 text-sm">⋯</button>
+            </div>
+          </div>
+        </div>
         {/* Messages Area (scrollable) */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hover w-full" style={{ minHeight: 0 }}>
           {messages.map((message, idx) => {
@@ -1144,17 +1183,18 @@ You’re making great strides!
           )}
           <div ref={messagesEndRef} />
         </div>
-        {/* Sticky Example Prompts, Mood Selector, and Input Area */}
+        {/* Sticky Quick Actions, Mood Selector, and Input Area (aligned to interfaceexamples) */}
         <div className="sticky bottom-0 bg-white border-t border-black/10 z-10 w-full">
-          <div className="flex flex-col gap-3 p-4 bg-gray-50 border-b border-black/10 w-full">
-            <div className="flex items-center justify-between w-full gap-3 flex-wrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-gray-700 mr-1">Try asking:</span>
+          {/* Quick actions */}
+          <div className="px-4 pt-3">
+            <div className="max-w-3xl mx-auto">
+              <p className="text-xs text-gray-500 mb-2">Quick actions:</p>
+              <div className="flex flex-wrap gap-2">
                 {examplePrompts.map((prompt, idx) => (
                   <button
                     key={idx}
                     type="button"
-                    className="px-3 py-1 bg-black text-white rounded-full text-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black/30 transition-colors"
+                    className="h-8 px-3 text-xs rounded-full border border-gray-300 bg-transparent hover:bg-gray-50"
                     onClick={() => setInputMessage(prompt)}
                     aria-label={`Use example prompt: ${prompt}`}
                   >
@@ -1162,69 +1202,72 @@ You’re making great strides!
                   </button>
                 ))}
               </div>
-              {/* Mood Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Mood:</span>
-                <div className="flex gap-2">
-                  {[
-                    { key: 'low', label: 'Low' },
-                    { key: 'okay', label: 'Okay' },
-                    { key: 'energized', label: 'Energized' }
-                  ].map(opt => (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => setMood(opt.key)}
-                      className={`px-2.5 py-1 rounded-full text-sm border transition-colors ${
-                        mood === opt.key
-                          ? 'bg-black text-white border-black'
-                          : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'
-                      }`}
-                      aria-pressed={mood === opt.key}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
-          <div className="border-t border-black/10 p-4 w-full">
-            <form onSubmit={handleSubmit} className="flex space-x-4 w-full">
-              <div className="flex-1 relative w-full">
+          {/* Mood + Low energy row */}
+          <div className="px-4 pt-3">
+            <div className="max-w-3xl mx-auto flex items-center gap-2">
+              <div className="flex items-center gap-1 flex-1">
+                <span className="text-xs text-gray-500 mr-2">How are you feeling?</span>
+                {[
+                  { key: 'energized', label: 'Energized' },
+                  { key: 'okay', label: 'Okay' },
+                  { key: 'low', label: 'Overwhelmed' }
+                ].map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setMood(opt.key)}
+                    className={`h-8 px-3 text-xs rounded-full border transition-colors ${
+                      mood === opt.key
+                        ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+                        : 'bg-transparent text-gray-800 border-gray-300 hover:bg-gray-50'
+                    }`}
+                    aria-pressed={mood === opt.key}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleRecommendLowEnergyTask}
+                disabled={isLoading}
+                className="h-8 px-3 text-xs rounded-md border border-gray-300 bg-transparent hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Low Energy Tasks
+              </button>
+            </div>
+          </div>
+          {/* Input */}
+          <div className="px-4 py-4">
+            <form onSubmit={handleSubmit} className="max-w-3xl mx-auto flex items-end gap-2">
+              <div className="flex-1 relative">
                 <textarea
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Tell me what you'd like to work on today..."
-                  className="w-full px-4 py-3 border border-black/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/20 focus:border-transparent resize-none"
+                  placeholder="Ask me anything about your goals and tasks..."
+                  className="w-full px-4 py-3 border border-black/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/20 focus:border-transparent resize-none pr-12"
                   rows="1"
-                  style={{ minHeight: '48px', maxHeight: '120px' }}
+                  style={{ minHeight: '44px', maxHeight: '120px' }}
                 />
               </div>
               <button
                 type="submit"
                 disabled={!inputMessage.trim() || isLoading}
-                className="px-6 py-3 bg-black text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                aria-label="Send"
+                className="h-11 w-11 rounded-full bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
                 </svg>
-                <span>Send</span>
-              </button>
-              {/* New button for low energy task recommendation */}
-              <button
-                type="button"
-                onClick={handleRecommendLowEnergyTask}
-                disabled={isLoading}
-                className="px-6 py-3 bg-gray-200 text-gray-800 rounded-xl hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                <span>Suggest Low Energy Task</span>
               </button>
             </form>
+            <p className="text-xs text-gray-500 text-center mt-2">Foci AI is here to support you. Press Enter to send, Shift+Enter for new line.</p>
           </div>
         </div>
       </div>
@@ -1903,14 +1946,19 @@ const MessageBubble = ({ message, onQuickAction }) => {
   }
 
   if (message.type === 'user') {
-    // User message: right-aligned bubble
+    // User message: right-aligned bubble (warm/amber tone like the reference)
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] px-4 py-3 rounded-2xl bg-black text-white">
+        <div className="max-w-[80%] px-4 py-3 rounded-2xl bg-amber-500 text-white shadow-md">
           <div
             className="prose prose-sm max-w-none"
             dangerouslySetInnerHTML={{ __html: formatAIContent(message.content) }}
           />
+          {message.timestamp && (
+            <div className="mt-1 text-[11px] opacity-80 text-white/90 text-right">
+              {formatRelativeTime(message.timestamp)}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1978,56 +2026,71 @@ const MessageBubble = ({ message, onQuickAction }) => {
   const jsonPart = parts.length > 1 ? parts[0] : '';
   const conversationalPart = parts.length > 1 ? parts.slice(1).join('') : message.content;
   
+  // Assistant generic message: wrap in a clean card like the reference UI
   return (
     <div className="flex">
       <div className="w-full text-left">
-        {/* Render the JSON part with goal titles */}
-        {jsonObjects && jsonObjects.length > 0 && (
-          <div
-            className="prose prose-sm max-w-none text-black text-left"
-            style={{ background: 'none', borderRadius: 0, padding: 0, marginLeft: 0, marginRight: 0 }}
-            dangerouslySetInnerHTML={{ __html: formatAIContent(jsonPart) }}
-          />
-        )}
-        
-        {/* Render goal titles if present */}
-        {goalTitles.length > 0 && (
-          <div className="mt-1 mb-3">
-            <h4 className="text-base font-medium text-gray-900 mb-2">Here are your current goals:</h4>
-            <ul className="list-disc pl-5 text-sm">
-              {goalTitles.map((title, idx) => (
-                <li key={idx}><strong>{title}</strong></li>
-              ))}
-            </ul>
-          </div>
-        )}
-        
-        {/* Render the conversational part */}
-        {conversationalPart && conversationalPart.trim() && (
-          <div
-            className="prose prose-sm max-w-none text-black text-left mt-3"
-            style={{ background: 'none', borderRadius: 0, padding: 0, marginLeft: 0, marginRight: 0 }}
-            dangerouslySetInnerHTML={{ __html: formatAIContent(conversationalPart) }}
-          />
-        )}
-
-        {/* Quick Actions for AI messages */}
-        {message.type === 'ai' && Array.isArray(message.quickActions) && message.quickActions.length > 0 && (
-          <div className="mt-4 space-y-2">
-            <div className="text-sm text-gray-600 mb-2">Quick actions:</div>
-            <div className="flex flex-wrap gap-2">
-              {message.quickActions.map((action, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onQuickAction && onQuickAction(action)}
-                  className="px-3 py-1.5 bg-black text-white rounded-full text-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black/30 transition-colors"
-                >
-                  {action}
-                </button>
-              ))}
+        <div className="bg-white border border-gray-200 rounded-2xl shadow p-4">
+          {/* Assistant header */}
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
+              <svg className="w-3.5 h-3.5 text-amber-600" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2l1.8 4.2L18 8l-4.2 1.8L12 14l-1.8-4.2L6 8l4.2-1.8L12 2z" />
+              </svg>
             </div>
+            <span className="text-xs font-medium text-gray-500">Foci AI</span>
+            {message.timestamp && (
+              <span className="ml-auto text-[11px] text-gray-400">{formatRelativeTime(message.timestamp)}</span>
+            )}
           </div>
-        )}
+          {/* Render the JSON part with goal titles */}
+          {jsonObjects && jsonObjects.length > 0 && (
+            <div
+              className="prose prose-sm max-w-none text-black text-left"
+              style={{ background: 'none', borderRadius: 0, padding: 0, marginLeft: 0, marginRight: 0 }}
+              dangerouslySetInnerHTML={{ __html: formatAIContent(jsonPart) }}
+            />
+          )}
+
+          {/* Render goal titles if present */}
+          {goalTitles.length > 0 && (
+            <div className="mt-1 mb-3">
+              <h4 className="text-base font-medium text-gray-900 mb-2">Here are your current goals:</h4>
+              <ul className="list-disc pl-5 text-sm">
+                {goalTitles.map((title, idx) => (
+                  <li key={idx}><strong>{title}</strong></li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Render the conversational part */}
+          {conversationalPart && conversationalPart.trim() && (
+            <div
+              className="prose prose-sm max-w-none text-black text-left mt-3"
+              style={{ background: 'none', borderRadius: 0, padding: 0, marginLeft: 0, marginRight: 0 }}
+              dangerouslySetInnerHTML={{ __html: formatAIContent(conversationalPart) }}
+            />
+          )}
+
+          {/* Quick Actions for AI messages */}
+          {message.type === 'ai' && Array.isArray(message.quickActions) && message.quickActions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <div className="text-sm text-gray-600 mb-2">Quick actions:</div>
+              <div className="flex flex-wrap gap-2">
+                {message.quickActions.map((action, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => onQuickAction && onQuickAction(action)}
+                    className="px-3 py-1.5 rounded-full text-sm border border-gray-300 bg-white hover:bg-gray-50"
+                  >
+                    {action}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

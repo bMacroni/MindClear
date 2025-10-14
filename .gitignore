@@ -118,3 +118,4 @@ get-jwt.js
 # Backup files
 *.bak
 *.backup 
+/frontend/interfaceexamples

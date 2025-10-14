@@ -82,12 +82,13 @@ describe('Production CSP Security', () => {
       expect(prodConfig['script-src']).not.toContain("'unsafe-eval'");
       expect(prodCSP).not.toContain("'unsafe-eval'");
       
-      // All other directives should be identical
+      // All other directives should be identical (connect-src differs by http: in dev)
       expect(devConfig['default-src']).toEqual(prodConfig['default-src']);
       expect(devConfig['style-src']).toEqual(prodConfig['style-src']);
       expect(devConfig['font-src']).toEqual(prodConfig['font-src']);
       expect(devConfig['img-src']).toEqual(prodConfig['img-src']);
-      expect(devConfig['connect-src']).toEqual(prodConfig['connect-src']);
+      expect(devConfig['connect-src']).toContain('http:');
+      expect(prodConfig['connect-src']).not.toContain('http:');
     });
 
     it('should maintain security in all non-development environments', () => {
