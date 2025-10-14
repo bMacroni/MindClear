@@ -7,14 +7,12 @@ import CalendarEvents from '../components/CalendarEvents'
 import AIChat from '../components/AIChat'
 import { AssistantRuntimeProvider } from '@assistant-ui/react'
 import { useChatRuntime } from '@assistant-ui/react-ai-sdk'
-import AssistantThread from '../components/assistant-ui/AssistantThread'
 import FeedbackModal from '../components/FeedbackModal';
 import SidebarNav from '../components/SidebarNav';
 import analyticsService from '../services/analyticsService';
 
 function Dashboard({ showSuccess }) {
   const [activeTab, setActiveTab] = useState('ai');
-  const [useAssistantThread, setUseAssistantThread] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
@@ -59,11 +57,7 @@ function Dashboard({ showSuccess }) {
             <div className="h-full">
               {/* Assistant UI runtime provider for chat streaming */}
               <AssistantRuntimeProvider runtime={useChatRuntime({ api: '/api/chat' })}>
-                <AIChatOrAssistantThread
-                  onNavigateToTab={setActiveTab}
-                  useAssistantThread={useAssistantThread}
-                  onToggle={() => setUseAssistantThread(v => !v)}
-                />
+                <AIChat onNavigateToTab={setActiveTab} />
               </AssistantRuntimeProvider>
             </div>
           )}
@@ -166,29 +160,4 @@ function Dashboard({ showSuccess }) {
   );
 }
 
-export default Dashboard 
-
-function AIChatOrAssistantThread({ onNavigateToTab, useAssistantThread, onToggle }) {
-  return (
-    <div className="h-full flex flex-col relative">
-      {/* Floating toggle in the top-right to ensure visibility */}
-      <div className="absolute top-3 right-4 z-20">
-        <button
-          onClick={onToggle}
-          className="px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white/90 hover:bg-gray-50 shadow-sm"
-          aria-pressed={useAssistantThread}
-          title={useAssistantThread ? 'Use legacy AI chat' : 'Try new Assistant UI thread'}
-        >
-          {useAssistantThread ? 'Use Legacy Chat' : 'Try Assistant UI'}
-        </button>
-      </div>
-      <div className="flex-1 min-h-0">
-        {useAssistantThread ? (
-          <AssistantThread />
-        ) : (
-          <AIChat onNavigateToTab={onNavigateToTab} />
-        )}
-      </div>
-    </div>
-  )
-}
+export default Dashboard

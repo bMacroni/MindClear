@@ -1194,7 +1194,7 @@ You’re making great strides!
                   <button
                     key={idx}
                     type="button"
-                    className="h-8 px-3 text-xs rounded-full border border-gray-300 bg-transparent hover:bg-gray-50"
+                    className="h-8 px-3 text-xs rounded-md border border-gray-300 bg-transparent hover:bg-gray-50"
                     onClick={() => setInputMessage(prompt)}
                     aria-label={`Use example prompt: ${prompt}`}
                   >
@@ -1218,7 +1218,7 @@ You’re making great strides!
                     key={opt.key}
                     type="button"
                     onClick={() => setMood(opt.key)}
-                    className={`h-8 px-3 text-xs rounded-full border transition-colors ${
+                    className={`h-8 px-3 text-xs rounded-md border transition-colors ${
                       mood === opt.key
                         ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
                         : 'bg-transparent text-gray-800 border-gray-300 hover:bg-gray-50'
@@ -1260,7 +1260,7 @@ You’re making great strides!
                 type="submit"
                 disabled={!inputMessage.trim() || isLoading}
                 aria-label="Send"
-                className="h-11 w-11 rounded-full bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                className="h-11 w-11 rounded-md bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
