@@ -536,8 +536,68 @@ export async function bulkCreateTasks(req, res) {
 }
 
 export async function createTaskFromAI(args, userId, userContext) {
-  const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes } = args;
+  const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes, category, status } = args;
   const token = userContext?.token;
+
+  // Helper function to determine category based on task title and context
+  function determineCategory(title, description, relatedGoal) {
+    if (category) return category; // Use provided category if available
+    
+    const titleLower = title.toLowerCase();
+    const descLower = (description || '').toLowerCase();
+    
+    // Health-related keywords (check first to avoid conflicts with work keywords)
+    if (titleLower.includes('doctor') || titleLower.includes('medical appointment') || titleLower.includes('exercise') ||
+        titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
+        titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
+        titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('health appointment')) {
+      return 'health';
+    }
+    
+    // Work-related keywords
+    if (titleLower.includes('meeting') || titleLower.includes('call') || titleLower.includes('email') || 
+        titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
+        titleLower.includes('deadline') || titleLower.includes('presentation') || titleLower.includes('client')) {
+      return 'work';
+    }
+    
+    // Home-related keywords
+    if (titleLower.includes('clean') || titleLower.includes('laundry') || titleLower.includes('dishes') ||
+        titleLower.includes('vacuum') || titleLower.includes('organize') || titleLower.includes('repair') ||
+        titleLower.includes('maintenance') || titleLower.includes('garden') || titleLower.includes('yard')) {
+      return 'home';
+    }
+    
+    // Errands-related keywords
+    if (titleLower.includes('buy') || titleLower.includes('grocery') || titleLower.includes('shopping') ||
+        titleLower.includes('bank') || titleLower.includes('post office') || titleLower.includes('dmv') ||
+        titleLower.includes('pick up') || titleLower.includes('drop off') || titleLower.includes('return')) {
+      return 'errands';
+    }
+    
+    // Personal/learning keywords
+    if (titleLower.includes('read') || titleLower.includes('study') || titleLower.includes('learn') ||
+        titleLower.includes('practice') || titleLower.includes('course') || titleLower.includes('book') ||
+        titleLower.includes('research') || titleLower.includes('skill')) {
+      return 'personal';
+    }
+    
+    // Social keywords
+    if (titleLower.includes('call') || titleLower.includes('visit') || titleLower.includes('lunch') ||
+        titleLower.includes('dinner') || titleLower.includes('party') || titleLower.includes('event') ||
+        titleLower.includes('friend') || titleLower.includes('family')) {
+      return 'social';
+    }
+    
+    // Default to personal if no specific category matches
+    return 'personal';
+  }
+
+  // Set default values
+  const defaultPriority = priority || 'medium';
+  const defaultCategory = determineCategory(title, description, related_goal);
+  const defaultStatus = status || 'not_started';
+  const defaultDeadlineType = deadline_type || 'soft';
 
   // Track analytics event for AI-created tasks
   try {
@@ -549,9 +609,10 @@ export async function createTaskFromAI(args, userId, userContext) {
         event_name: 'task_created',
         payload: {
           source: 'ai',
-          priority: priority || 'medium',
+          priority: defaultPriority,
           has_due_date: !!due_date,
           has_related_goal: !!related_goal,
+          has_category: !!defaultCategory,
           preferred_time_of_day: preferred_time_of_day || null,
           timestamp: new Date().toISOString()
         }
@@ -627,11 +688,13 @@ export async function createTaskFromAI(args, userId, userContext) {
       title, 
       description, 
       due_date: finalDueDate,
-      priority,
+      priority: defaultPriority,
       goal_id: goalId,
       preferred_time_of_day,
-      deadline_type,
-      travel_time_minutes
+      deadline_type: defaultDeadlineType,
+      travel_time_minutes,
+      category: defaultCategory,
+      status: defaultStatus
     }])
     .select()
     .single();

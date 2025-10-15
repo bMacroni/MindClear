@@ -74,6 +74,8 @@ class AuthService {
   };
   private listeners: ((_state: AuthState) => void)[] = [];
   private initialized = false;
+  private refreshTimer: NodeJS.Timeout | null = null;
+  private refreshPromise: Promise<boolean> | null = null;
 
   private constructor() {
     this.initializeAuth();
@@ -321,6 +323,9 @@ class AuthService {
   // Logout user
   public async logout(): Promise<void> {
     try {
+      // Stop background refresh timer
+      this.stopBackgroundRefresh();
+      
       await this.clearAuthData();
       
       this.authState = {
@@ -364,7 +369,15 @@ class AuthService {
     if (this.authState.token) {
       // Check if the current token is expired
       if (isTokenExpired(this.authState.token)) {
-        // Token is expired, clear access token and user data but preserve refresh token
+        // Token is expired, attempt to refresh before giving up
+        console.log('Token expired, attempting refresh...');
+        const refreshSuccess = await this.refreshToken();
+        if (refreshSuccess) {
+          console.log('Token refresh successful, returning new token');
+          return this.authState.token; // Return the new token
+        }
+        // Only logout if refresh fails
+        console.log('Token refresh failed, logging out user');
         await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
         this.setUnauthenticatedState();
         this.notifyListeners();
@@ -378,7 +391,15 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          // Token is expired, clear access token and user data but preserve refresh token
+          // Token is expired, attempt to refresh before giving up
+          console.log('Stored token expired, attempting refresh...');
+          const refreshSuccess = await this.refreshToken();
+          if (refreshSuccess) {
+            console.log('Token refresh successful, returning new token');
+            return this.authState.token; // Return the new token
+          }
+          // Only logout if refresh fails
+          console.log('Token refresh failed, logging out user');
           await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
           this.setUnauthenticatedState();
           this.notifyListeners();
@@ -420,6 +441,9 @@ class AuthService {
       isAuthenticated: true,
     };
     
+    // Start background token refresh timer
+    this.startBackgroundRefresh();
+    
     this.notifyListeners();
   }
 
@@ -450,21 +474,38 @@ class AuthService {
   }
 
 
-  // Refresh token (if needed)
+  // Refresh token (if needed) - with queue to prevent multiple simultaneous attempts
   public async refreshToken(): Promise<boolean> {
+    // If there's already a refresh in progress, return that promise
+    if (this.refreshPromise) {
+      console.log('Token refresh already in progress, waiting...');
+      return this.refreshPromise;
+    }
+    
+    this.refreshPromise = this.performRefresh();
+    const result = await this.refreshPromise;
+    this.refreshPromise = null;
+    return result;
+  }
+
+  // Internal method to perform the actual refresh
+  private async performRefresh(): Promise<boolean> {
     try {
       const refreshTokenValue = await secureStorage.get('auth_refresh_token');
       if (!refreshTokenValue) {
+        console.log('No refresh token available, logging out');
         await this.logout();
         return false;
       }
 
+      console.log('Performing token refresh...');
       const { ok, data } = await apiFetch('/auth/refresh', {
         method: 'POST',
         body: JSON.stringify({ refresh_token: refreshTokenValue }),
       }, 15000);
 
       if (ok && data.access_token) {
+        console.log('Token refresh successful');
         // Use setAuthData for atomic updates of all auth state
         await this.setAuthData(
           data.access_token, 
@@ -473,6 +514,7 @@ class AuthService {
         );
         return true;
       } else {
+        console.log('Token refresh failed - invalid response');
         // Token is invalid, logout user
         await this.logout();
         return false;
@@ -481,6 +523,36 @@ class AuthService {
       console.error('Token refresh error:', _error);
       await this.logout();
       return false;
+    }
+  }
+
+  // Start background token refresh timer
+  private startBackgroundRefresh(): void {
+    // Clear any existing timer
+    this.stopBackgroundRefresh();
+    
+    if (!this.authState.isAuthenticated) {
+      return;
+    }
+
+    // Refresh token 5 minutes before expiration (55 minutes after login)
+    const refreshInterval = 55 * 60 * 1000; // 55 minutes in milliseconds
+    console.log('Starting background token refresh timer (55 minutes)');
+    
+    this.refreshTimer = setTimeout(async () => {
+      if (this.authState.isAuthenticated) {
+        console.log('Background token refresh triggered');
+        await this.refreshToken();
+      }
+    }, refreshInterval);
+  }
+
+  // Stop background token refresh timer
+  private stopBackgroundRefresh(): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+      console.log('Background token refresh timer stopped');
     }
   }
 }

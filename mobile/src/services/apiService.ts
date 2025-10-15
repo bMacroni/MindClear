@@ -67,11 +67,31 @@ export async function apiFetch<T = any>(
       headers['Content-Type'] = 'application/json';
     }
     
-    const res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
+    let res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
       ...init,
       signal: controller.signal,
       headers,
     });
+    
+    // Handle 401 Unauthorized - attempt token refresh and retry
+    if (res.status === 401 && token) {
+      console.log('Received 401, attempting token refresh...');
+      const refreshSuccess = await authService.refreshToken();
+      if (refreshSuccess) {
+        console.log('Token refresh successful, retrying request...');
+        // Get the new token and retry the request
+        const newToken = await authService.getAuthToken();
+        if (newToken) {
+          headers['Authorization'] = `Bearer ${newToken}`;
+          // Retry the original request with new token
+          res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
+            ...init,
+            signal: controller.signal,
+            headers,
+          });
+        }
+      }
+    }
     
     const text = await res.text();
     let data: any = null;
