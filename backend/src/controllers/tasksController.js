@@ -542,7 +542,8 @@ export async function createTaskFromAI(args, userId, userContext) {
   // Helper function to determine category based on task title and context
   function determineCategory(title, description) {
     if (category) return category; // Use provided category if available
-    
+
+    if (!title) return 'personal';
     const titleLower = title.toLowerCase();
     // Health-related keywords (check first to avoid conflicts with work keywords)
     if (titleLower.includes('doctor') || titleLower.includes('medical appointment') ||

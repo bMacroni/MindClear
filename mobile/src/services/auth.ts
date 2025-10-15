@@ -540,14 +540,15 @@ class AuthService {
     if (!token) return;
     
     const decoded = decodeJWT(token);
-    if (!decoded || !decoded.exp) {
+    const exp = Number(decoded?.exp);
+    if (!decoded || !Number.isFinite(exp)) {
       console.warn('Cannot start background refresh: invalid token expiry');
       return;
     }
     
-    const exp = decoded.exp * 1000; // Convert to milliseconds
+    const expMs = exp * 1000; // Convert to milliseconds
     const now = Date.now();
-    const timeUntilExpiry = exp - now;
+    const timeUntilExpiry = expMs - now;
     
     // Refresh 5 minutes before expiry, or immediately if less than 5 min left
     const refreshBuffer = 5 * 60 * 1000; // 5 minutes
