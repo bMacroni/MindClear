@@ -9,7 +9,7 @@ describe('AuthService Token Refresh - Manual Tests', () => {
   // These tests should be run manually in a real environment
   // They verify the actual behavior of the token refresh fixes
 
-  it('should attempt token refresh when getAuthToken() is called with expired token', async () => {
+  it('should attempt token refresh when getAuthToken() is called with expired token', () => {
     // Manual test steps:
     // 1. Login to the app
     // 2. Wait for token to expire (or manually set an expired token)
@@ -20,7 +20,6 @@ describe('AuthService Token Refresh - Manual Tests', () => {
     console.log('Manual test: Check console logs for token refresh attempts');
     console.log('Expected behavior: Should see "Token expired, attempting refresh..." in logs');
   });
-
   it('should handle 401 responses with automatic token refresh', async () => {
     // Manual test steps:
     // 1. Login to the app

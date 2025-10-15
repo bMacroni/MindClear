@@ -34,11 +34,15 @@ if (isTokenExpired(this.authState.token)) {
   const refreshSuccess = await this.refreshToken();
   if (refreshSuccess) {
     console.log('Token refresh successful, returning new token');
-    return this.authState.token; // Return the new token
+    // Verify the new token is valid before returning
+    if (!isTokenExpired(this.authState.token)) {
+      return this.authState.token;
+    }
+    console.log('Refreshed token is still expired, logging out');
   }
+}  }
   // Only logout if refresh fails
-  console.log('Token refresh failed, logging out user');
-  await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
+  logger.info('Token refresh failed, logging out user');  await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
   this.setUnauthenticatedState();
   this.notifyListeners();
   return null;
@@ -52,10 +56,6 @@ if (isTokenExpired(this.authState.token)) {
 - Added automatic token refresh on 401 responses
 - Retries original request with new token after successful refresh
 - Added logging for debugging 401 handling
-
-**New Logic**:
-```typescript
-// Handle 401 Unauthorized - attempt token refresh and retry
 if (res.status === 401 && token) {
   console.log('Received 401, attempting token refresh...');
   const refreshSuccess = await authService.refreshToken();
@@ -71,6 +71,18 @@ if (res.status === 401 && token) {
         signal: controller.signal,
         headers,
       });
+      // If retry also fails with 401, refresh token is likely expired
+      if (res.status === 401) {
+        console.log('Retry failed with 401, logging out user');
+        await authService.logout();
+        throw new Error('Authentication failed after token refresh');
+      }
+    }
+  } else {
+    // Refresh failed, ensure user is logged out
+    await authService.logout();
+  }
+}      });
     }
   }
 }
@@ -188,12 +200,11 @@ public async logout(): Promise<void> {
 - ❌ No background refresh mechanism
 
 ### After Fixes:
-- ✅ Users stay logged in indefinitely (until 30-day refresh token expires)
+- ✅ Users stay logged in seamlessly for up to 30 days (refresh token lifetime)
 - ✅ Automatic token refresh on expiration
 - ✅ Seamless user experience
 - ✅ Proactive background refresh
-- ✅ Proper error handling and logging
-- ✅ No memory leaks
+- ✅ Proper error handling and logging- ✅ No memory leaks
 
 ## 🔍 Monitoring & Debugging
 

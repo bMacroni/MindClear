@@ -535,10 +535,26 @@ class AuthService {
       return;
     }
 
-    // Refresh token 5 minutes before expiration (55 minutes after login)
-    const refreshInterval = 55 * 60 * 1000; // 55 minutes in milliseconds
-    console.log('Starting background token refresh timer (55 minutes)');
+    // Calculate refresh time from token expiry
+    const token = this.authState.token;
+    if (!token) return;
     
+    const decoded = decodeJWT(token);
+    if (!decoded || !decoded.exp) {
+      console.warn('Cannot start background refresh: invalid token expiry');
+      return;
+    }
+    
+    const exp = decoded.exp * 1000; // Convert to milliseconds
+    const now = Date.now();
+    const timeUntilExpiry = exp - now;
+    
+    // Refresh 5 minutes before expiry, or immediately if less than 5 min left
+    const refreshBuffer = 5 * 60 * 1000; // 5 minutes
+    const refreshInterval = Math.max(timeUntilExpiry - refreshBuffer, 0);
+    
+    console.log(`Starting background token refresh timer (${Math.round(refreshInterval / 60000)} minutes)`);
+
     this.refreshTimer = setTimeout(async () => {
       if (this.authState.isAuthenticated) {
         console.log('Background token refresh triggered');

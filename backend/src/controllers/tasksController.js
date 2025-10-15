@@ -540,52 +540,31 @@ export async function createTaskFromAI(args, userId, userContext) {
   const token = userContext?.token;
 
   // Helper function to determine category based on task title and context
-  function determineCategory(title, description, relatedGoal) {
+  function determineCategory(title, description) {
     if (category) return category; // Use provided category if available
     
     const titleLower = title.toLowerCase();
-    const descLower = (description || '').toLowerCase();
-    
     // Health-related keywords (check first to avoid conflicts with work keywords)
-    if (titleLower.includes('doctor') || titleLower.includes('medical appointment') || titleLower.includes('exercise') ||
+    if (titleLower.includes('doctor') || titleLower.includes('medical appointment') ||
+        titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('exercise') ||
         titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
         titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
-        titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('health appointment')) {
+        titleLower.includes('health appointment')) {
       return 'health';
     }
     
     // Work-related keywords
-    if (titleLower.includes('meeting') || titleLower.includes('call') || titleLower.includes('email') || 
+    if (titleLower.includes('meeting') || titleLower.includes('email') ||
         titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
-        titleLower.includes('deadline') || titleLower.includes('presentation') || titleLower.includes('client')) {
+        titleLower.includes('deadline') || titleLower.includes('presentation') ||
+        titleLower.includes('client') || titleLower.includes('call client')) {
       return 'work';
     }
     
-    // Home-related keywords
-    if (titleLower.includes('clean') || titleLower.includes('laundry') || titleLower.includes('dishes') ||
-        titleLower.includes('vacuum') || titleLower.includes('organize') || titleLower.includes('repair') ||
-        titleLower.includes('maintenance') || titleLower.includes('garden') || titleLower.includes('yard')) {
-      return 'home';
-    }
-    
-    // Errands-related keywords
-    if (titleLower.includes('buy') || titleLower.includes('grocery') || titleLower.includes('shopping') ||
-        titleLower.includes('bank') || titleLower.includes('post office') || titleLower.includes('dmv') ||
-        titleLower.includes('pick up') || titleLower.includes('drop off') || titleLower.includes('return')) {
-      return 'errands';
-    }
-    
-    // Personal/learning keywords
-    if (titleLower.includes('read') || titleLower.includes('study') || titleLower.includes('learn') ||
-        titleLower.includes('practice') || titleLower.includes('course') || titleLower.includes('book') ||
-        titleLower.includes('research') || titleLower.includes('skill')) {
-      return 'personal';
-    }
-    
-    // Social keywords
-    if (titleLower.includes('call') || titleLower.includes('visit') || titleLower.includes('lunch') ||
-        titleLower.includes('dinner') || titleLower.includes('party') || titleLower.includes('event') ||
-        titleLower.includes('friend') || titleLower.includes('family')) {
+    // Social-related keywords
+    if (titleLower.includes('social') || titleLower.includes('friend') ||
+        titleLower.includes('family') || titleLower.includes('party') ||
+        titleLower.includes('gathering') || titleLower.includes('event')) {
       return 'social';
     }
     
@@ -636,7 +615,10 @@ export async function createTaskFromAI(args, userId, userContext) {
       .from('goals')
       .select('id, title')
       .eq('user_id', userId);
-    if (fetchError) return { error: fetchError.message };
+    if (fetchError) {
+      logger.error('Error fetching goals for task creation:', fetchError);
+      return { error: fetchError.message };
+    }
     const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
     if (match) goalId = match.id;
   }
@@ -672,7 +654,8 @@ export async function createTaskFromAI(args, userId, userContext) {
           }
         }
       }
-    }  }
+    }
+  }
 
   // Ensure due_date is stored as a proper date string to avoid timezone conversion
   let finalDueDate = parsedDueDate;
