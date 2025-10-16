@@ -169,6 +169,8 @@ class AuthService {
               isLoading: false,
               isAuthenticated: true,
             };
+            // Start background token refresh timer
+            this.startBackgroundRefresh();
           } else {
             // If user reconstruction failed but we have a valid token, 
             // attempt to fetch user profile from server
@@ -183,6 +185,8 @@ class AuthService {
                 isLoading: false,
                 isAuthenticated: true,
               };
+              // Start background token refresh timer
+              this.startBackgroundRefresh();
               // Save the user data to storage for future use
               await secureStorage.set('auth_user', JSON.stringify(profileResult.user));
             } else {

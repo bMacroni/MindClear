@@ -19,7 +19,7 @@ export const API_CONFIGS: Record<string, ApiConfig> = {
   }
 };
 
-class ConfigService {
+export class ConfigService {
   private static instance: ConfigService;
   private currentConfig: ApiConfig = __DEV__ ? API_CONFIGS.local : API_CONFIGS.hosted;
   private configKey = 'api_config';
@@ -42,6 +42,11 @@ class ConfigService {
   static getInstance(): ConfigService {
     if (!ConfigService.instance) {
       ConfigService.instance = new ConfigService();
+      // Load config immediately when creating the instance
+      // This ensures the exported singleton has persisted settings loaded
+      ConfigService.instance.loadConfig().catch(error => {
+        console.warn('Failed to load config in getInstance:', error);
+      });
     }
     return ConfigService.instance;
   }
