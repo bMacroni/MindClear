@@ -18,14 +18,6 @@ export function createMCPServer() {
   };
 
   // goal.*
-  const safeCall = async (fn, ...args) => {
-    try {
-      return await fn(...args);
-    } catch (e) {
-      logger.error('MCP tool error', e);
-      return { error: e?.message || 'Tool execution failed' };
-    }
-  };
 
   const validateArgs = (args, requiredFields) => {
     for (const field of requiredFields) {

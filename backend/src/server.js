@@ -16,7 +16,9 @@ try {
   logger.info('Configuration summary:', getConfigurationSummary());
 } catch (error) {
   logger.error('Configuration validation failed:', error.message);
-  process.exit(1);
+  if (process.env.NODE_ENV !== 'test') {
+    process.exit(1);
+  }
 }
 
 import express from 'express'
@@ -595,15 +597,17 @@ if (process.env.NODE_ENV !== 'test') {
 // Error handling middleware
 app.use(errorTracking);
 
-// Add error handlers
-process.on('uncaughtException', (err) => {
-  logger.error('Uncaught Exception:', err);
-  process.exit(1);
-});
+// Add error handlers (skip in test environment)
+if (process.env.NODE_ENV !== 'test') {
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception:', err);
+    process.exit(1);
+  });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+  });
+}
 
 export default app; 
