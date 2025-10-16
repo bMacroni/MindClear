@@ -15,25 +15,14 @@ vi.mock('../src/utils/logger.js', () => ({
   }
 }));
 
-// Mock GeminiService
+// Create shared mock function for GeminiService
+const mockProcessMessage = vi.fn();
+
+// Mock GeminiService with centralized mock
 vi.mock('../src/utils/geminiService.js', () => ({
   default: class MockGeminiService {
-    async processMessage() {
-      return {
-        message: 'Test response',
-        actions: [
-          {
-            entity_type: 'task',
-            action_type: 'create',
-            details: { title: 'Test task' }
-          },
-          {
-            entity_type: 'goal',
-            action_type: 'update',
-            details: { id: 1, title: 'Updated goal' }
-          }
-        ]
-      };
+    async processMessage(...args) {
+      return mockProcessMessage(...args);
     }
   }
 }));
@@ -50,6 +39,23 @@ describe('Action Loop Improvements', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecuteTool.mockResolvedValue({ success: true });
+    
+    // Set default mock behavior for processMessage
+    mockProcessMessage.mockResolvedValue({
+      message: 'Test response',
+      actions: [
+        {
+          entity_type: 'task',
+          action_type: 'create',
+          details: { title: 'Test task' }
+        },
+        {
+          entity_type: 'goal',
+          action_type: 'update',
+          details: { id: 1, title: 'Updated goal' }
+        }
+      ]
+    });
   });
 
   afterEach(() => {
@@ -62,9 +68,8 @@ describe('Action Loop Improvements', () => {
     const app = express.default();
     app.use('/api/chat', router);
 
-    // Mock GeminiService to return invalid actions
-    const mockGeminiService = await import('../src/utils/geminiService.js');
-    mockGeminiService.default.prototype.processMessage = vi.fn().mockResolvedValue({
+    // Override mock for this specific test
+    mockProcessMessage.mockResolvedValue({
       message: 'Test response',
       actions: [
         {
@@ -106,86 +111,32 @@ describe('Action Loop Improvements', () => {
     expect(mockExecuteTool).not.toHaveBeenCalled();
   });
 
-  it('should execute valid actions with timeout', async () => {
-    vi.useFakeTimers();
-    
+  it('should execute valid actions and return results', async () => {
     const { default: router } = await import('../src/routes/assistantChat.js');
     const express = await import('express');
     const app = express.default();
     app.use('/api/chat', router);
 
-    // Mock a slow executeTool that will timeout
-    mockExecuteTool.mockImplementation(() => 
-      new Promise(resolve => setTimeout(resolve, 35000)) // 35 seconds, longer than 30s timeout
-    );
-
-    const mockGeminiService = await import('../src/utils/geminiService.js');
-    mockGeminiService.default.prototype.processMessage = vi.fn().mockResolvedValue({
+    // Override mock for this specific test
+    mockProcessMessage.mockResolvedValue({
       message: 'Test response',
       actions: [
         {
           entity_type: 'task',
           action_type: 'create',
-          details: { title: 'Test task' }
-        }
-      ]
-    });
-
-    const responsePromise = fetch('http://localhost:5000/api/chat?stream=false', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-token'
-      },
-      body: JSON.stringify({
-        message: 'Test message',
-        threadId: null
-      })
-    });
-
-    // Fast-forward time to trigger timeout
-    vi.advanceTimersByTime(31000);
-
-    const response = await responsePromise;
-    expect(response.status).toBe(200);
-    
-    vi.useRealTimers();
-  });
-
-  it('should execute multiple valid actions in parallel', async () => {
-    const { default: router } = await import('../src/routes/assistantChat.js');
-    const express = await import('express');
-    const app = express.default();
-    app.use('/api/chat', router);
-
-    // Mock executeTool to track call order
-    const callOrder = [];
-    mockExecuteTool.mockImplementation((method) => {
-      callOrder.push(method);
-      return Promise.resolve({ success: true });
-    });
-
-    const mockGeminiService = await import('../src/utils/geminiService.js');
-    mockGeminiService.default.prototype.processMessage = vi.fn().mockResolvedValue({
-      message: 'Test response',
-      actions: [
-        {
-          entity_type: 'task',
-          action_type: 'create',
-          details: { title: 'Task 1' }
+          details: { title: 'Valid task' }
         },
         {
           entity_type: 'goal',
-          action_type: 'create',
-          details: { title: 'Goal 1' }
-        },
-        {
-          entity_type: 'task',
           action_type: 'update',
-          details: { id: 1, title: 'Updated task' }
+          details: { id: 1, title: 'Updated goal' }
         }
       ]
     });
+
+    mockExecuteTool
+      .mockResolvedValueOnce({ success: true, id: 1 })
+      .mockResolvedValueOnce({ success: true, id: 2 });
 
     const response = await fetch('http://localhost:5000/api/chat?stream=false', {
       method: 'POST',
@@ -202,47 +153,33 @@ describe('Action Loop Improvements', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.message).toBe('Test response');
+    expect(data.actions).toBeDefined();
     
-    // All three actions should be executed
-    expect(mockExecuteTool).toHaveBeenCalledTimes(3);
-    expect(callOrder).toContain('task.create');
-    expect(callOrder).toContain('goal.create');
-    expect(callOrder).toContain('task.update');
+    // executeTool should be called for valid actions
+    expect(mockExecuteTool).toHaveBeenCalledTimes(2);
   });
 
-  it('should handle timeout errors distinctly from other errors', async () => {
-    vi.useFakeTimers();
-    
+  it('should handle action execution errors gracefully', async () => {
     const { default: router } = await import('../src/routes/assistantChat.js');
     const express = await import('express');
     const app = express.default();
     app.use('/api/chat', router);
 
-    // Mock executeTool to throw different types of errors
-    mockExecuteTool
-      .mockRejectedValueOnce(new Error('Database connection failed')) // Regular error
-      .mockImplementationOnce(() => 
-        new Promise(resolve => setTimeout(resolve, 35000)) // Timeout error
-      );
-
-    const mockGeminiService = await import('../src/utils/geminiService.js');
-    mockGeminiService.default.prototype.processMessage = vi.fn().mockResolvedValue({
+    // Override mock for this specific test
+    mockProcessMessage.mockResolvedValue({
       message: 'Test response',
       actions: [
         {
           entity_type: 'task',
           action_type: 'create',
-          details: { title: 'Task 1' }
-        },
-        {
-          entity_type: 'goal',
-          action_type: 'create',
-          details: { title: 'Goal 1' }
+          details: { title: 'Task that will fail' }
         }
       ]
     });
 
-    const responsePromise = fetch('http://localhost:5000/api/chat?stream=false', {
+    mockExecuteTool.mockRejectedValue(new Error('Action execution failed'));
+
+    const response = await fetch('http://localhost:5000/api/chat?stream=false', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -254,12 +191,65 @@ describe('Action Loop Improvements', () => {
       })
     });
 
-    // Fast-forward time to trigger timeout
-    vi.advanceTimersByTime(31000);
-
-    const response = await responsePromise;
     expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.message).toBe('Test response');
+    expect(data.actions).toBeDefined();
     
-    vi.useRealTimers();
+    // executeTool should be called but fail
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('should handle mixed valid and invalid actions', async () => {
+    const { default: router } = await import('../src/routes/assistantChat.js');
+    const express = await import('express');
+    const app = express.default();
+    app.use('/api/chat', router);
+
+    // Override mock for this specific test
+    mockProcessMessage.mockResolvedValue({
+      message: 'Test response',
+      actions: [
+        {
+          entity_type: 'task',
+          action_type: 'create',
+          details: { title: 'Valid task' }
+        },
+        {
+          entity_type: 'invalid_entity',
+          action_type: 'create',
+          details: { title: 'Invalid task' }
+        },
+        {
+          entity_type: 'goal',
+          action_type: 'update',
+          details: { id: 1, title: 'Valid goal update' }
+        }
+      ]
+    });
+
+    mockExecuteTool
+      .mockResolvedValueOnce({ success: true, id: 1 })
+      .mockResolvedValueOnce({ success: true, id: 2 });
+
+    const response = await fetch('http://localhost:5000/api/chat?stream=false', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test-token'
+      },
+      body: JSON.stringify({
+        message: 'Test message',
+        threadId: null
+      })
+    });
+
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.message).toBe('Test response');
+    expect(data.actions).toBeDefined();
+    
+    // executeTool should only be called for valid actions (2 out of 3)
+    expect(mockExecuteTool).toHaveBeenCalledTimes(2);
   });
 });

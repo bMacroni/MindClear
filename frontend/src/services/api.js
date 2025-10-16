@@ -24,7 +24,9 @@ api.interceptors.request.use(
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       if (tz) config.headers['X-User-Timezone'] = tz;
-    } catch (_) {}
+    } catch (_) {
+      // Ignore timezone detection errors
+    }
     
     return config;
   },

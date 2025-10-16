@@ -19,8 +19,12 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
     const userId = req.user.id;
     const moodHeader = req.headers['x-user-mood'];
     const timeZoneHeader = req.headers['x-user-timezone'];
-    const token = req.headers.authorization?.split(' ')[1];
-    const stream = String(req.query.stream || '').toLowerCase() !== 'false' &&
+    // Validate Authorization header format
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Invalid Authorization header format' });
+    }
+    const token = authHeader.split(' ')[1];    const stream = String(req.query.stream || '').toLowerCase() !== 'false' &&
                    String(req.headers['accept'] || '').includes('text/event-stream');
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
@@ -122,11 +126,10 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
       const params = {
         data: action.details || {},
         userId,
-        userContext: { token, mood: moodHeader, timeZone: timeZoneHeader }
       };
       
       // Only add filters if args contains filter-specific data
-      if (action.args && Object.keys(action.args).length > 0) {
+      if (action.args && typeof action.args === 'object' && !Array.isArray(action.args) && Object.keys(action.args).length > 0) {
         params.filters = action.args;
       }
       

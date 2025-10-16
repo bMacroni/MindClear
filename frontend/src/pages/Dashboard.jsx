@@ -15,6 +15,7 @@ function Dashboard({ showSuccess }) {
   const [activeTab, setActiveTab] = useState('ai');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const runtime = useChatRuntime({ api: '/api/chat' });
 
   // Track screen views
   useEffect(() => {
@@ -55,7 +56,7 @@ function Dashboard({ showSuccess }) {
         >
           {activeTab === 'ai' && (
             <div className="h-full">
-              <AssistantRuntimeProvider runtime={useChatRuntime({ api: '/api/chat' })}>
+              <AssistantRuntimeProvider runtime={runtime}>
                 <AIChat onNavigateToTab={setActiveTab} />
               </AssistantRuntimeProvider>
             </div>

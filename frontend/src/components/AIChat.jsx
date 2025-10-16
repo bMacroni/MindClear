@@ -917,6 +917,7 @@ You’re making great strides!
                     const preview = lastMessageContent.length > PREVIEW_LENGTH 
                       ? lastMessageContent.slice(0, PREVIEW_LENGTH) + '…' 
                       : lastMessageContent;
+                    const isPinned = pinnedThreads.has(thread.id);
                     return (
                       <div
                         key={thread.id}
@@ -947,24 +948,14 @@ You’re making great strides!
                           <p className="text-xs text-gray-500 line-clamp-2">{preview}</p>
                         )}
                         <div className="flex items-center gap-2 mt-2">
-                     : lastMessageContent;
-                     const msgCount = typeof thread.message_count === 'number'
-                       ? thread.message_count
-                       : undefined;
-                   return (
-                     <div
-                       /* ...other props... */
-                     >
-                       {/* ...other elements... */}
-                       {typeof msgCount === 'number' && (
-                         <span
-                           className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200"
-                         >
-                           {msgCount} messages
-                         </span>
-                       )}
-                     </div>
-                   );                        </div>
+                          {typeof thread.message_count === 'number' && (
+                            <span
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200"
+                            >
+                              {thread.message_count} messages
+                            </span>
+                          )}
+                        </div>
                         
                         {/* Thread Menu */}
                         {showThreadMenu === thread.id && (
