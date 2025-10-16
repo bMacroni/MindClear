@@ -912,10 +912,11 @@ You’re making great strides!
                       createdAt = thread.last_message.created_at;
                     }
                     const formattedDate = formatRelativeTime(createdAt);
-                    const preview = thread.last_message?.content ? String(thread.last_message.content).slice(0, 80) + (String(thread.last_message.content).length > 80 ? '…' : '') : '';
-                    const msgCount = typeof thread.message_count === 'number' ? thread.message_count : undefined;
-                    const isPinned = pinnedThreads.has(thread.id);
-                    
+                    const PREVIEW_LENGTH = 80;
+                    const lastMessageContent = thread.last_message?.content ?? '';
+                    const preview = lastMessageContent.length > PREVIEW_LENGTH 
+                      ? lastMessageContent.slice(0, PREVIEW_LENGTH) + '…' 
+                      : lastMessageContent;
                     return (
                       <div
                         key={thread.id}
@@ -924,9 +925,18 @@ You’re making great strides!
                             ? 'bg-amber-50 border-amber-200'
                             : 'border-transparent hover:bg-gray-50'
                         }`}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => {
                           loadConversationThread(thread.id);
                           setShowMobileSidebar(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            loadConversationThread(thread.id);
+                            setShowMobileSidebar(false);
+                          }
                         }}
                       >
                         <div className="flex items-center justify-between mb-1">
@@ -1044,7 +1054,11 @@ You’re making great strides!
                     createdAt = thread.last_message.created_at;
                   }
                   const formattedDate = formatRelativeTime(createdAt);
-                  const preview = thread.last_message?.content ? String(thread.last_message.content).slice(0, 80) + (String(thread.last_message.content).length > 80 ? '…' : '') : '';
+                  const PREVIEW_LENGTH = 80;
+                  const lastMessageContent = thread.last_message?.content ?? '';
+                  const preview = lastMessageContent.length > PREVIEW_LENGTH 
+                    ? lastMessageContent.slice(0, PREVIEW_LENGTH) + '…' 
+                    : lastMessageContent;
                   const msgCount = typeof thread.message_count === 'number' ? thread.message_count : undefined;
                   const isPinned = pinnedThreads.has(thread.id);
                   

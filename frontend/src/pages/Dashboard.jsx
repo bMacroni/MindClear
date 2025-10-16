@@ -55,7 +55,6 @@ function Dashboard({ showSuccess }) {
         >
           {activeTab === 'ai' && (
             <div className="h-full">
-              {/* Assistant UI runtime provider for chat streaming */}
               <AssistantRuntimeProvider runtime={useChatRuntime({ api: '/api/chat' })}>
                 <AIChat onNavigateToTab={setActiveTab} />
               </AssistantRuntimeProvider>

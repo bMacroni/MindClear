@@ -37,11 +37,10 @@ export function getCSPConfig(): typeof BASE_CSP_CONFIG {
       ? [...BASE_CSP_CONFIG['script-src'], "'unsafe-eval'"] // Only in development
       : BASE_CSP_CONFIG['script-src'] // Production: no unsafe-eval
     ,
-    // In development, allow http: to support local APIs (e.g., http://localhost:5000)
+    // In development, allow localhost HTTP to support local APIs
     'connect-src': isDevelopment
-      ? [...BASE_CSP_CONFIG['connect-src'], 'http:']
-      : BASE_CSP_CONFIG['connect-src']
-  };
+      ? [...BASE_CSP_CONFIG['connect-src'], 'http://localhost:*']
+      : BASE_CSP_CONFIG['connect-src']  };
 }
 
 /**
