@@ -575,7 +575,7 @@ export async function createTaskFromAI(args, userId, userContext) {
 
   // Set default values
   const defaultPriority = priority || 'medium';
-  const defaultCategory = determineCategory(title, description, related_goal);
+  const defaultCategory = determineCategory(title, description);
   const defaultStatus = status || 'not_started';
   const defaultDeadlineType = deadline_type || 'soft';
 
