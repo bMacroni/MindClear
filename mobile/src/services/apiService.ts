@@ -32,6 +32,7 @@ export async function apiFetch<T = any>(
 ): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
+  const startTime = Date.now();
   
   try {
     // Get auth token if available
@@ -67,11 +68,51 @@ export async function apiFetch<T = any>(
       headers['Content-Type'] = 'application/json';
     }
     
-    const res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
+    let res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
       ...init,
       signal: controller.signal,
       headers,
     });
+    
+    // Handle 401 Unauthorized - attempt token refresh and retry (only once per request)
+    if (res.status === 401 && token && !(init as any).retryAttempted) {
+      logger.info('Received 401, attempting token refresh...');
+      try {
+        // Use single-flight refresh to avoid concurrent refresh races
+        const refreshSuccess = await authService.refreshToken();
+        if (refreshSuccess) {
+          logger.info('Token refresh successful, retrying request...');
+          // Get the new token and retry the request
+          const newToken = await authService.getAuthToken();
+          if (newToken) {
+            headers['Authorization'] = `Bearer ${newToken}`;
+            
+            // Create a new abort controller for retry with remaining time
+            const retryController = new AbortController();
+            const remainingTime = Math.max(1000, timeoutMs - (Date.now() - startTime));
+            const retryId = setTimeout(() => retryController.abort(), remainingTime);
+
+            // Mark this request as having attempted a retry to prevent infinite loops
+            const retryInit = { ...init, retryAttempted: true };
+
+            // Retry the original request with new token
+            try {
+              res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
+                ...retryInit,
+                signal: retryController.signal,
+                headers,
+              });
+            } finally {
+              clearTimeout(retryId);
+            }
+          }
+        }
+      } catch (error) {
+        logger.error('Token refresh failed:', error);
+        // Treat refresh as failed - do not retry, let the 401 response flow through
+        // This ensures proper API error response path instead of throwing
+      }
+    }
     
     const text = await res.text();
     let data: any = null;
@@ -109,7 +150,7 @@ export async function apiFetch<T = any>(
     return { ok: true, status: res.status, data };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      console.error('API request timed out:', path);
+      logger.error('API request timed out:', path);
       return { 
         ok: false, 
         status: 408, 
@@ -121,7 +162,7 @@ export async function apiFetch<T = any>(
       };
     }
     
-    console.error('API request failed:', path, error);
+    logger.error('API request failed:', path, error);
     return { 
       ok: false, 
       status: 0, 

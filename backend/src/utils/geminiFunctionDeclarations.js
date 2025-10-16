@@ -3,20 +3,20 @@ import { Type } from '@google/genai';
 // Task Functions
 export const createTaskFunctionDeclaration = {
   name: 'create_task',
-  description: 'Creates a new task for the user. Use this ONLY when the user explicitly asks to add, create, or set up a new task. Do NOT use this for requests like "What are my tasks?" or "Show me my tasks". Example user prompts: "Add a task to buy groceries", "Create a new task for tomorrow", "Remind me to call mom".',
+  description: 'Creates a new task for the user. Use this ONLY when the user explicitly asks to add, create, or set up a new task. Do NOT use this for requests like "What are my tasks?" or "Show me my tasks". Example user prompts: "Add a task to buy groceries", "Create a new task for tomorrow", "Remind me to call mom". IMPORTANT: When creating tasks, always try to gather additional details from the user through conversation. Ask about description, priority, due date, and category. If the user doesn\'t provide specific information, use your best judgment to set appropriate default values.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       title: { type: Type.STRING, description: 'Task title' },
-      description: { type: Type.STRING, description: 'Task details' },
-      due_date: { type: Type.STRING, description: 'Due date (YYYY-MM-DD)' },
-      priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Task priority' },
+      description: { type: Type.STRING, description: 'Task details and notes' },
+      due_date: { type: Type.STRING, description: 'Due date (YYYY-MM-DD or natural language like "tomorrow", "next week")' },
+      priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Task priority - use "medium" as default if not specified' },
       related_goal: { type: Type.STRING, description: 'Associated goal title' },
       preferred_time_of_day: { type: Type.STRING, description: 'Preferred time of day for the task (morning, afternoon, evening, any)' },
-      deadline_type: { type: Type.STRING, description: 'Deadline type: hard (must be done by due date) or soft (flexible)' },
+      deadline_type: { type: Type.STRING, enum: ['hard', 'soft'], description: 'Deadline type: hard (must be done by due date) or soft (flexible) - default to "soft"' },
       travel_time_minutes: { type: Type.NUMBER, description: 'Estimated travel time in minutes to the task location' },
-      category: { type: Type.STRING, description: 'Task category (e.g., work, personal, health, etc.)' },
-      status: { type: Type.STRING, description: 'Task status (e.g., not_started, in_progress, completed)' },
+      category: { type: Type.STRING, description: 'Task category (e.g., work, personal, health, home, errands, etc.) - use your best judgment to assign appropriate category' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Task status - default to "not_started"' },
       recurrence: { type: Type.STRING, description: 'Recurrence rule for repeating tasks (e.g., daily, weekly, custom RRULE)' }
     },
     required: ['title']
@@ -37,10 +37,10 @@ export const updateTaskFunctionDeclaration = {
       related_goal: { type: Type.STRING, description: 'Associated goal title' },
       completed: { type: Type.BOOLEAN, description: 'Task completion status. If provided, mirror to status as completed/not_started.' },
       preferred_time_of_day: { type: Type.STRING, description: 'Preferred time of day for the task (morning, afternoon, evening, any)' },
-      deadline_type: { type: Type.STRING, description: 'Deadline type: hard (must be done by due date) or soft (flexible)' },
+      deadline_type: { type: Type.STRING, enum: ['hard', 'soft'], description: 'Deadline type: hard (must be done by due date) or soft (flexible)' },
       travel_time_minutes: { type: Type.NUMBER, description: 'Estimated travel time in minutes to the task location' },
       category: { type: Type.STRING, description: 'Task category (e.g., work, personal, health, etc.)' },
-      status: { type: Type.STRING, description: 'Task status (e.g., not_started, in_progress, completed). If provided, mirror to completed boolean.' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Task status. If provided, mirror to completed boolean.' },
       recurrence: { type: Type.STRING, description: 'Recurrence rule for repeating tasks (e.g., daily, weekly, custom RRULE)' }
     },
     required: [] // id is required if known, but not always present
@@ -70,11 +70,11 @@ export const readTaskFunctionDeclaration = {
       due_date: { type: Type.STRING, description: 'Due date (YYYY-MM-DD)' },
       related_goal: { type: Type.STRING, description: 'Associated goal title' },
       priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Task priority' },
-      status: { type: Type.STRING, description: 'Task status (e.g., not_started, in_progress, completed)' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Task status' },
       completed: { type: Type.BOOLEAN, description: 'Task completion status' },
       category: { type: Type.STRING, description: 'Task category (e.g., work, personal, health, etc.)' },
       preferred_time_of_day: { type: Type.STRING, description: 'Preferred time of day for the task (morning, afternoon, evening, any)' },
-      deadline_type: { type: Type.STRING, description: 'Deadline type: hard (must be done by due date) or soft (flexible)' },
+      deadline_type: { type: Type.STRING, enum: ['hard', 'soft'], description: 'Deadline type: hard (must be done by due date) or soft (flexible)' },
       recurrence: { type: Type.STRING, description: 'Recurrence rule for repeating tasks (e.g., daily, weekly, custom RRULE)' }
     },
     required: []
@@ -103,7 +103,7 @@ export const createGoalFunctionDeclaration = {
       due_date: { type: Type.STRING, description: 'Due date (YYYY-MM-DD)' },
       priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Goal priority' },
       category: { type: Type.STRING, description: 'Goal category (e.g., health, career, personal, etc.)' },
-      status: { type: Type.STRING, description: 'Goal status (e.g., not_started, in_progress, completed)' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Goal status' },
       milestones: { 
         type: Type.ARRAY, 
         description: 'Array of milestones for the goal. Each milestone should have a title and optional steps.',
@@ -146,7 +146,7 @@ export const updateGoalFunctionDeclaration = {
       due_date: { type: Type.STRING, description: 'Due date (YYYY-MM-DD)' },
       priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Goal priority' },
       category: { type: Type.STRING, description: 'Goal category (e.g., health, career, personal, etc.)' },
-      status: { type: Type.STRING, description: 'Goal status (e.g., not_started, in_progress, completed)' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Goal status' },
       milestones: { 
         type: Type.ARRAY, 
         description: 'Array of milestones for the goal. Each milestone should have a title and optional steps.',
@@ -204,7 +204,7 @@ export const lookupGoalbyTitleFunctionDeclaration = {
       search: { type: Type.STRING, description: 'Keyword to search for in goal title (case-insensitive, partial match allowed)' },
       category: { type: Type.STRING, description: 'Goal category to filter by (e.g., health, career, personal, etc.)' },
       priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Goal priority to filter by' },
-      status: { type: Type.STRING, description: 'Goal status to filter by (e.g., not_started, in_progress, completed)' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Goal status to filter by' },
       due_date: { type: Type.STRING, description: 'Due date to filter by (YYYY-MM-DD)' },
       limit: { type: Type.NUMBER, description: 'Maximum number of results to return. Use 1 when identifying a single goal (default behavior when search is provided).' }
     },
@@ -232,7 +232,7 @@ Only return full goal objects when the user requests details. Example user promp
       search: { type: Type.STRING, description: 'Keyword to search for in goal title (case-insensitive, partial match allowed)' },
       category: { type: Type.STRING, description: 'Goal category to filter by (e.g., health, career, personal, etc.)' },
       priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Goal priority to filter by' },
-      status: { type: Type.STRING, description: 'Goal status to filter by (e.g., not_started, in_progress, completed)' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Goal status to filter by' },
       due_date: { type: Type.STRING, description: 'Due date to filter by (YYYY-MM-DD)' }
     },
     required: []
@@ -248,7 +248,7 @@ export const getGoalTitlesFunctionDeclaration = {
       search: { type: Type.STRING, description: 'Keyword to search for in goal title (case-insensitive, partial match allowed)' },
       category: { type: Type.STRING, description: 'Goal category to filter by (e.g., health, career, personal, etc.)' },
       priority: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Goal priority to filter by' },
-      status: { type: Type.STRING, description: 'Goal status to filter by (e.g., not_started, in_progress, completed)' },
+      status: { type: Type.STRING, enum: ['not_started', 'in_progress', 'completed'], description: 'Goal status to filter by' },
       due_date: { type: Type.STRING, description: 'Due date to filter by (YYYY-MM-DD)' }
     },
     required: []
