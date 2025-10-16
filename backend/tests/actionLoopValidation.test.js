@@ -1,29 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { validateAction } from '../src/utils/actionValidation.js';
 
 describe('Action Loop Validation Logic', () => {
   it('should validate entity_type and action_type correctly', () => {
-    // Test the validation logic directly
-    const VALID_ENTITY_TYPES = ['task', 'goal', 'milestone', 'calendar', 'user', 'notification'];
-    const VALID_ACTION_TYPES = ['create', 'update', 'delete', 'read'];
-    
-    const validateAction = (action) => {
-      if (!action || typeof action !== 'object') {
-        return { valid: false, error: 'Action must be a valid object' };
-      }
-      if (!action.entity_type || typeof action.entity_type !== 'string') {
-        return { valid: false, error: 'entity_type is required and must be a string' };
-      }
-      if (!action.action_type || typeof action.action_type !== 'string') {
-        return { valid: false, error: 'action_type is required and must be a string' };
-      }
-      if (!VALID_ENTITY_TYPES.includes(action.entity_type)) {
-        return { valid: false, error: `Invalid entity_type: ${action.entity_type}. Must be one of: ${VALID_ENTITY_TYPES.join(', ')}` };
-      }
-      if (!VALID_ACTION_TYPES.includes(action.action_type)) {
-        return { valid: false, error: `Invalid action_type: ${action.action_type}. Must be one of: ${VALID_ACTION_TYPES.join(', ')}` };
-      }
-      return { valid: true };
-    };
+    // Test the validation logic using the real validateAction function
 
     // Test valid action
     const validAction = {
@@ -82,18 +62,24 @@ describe('Action Loop Validation Logic', () => {
       entity_type: 'task',
       action_type: 'create'
     };
-    const method = `${action.entity_type}.${action.action_type}`;
+    const method = constructMethodName(action);
     expect(method).toBe('task.create');
   });
 
-  it('should handle timeout promise race logic', () => {
+  it('should handle timeout promise race logic', async () => {
+    vi.useFakeTimers();
     const ACTION_TIMEOUT_MS = 30000;
     
-    // Test timeout promise creation
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error(`Action timeout after ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS);
     });
     
+    // Verify the promise is created
     expect(timeoutPromise).toBeInstanceOf(Promise);
-  });
-});
+    
+    // Fast-forward time and verify rejection
+    vi.advanceTimersByTime(ACTION_TIMEOUT_MS);
+    await expect(timeoutPromise).rejects.toThrow('Action timeout after 30000ms');
+    
+    vi.useRealTimers();
+  });});

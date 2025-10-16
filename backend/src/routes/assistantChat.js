@@ -3,6 +3,8 @@ import { requireAuth as enhancedRequireAuth } from '../middleware/enhancedAuth.j
 import GeminiService from '../utils/geminiService.js';
 import logger from '../utils/logger.js';
 import { executeTool } from '../mcp/client.js';
+import { constructMethodName } from '../utils/actionUtils.js';
+import { validateAction } from '../utils/actionValidation.js';
 
 const router = express.Router();
 const geminiService = new GeminiService();
@@ -19,12 +21,8 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
     const userId = req.user.id;
     const moodHeader = req.headers['x-user-mood'];
     const timeZoneHeader = req.headers['x-user-timezone'];
-    // Validate Authorization header format
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Invalid Authorization header format' });
-    }
-    const token = authHeader.split(' ')[1];    const stream = String(req.query.stream || '').toLowerCase() !== 'false' &&
+    const token = req.headers.authorization.split(' ')[1];
+    const stream = String(req.query.stream || '').toLowerCase() !== 'false' &&
                    String(req.headers['accept'] || '').includes('text/event-stream');
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
@@ -91,35 +89,14 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
     
     // Configuration for action execution
     const ACTION_TIMEOUT_MS = 30000; // 30 seconds per action
-    const VALID_ENTITY_TYPES = ['task', 'goal', 'milestone', 'calendar', 'user', 'notification'];
-    const VALID_ACTION_TYPES = ['create', 'update', 'delete', 'read'];
-    
-    // Helper function to validate action inputs
-    const validateAction = (action) => {
-      if (!action || typeof action !== 'object') {
-        return { valid: false, error: 'Action must be a valid object' };
-      }
-      if (!action.entity_type || typeof action.entity_type !== 'string') {
-        return { valid: false, error: 'entity_type is required and must be a string' };
-      }
-      if (!action.action_type || typeof action.action_type !== 'string') {
-        return { valid: false, error: 'action_type is required and must be a string' };
-      }
-      if (!VALID_ENTITY_TYPES.includes(action.entity_type)) {
-        return { valid: false, error: `Invalid entity_type: ${action.entity_type}. Must be one of: ${VALID_ENTITY_TYPES.join(', ')}` };
-      }
-      if (!VALID_ACTION_TYPES.includes(action.action_type)) {
-        return { valid: false, error: `Invalid action_type: ${action.action_type}. Must be one of: ${VALID_ACTION_TYPES.join(', ')}` };
-      }
-      return { valid: true };
-    };
     
     // Helper function to execute a single action with timeout
     const executeActionWithTimeout = async (action) => {
-      const method = `${action.entity_type}.${action.action_type}`;
+      const method = constructMethodName(action);
       
+      let timeoutId;
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`Action timeout after ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS);
+        timeoutId = setTimeout(() => reject(new Error(`Action timeout after ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS);
       });
       
       // Use details as the canonical data field, args for filters when present
@@ -135,17 +112,20 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
       
       const actionPromise = executeTool(method, params);
       
-      return Promise.race([actionPromise, timeoutPromise]);
+      try {
+        return await Promise.race([actionPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
     };
     
-    // Filter and validate actions
-    const validActions = [];
+    // Process each action
     for (const action of actions) {
       const validation = validateAction(action);
       if (!validation.valid) {
         send({ 
           type: 'action_result', 
-          method: action?.entity_type && action?.action_type ? `${action.entity_type}.${action.action_type}` : 'unknown', 
+          method: constructMethodName(action), 
           ok: false, 
           error: validation.error 
         });
@@ -159,7 +139,7 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
     // Execute actions in parallel (since they're independent operations)
     if (validActions.length > 0) {
       const actionPromises = validActions.map(async (action) => {
-        const method = `${action.entity_type}.${action.action_type}`;
+        const method = constructMethodName(action);
         try {
           await executeActionWithTimeout(action);
           send({ type: 'action_result', method, ok: true });
