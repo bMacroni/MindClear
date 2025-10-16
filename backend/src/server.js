@@ -28,6 +28,7 @@ import {
   helmetConfig, 
   globalRateLimit, 
   authRateLimit, 
+  chatRateLimit,
   slowDownConfig, 
   compressionConfig, 
   requestSizeLimit, 
@@ -255,7 +256,7 @@ if (process.env.DEBUG_LOGS === 'true') logger.info('Analytics router registered'
 
 // Assistant UI streaming chat route (additive, does not affect mobile)
 if (process.env.DEBUG_LOGS === 'true') logger.info('Registering assistant chat router...');
-app.use('/api/chat', assistantChatRouter);
+app.use('/api/chat', requireAuth, chatRateLimit, assistantChatRouter);
 if (process.env.DEBUG_LOGS === 'true') logger.info('Assistant chat router registered');
 
 async function getAllUserIds() {

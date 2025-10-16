@@ -14,6 +14,11 @@ const client = new JSONRPCClient(async (jsonRPCRequest) => {
     // Log the error for diagnostics
     console.error('MCP server.receive error:', error);
     
+    // Don't send error responses for notifications (requests without id)
+    if (jsonRPCRequest.id === undefined) {
+      return;
+    }
+    
     // Construct and send a proper JSON-RPC error response
     const errorResponse = {
       jsonrpc: "2.0",
@@ -26,8 +31,7 @@ const client = new JSONRPCClient(async (jsonRPCRequest) => {
     };
     
     client.receive(errorResponse);
-  }
-});
+  }});
 
 export async function executeTool(method, params) {
   return client.request(method, params);

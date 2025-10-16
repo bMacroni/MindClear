@@ -947,10 +947,24 @@ You’re making great strides!
                           <p className="text-xs text-gray-500 line-clamp-2">{preview}</p>
                         )}
                         <div className="flex items-center gap-2 mt-2">
-                          {typeof msgCount === 'number' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200">{msgCount} messages</span>
-                          )}
-                        </div>
+                     : lastMessageContent;
+                     const msgCount = typeof thread.message_count === 'number'
+                       ? thread.message_count
+                       : undefined;
+                   return (
+                     <div
+                       /* ...other props... */
+                     >
+                       {/* ...other elements... */}
+                       {typeof msgCount === 'number' && (
+                         <span
+                           className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200"
+                         >
+                           {msgCount} messages
+                         </span>
+                       )}
+                     </div>
+                   );                        </div>
                         
                         {/* Thread Menu */}
                         {showThreadMenu === thread.id && (
@@ -1151,8 +1165,13 @@ You’re making great strides!
             </div>
             <div className="flex items-center gap-2">
               {/* Action buttons reserved for future (rename, delete, more) */}
-              <button className="h-8 w-8 rounded-md border border-gray-200 text-gray-600 text-sm">⋯</button>
-            </div>
+              <button 
+                className="h-8 w-8 rounded-md border border-gray-200 text-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+                title="More actions (coming soon)"
+              >
+                ⋯
+              </button>            </div>
           </div>
         </div>
         {/* Messages Area (scrollable) */}
@@ -1281,7 +1300,7 @@ You’re making great strides!
                 </svg>
               </button>
             </form>
-            <p className="text-xs text-gray-500 text-center mt-2">Foci AI is here to support you. Press Enter to send, Shift+Enter for new line.</p>
+            <p className="text-xs text-gray-500 text-center mt-2">Mind Clear AI is here to support you. Press Enter to send, Shift+Enter for new line.</p>
           </div>
         </div>
       </div>
@@ -2052,7 +2071,7 @@ const MessageBubble = ({ message, onQuickAction }) => {
                 <path d="M12 2l1.8 4.2L18 8l-4.2 1.8L12 14l-1.8-4.2L6 8l4.2-1.8L12 2z" />
               </svg>
             </div>
-            <span className="text-xs font-medium text-gray-500">Foci AI</span>
+            <span className="text-xs font-medium text-gray-500">Mind Clear AI</span>
             {message.timestamp && (
               <span className="ml-auto text-[11px] text-gray-400">{formatRelativeTime(message.timestamp)}</span>
             )}

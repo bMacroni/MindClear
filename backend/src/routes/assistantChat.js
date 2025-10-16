@@ -29,28 +29,22 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
 
     // Non-streaming fallback (JSON)
     if (!stream) {
-      if (!stream) {
-        try {
-          const response = await geminiService.processMessage(
-            message,
-            userId,
-            threadId,
-            { token, mood: moodHeader, timeZone: timeZoneHeader }
-          );
-          const safeMessage = typeof response.message === 'string' ? response.message : '';
-          return res.status(200).json({
-            message: safeMessage || 'I apologize, but I did not receive a proper response. Please try again.',
-            actions: Array.isArray(response.actions) ? response.actions : []
-          });
-        } catch (error) {
-          logger.error('Non-streaming message processing failed:', error);
-          return res.status(500).json({ error: 'Failed to process message' });
-        }
-      }      const safeMessage = typeof response.message === 'string' ? response.message : '';
-      return res.status(200).json({
-        message: safeMessage || 'I apologize, but I did not receive a proper response. Please try again.',
-        actions: Array.isArray(response.actions) ? response.actions : []
-      });
+      try {
+        const response = await geminiService.processMessage(
+          message,
+          userId,
+          threadId,
+          { token, mood: moodHeader, timeZone: timeZoneHeader }
+        );
+        const safeMessage = typeof response.message === 'string' ? response.message : '';
+        return res.status(200).json({
+          message: safeMessage || 'I apologize, but I did not receive a proper response. Please try again.',
+          actions: Array.isArray(response.actions) ? response.actions : []
+        });
+      } catch (error) {
+        logger.error('Non-streaming message processing failed:', error);
+        return res.status(500).json({ error: 'Failed to process message' });
+      }
     }
 
     // Streaming via Server-Sent Events (SSE)
@@ -80,6 +74,16 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
 
     // Optionally execute actions via MCP (server-side) for create/update/delete flows
     const actions = Array.isArray(response.actions) ? response.actions : [];
+    
+    /**
+     * Action structure from Gemini service:
+     * {
+     *   action_type: 'create' | 'update' | 'delete' | 'read',
+     *   entity_type: 'task' | 'goal' | 'milestone' | 'calendar' | 'user' | 'notification',
+     *   details: object,     // Canonical data field - contains parsed/structured data for the action
+     *   args: object         // Optional - contains raw function call arguments, used for filters when present
+     * }
+     */
     
     // Configuration for action execution
     const ACTION_TIMEOUT_MS = 30000; // 30 seconds per action
@@ -114,12 +118,19 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
         setTimeout(() => reject(new Error(`Action timeout after ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS);
       });
       
-      const actionPromise = executeTool(method, {
-        data: action.details || action.args || {},
-        filters: action.args || {},
+      // Use details as the canonical data field, args for filters when present
+      const params = {
+        data: action.details || {},
         userId,
         userContext: { token, mood: moodHeader, timeZone: timeZoneHeader }
-      });
+      };
+      
+      // Only add filters if args contains filter-specific data
+      if (action.args && Object.keys(action.args).length > 0) {
+        params.filters = action.args;
+      }
+      
+      const actionPromise = executeTool(method, params);
       
       return Promise.race([actionPromise, timeoutPromise]);
     };
@@ -189,5 +200,3 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
 });
 
 export default router;
-
-
