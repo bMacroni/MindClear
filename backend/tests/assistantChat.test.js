@@ -27,7 +27,7 @@ jest.mock('../src/routes/assistantChat.js', () => {
   return router;
 });
 
-import app from '../src/server.js';
+import app from './testServer.js';
 
 describe('Streaming Chat API (/api/chat)', () => {
   it('responds with JSON when stream=false and authenticated', async () => {
