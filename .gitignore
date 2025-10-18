@@ -122,3 +122,5 @@ frontend/interfaceexamples/ai-chat-page.tsx
 frontend/interfaceexamples/ui/scroll-area.tsx
 backend/docs/FOCUS_NOTIFICATION_OPTIMIZATION.md
 backend/tests/focusNotification.test.js
+backend/tests/focusNotification.test.js
+backend/tests/focusNotification.test.js
