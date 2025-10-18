@@ -76,4 +76,5 @@ public class FCMService extends FirebaseMessagingService {
             int notificationId = (int) System.currentTimeMillis();
             notificationManager.notify(notificationId, notificationBuilder.build());
         }
-    }}
+    }
+}

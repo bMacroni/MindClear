@@ -96,6 +96,7 @@ export async function updateUserProfile(req, res) {
     geographic_location,
     theme_preference,
     notification_preferences,
+    timezone,
   } = req.body;
 
   const token = req.headers.authorization?.split(' ')[1];
@@ -109,6 +110,7 @@ export async function updateUserProfile(req, res) {
     ...(geographic_location !== undefined && { geographic_location }),
     ...(theme_preference !== undefined && { theme_preference }),
     ...(notification_preferences !== undefined && { notification_preferences }),
+    ...(timezone !== undefined && { timezone }),
   };
 
   const { data, error } = await supabase

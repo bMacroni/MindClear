@@ -565,7 +565,7 @@ const sendDailyFocusReminders = async () => {
     const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD format
 
     // Query users who should receive their focus notification now
-    // We check users where it's 7 AM in their timezone
+    // We check users where it's their configured focus notification time in their timezone
     const { data: users, error: usersError } = await supabase
       .from('users')
       .select(`
@@ -629,8 +629,16 @@ const sendDailyFocusReminders = async () => {
         const userHour = userTime.getHours();
         const userMinute = userTime.getMinutes();
         
-        // Check if it's within the notification time window (7:00-7:59 AM)
-        if (userHour !== 7) {
+        // Parse user's configured focus notification time (default to 07:00 if missing)
+        const focusTime = user.focus_notification_time || '07:00:00';
+        const [targetHour, targetMinute] = focusTime.split(':').map(Number);
+        
+        // Check if it's within the notification time window (target hour and minute)
+        // Allow a 1-minute window for cron job timing flexibility
+        const isTargetHour = userHour === targetHour;
+        const isTargetMinute = userMinute === targetMinute || userMinute === targetMinute + 1;
+        
+        if (!isTargetHour || !isTargetMinute) {
           continue;
         }
 

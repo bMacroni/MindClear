@@ -3,6 +3,11 @@ import { notificationsAPI } from './api';
 // import PushNotification from 'react-native-push-notification'; // A popular library for local notifications and badge count
 
 class NotificationService {
+  // Unsubscribe functions for cleanup
+  private foregroundUnsubscribe: (() => void) | null = null;
+  private openedUnsubscribe: (() => void) | null = null;
+  private tokenRefreshUnsubscribe: (() => void) | null = null;
+
   private setBadgeCount(count: number) {
     // This is where you would integrate with a library like react-native-push-notification
     // or another library to set the app icon badge count.
@@ -63,11 +68,9 @@ class NotificationService {
           console.log(`Notification permission ${granted ? 'granted' : 'denied'}`);
           return granted;
         } else {
-          // For older Android versions, use simple request
-          const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-          const granted = result === PermissionsAndroid.RESULTS.GRANTED;
-          console.log(`Notification permission ${granted ? 'granted' : 'denied'} for Android ${androidVersion}`);
-          return granted;
+          // < Android 13: no runtime notif permission required
+          console.log(`Notification permission not required on Android ${androidVersion}`);
+          return true;
         }
       } else if (Platform.OS === 'ios') {
         // iOS notification permissions will be handled by the backend push notification system
@@ -167,12 +170,19 @@ class NotificationService {
 
   private async setupForegroundHandler() {
     try {
+      // Clear any existing listeners first
+      this.cleanup();
+      
       const messaging = (await import('@react-native-firebase/messaging')).default;
       
       // Handle foreground messages
-      messaging().onMessage(async remoteMessage => {
+      this.foregroundUnsubscribe = messaging().onMessage(async remoteMessage => {
         try {
-          console.log('Foreground notification received:', remoteMessage);
+          if (__DEV__) {
+            console.log('Foreground notification received:', remoteMessage);
+          } else {
+            console.log('Foreground notification received');
+          }
           
           // Update badge count
           await this.updateBadgeCount();
@@ -191,9 +201,29 @@ class NotificationService {
       });
       
       // Handle notification opened app (from background/killed state)
-      messaging().onNotificationOpenedApp(remoteMessage => {
-        console.log('Notification opened app from background:', remoteMessage);
+      this.openedUnsubscribe = messaging().onNotificationOpenedApp(remoteMessage => {
+        if (__DEV__) {
+          console.log('Notification opened app from background:', remoteMessage);
+        } else {
+          console.log('Notification opened app from background');
+        }
         // Handle navigation based on notification data
+      });
+      
+      // Handle token refresh
+      this.tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (fcmToken) => {
+        try {
+          if (__DEV__) {
+            console.log('FCM token refreshed:', fcmToken);
+          } else {
+            console.log('FCM token refreshed');
+          }
+          
+          // Re-register token with backend
+          await this.registerTokenWithBackend(fcmToken);
+        } catch (error) {
+          console.error('Error handling token refresh:', error);
+        }
       });
       
       // Handle notification that opened app from killed state
@@ -201,7 +231,11 @@ class NotificationService {
         .getInitialNotification()
         .then(remoteMessage => {
           if (remoteMessage) {
-            console.log('Notification opened app from killed state:', remoteMessage);
+            if (__DEV__) {
+              console.log('Notification opened app from killed state:', remoteMessage);
+            } else {
+              console.log('Notification opened app from killed state');
+            }
           }
         })
         .catch(error => {
@@ -215,7 +249,11 @@ class NotificationService {
   // Handle background notifications
   public async handleBackgroundNotification(remoteMessage: any) {
     try {
-      console.log('Handling background notification:', remoteMessage);
+      if (__DEV__) {
+        console.log('Handling background notification:', remoteMessage);
+      } else {
+        console.log('Handling background notification');
+      }
       
       // Update badge count
       await this.updateBadgeCount();
@@ -250,6 +288,35 @@ class NotificationService {
     } catch (error) {
       console.error('Notification service initialization failed:', error);
       console.log('Continuing without push notifications...');
+    }
+  }
+
+  /**
+   * Cleanup method to remove all notification listeners
+   * Call this when the service is no longer needed or before re-initializing
+   */
+  public cleanup(): void {
+    try {
+      if (this.foregroundUnsubscribe) {
+        this.foregroundUnsubscribe();
+        this.foregroundUnsubscribe = null;
+      }
+      
+      if (this.openedUnsubscribe) {
+        this.openedUnsubscribe();
+        this.openedUnsubscribe = null;
+      }
+      
+      if (this.tokenRefreshUnsubscribe) {
+        this.tokenRefreshUnsubscribe();
+        this.tokenRefreshUnsubscribe = null;
+      }
+      
+      if (__DEV__) {
+        console.log('Notification service listeners cleaned up');
+      }
+    } catch (error) {
+      console.error('Error during notification service cleanup:', error);
     }
   }
 }

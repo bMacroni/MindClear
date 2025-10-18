@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert, Modal } from 'react-native';
-// import { Picker } from '@react-native-picker/picker'; // Temporarily disabled
+import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -365,6 +365,7 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={styles.rowLabel}>Tasks</Text>
           <Switch
             testID="tasks-notification-toggle"
+            accessibilityLabel="Toggle tasks notifications"
             value={prefs.categories.tasks}
             onValueChange={async (v) => {
               const prevValue = prefs.categories.tasks;
@@ -424,8 +425,7 @@ export default function ProfileScreen({ navigation }: any) {
         />
         <Text style={styles.inputLabel}>Timezone</Text>
         <Text style={styles.inputLabel}>Current: {timezone}</Text>
-        {/* Temporarily disabled picker - install @react-native-picker/picker to enable */}
-        {/* <View style={styles.pickerContainer}>
+        <View style={styles.pickerContainer}>
           <Picker
             testID="timezone-picker"
             selectedValue={timezone}
@@ -444,7 +444,7 @@ export default function ProfileScreen({ navigation }: any) {
             <Picker.Item label="Asia/Tokyo (JST)" value="Asia/Tokyo" />
             <Picker.Item label="Australia/Sydney (AEST)" value="Australia/Sydney" />
           </Picker>
-        </View> */}
+        </View>
         <TouchableOpacity style={[styles.cta, savingProfile && { opacity: 0.7 }]} onPress={saveProfile} disabled={savingProfile}>
           <Icon name="check" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
           <Text style={styles.ctaText}>{savingProfile ? 'Saving…' : 'Save Changes'}</Text>
