@@ -528,8 +528,10 @@ const sendTaskReminders = async () => {
 // Schedule task reminder check to run every 5 minutes
 cron.schedule('*/5 * * * *', sendTaskReminders);
 
-// --- Daily Focus Reminder Cron Job ---
+// --- Daily Focus Reminder Cron Job (Optimized) ---
 const sendDailyFocusReminders = async () => {
+  const startTime = Date.now();
+  
   // Check if Supabase is initialized
   if (!supabase) {
     logger.warn('[CRON] Supabase client not initialized. Skipping daily focus reminders.');
@@ -541,21 +543,25 @@ const sendDailyFocusReminders = async () => {
   try {
     // Get current time in UTC
     const now = new Date();
-    const currentHour = now.getUTCHours();
     const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD format
 
-    // Query users who should receive their focus notification now
-    // We check users where it's their configured focus notification time in their timezone
+    // Optimized SQL query: Use database-level filtering to find users who need notifications
+    // This replaces the in-memory scan with a targeted SQL query
+    const queryStartTime = Date.now();
+    
     const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select(`
-        id,
-        full_name,
-        timezone,
-        focus_notification_time,
-        last_focus_notification_sent
-      `)
-      .not('timezone', 'is', null);
+      .rpc('get_users_for_focus_notifications', {
+        current_utc_time: now.toISOString(),
+        target_date: currentDate
+      });
+
+    const queryDuration = Date.now() - queryStartTime;
+    logger.cron(`[CRON] Focus notification query completed in ${queryDuration}ms, found ${users?.length || 0} users`);
+
+    // Alert if query takes too long (> 1 second)
+    if (queryDuration > 1000) {
+      logger.warn(`[CRON] SLOW QUERY ALERT: Focus notification query took ${queryDuration}ms (> 1s threshold)`);
+    }
 
     if (usersError) {
       logger.error('[CRON] Error fetching users for focus reminders:', usersError);
@@ -567,14 +573,19 @@ const sendDailyFocusReminders = async () => {
       return;
     }
 
-    // Batch load all users' daily focus reminder push preferences
+    // Batch load notification preferences only for selected users (optimized)
     const userIds = users.map(user => user.id);
+    const prefsStartTime = Date.now();
+    
     const { data: allPreferences, error: prefsError } = await supabase
       .from('user_notification_preferences')
       .select('user_id, enabled')
       .in('user_id', userIds)
       .eq('notification_type', 'daily_focus_reminder')
       .eq('channel', 'push');
+
+    const prefsDuration = Date.now() - prefsStartTime;
+    logger.cron(`[CRON] Notification preferences loaded in ${prefsDuration}ms for ${userIds.length} users`);
 
     if (prefsError) {
       logger.error('[CRON] Error fetching notification preferences:', prefsError);
@@ -591,84 +602,20 @@ const sendDailyFocusReminders = async () => {
 
     // Import the notification service
     const { sendDailyFocusReminder } = await import('./services/notificationService.js');
+    
+    let notificationsSent = 0;
+    let notificationsSkipped = 0;
+    let notificationsFailed = 0;
+    
     // Process each user
     for (const user of users) {
       try {
-        // Check if notification was already sent today
-        if (user.last_focus_notification_sent) {
-          const lastSentDate = new Date(user.last_focus_notification_sent).toISOString().split('T')[0];
-          if (lastSentDate === currentDate) {
-            logger.cron(`[CRON] Focus reminder already sent today for user ${user.id}`);
-            continue;
-          }
-        }
-
-        // Check if it's the right time in user's timezone
-        const userTimezone = user.timezone || 'America/Chicago';
-        const userTime = toZonedTime(now, userTimezone);
-        const userHour = userTime.getHours();
-        const userMinute = userTime.getMinutes();
-        
-        // Parse user's configured focus notification time (default to 07:00 if missing)
-        const focusTime = user.focus_notification_time || '07:00:00';
-        
-        // Validate and parse the focus notification time
-        let targetHour, targetMinute;
-        try {
-          const timeParts = focusTime.split(':');
-          
-          // Ensure we have at least hour and minute components
-          if (timeParts.length < 2 || !timeParts[0] || !timeParts[1]) {
-            throw new Error(`Invalid time format: ${focusTime}`);
-          }
-          
-          // Parse hour safely
-          const parsedHour = parseInt(timeParts[0], 10);
-          
-          // Validate that parsed value is a number and within valid range
-          if (isNaN(parsedHour) || parsedHour < 0 || parsedHour > 23) {
-            throw new Error(`Invalid hour value: ${parsedHour}`);
-          }
-          
-          targetHour = parsedHour;
-          
-          // Parse minute component
-          const parsedMinute = parseInt(timeParts[1], 10);
-          if (isNaN(parsedMinute) || parsedMinute < 0 || parsedMinute > 59) {
-            throw new Error(`Invalid minute value: ${parsedMinute}`);
-          }
-          
-          targetMinute = parsedMinute;
-          
-        } catch (error) {
-          // Log warning and fallback to default time
-          logger.warn(`[CRON] Invalid focus notification time '${focusTime}' for user ${user.id}: ${error.message}. Using default 07:00.`);
-          targetHour = 7;
-          targetMinute = 0;
-        }
-        
-        // Check if current minute is within 1-minute tolerance window of target minute
-        // This handles the wrap-around case where minute 59 allows minute 0 as the next minute
-        const isTargetMinute = userMinute === targetMinute || 
-                              userMinute === (targetMinute + 1) % 60;
-        
-        // Check if it's the target hour or next hour (for wrap-around)
-        // If minute wraps around (targetMinute + 1) % 60 === 0, check next hour
-        const isTargetHour = userHour === targetHour || 
-                            (isTargetMinute && (targetMinute + 1) % 60 === 0 && userHour === (targetHour + 1) % 24);
-        
-        // Only proceed if both hour and minute match (with 1-minute tolerance)
-        const isTargetTime = isTargetHour && isTargetMinute;
-        
-        if (!isTargetTime) {
-          continue;
-        }
-
         // Check if user has focus notification preference enabled
         // Use the pre-loaded preference map (default true if no record exists)
         const isEnabled = preferenceMap.has(user.id) ? preferenceMap.get(user.id) : true;
         if (!isEnabled) {
           logger.cron(`[CRON] Focus notifications disabled for user ${user.id}`);
+          notificationsSkipped++;
           continue;
         }
 
@@ -683,12 +630,14 @@ const sendDailyFocusReminders = async () => {
 
         if (taskError) {
           logger.error(`[CRON] Error fetching focus task for user ${user.id}:`, taskError);
+          notificationsFailed++;
           continue;
         }
 
         // If no focus task found, skip this user
         if (!focusTask) {
           logger.cron(`[CRON] No focus task found for user ${user.id}`);
+          notificationsSkipped++;
           continue;
         }
 
@@ -704,23 +653,38 @@ const sendDailyFocusReminders = async () => {
             
           if (updateError) {
             logger.error(`[CRON] Failed to update last_focus_notification_sent for user ${user.id}:`, updateError);
+            notificationsFailed++;
           } else {
             logger.cron(`[CRON] Successfully sent daily focus reminder to user ${user.id}`);
+            notificationsSent++;
           }
         } else {
           logger.error(`[CRON] Failed to send focus reminder to user ${user.id}:`, result.error);
+          notificationsFailed++;
         }
       } catch (userError) {
         logger.error(`[CRON] Exception processing user ${user.id} for focus reminder:`, userError);
+        notificationsFailed++;
       }
     }
+
+    // Log performance metrics
+    const totalDuration = Date.now() - startTime;
+    logger.cron(`[CRON] Focus reminder job completed in ${totalDuration}ms - Sent: ${notificationsSent}, Skipped: ${notificationsSkipped}, Failed: ${notificationsFailed}`);
+    
+    // Alert if total job takes too long (> 30 seconds)
+    if (totalDuration > 30000) {
+      logger.warn(`[CRON] SLOW JOB ALERT: Focus reminder job took ${totalDuration}ms (> 30s threshold)`);
+    }
+    
   } catch (err) {
     logger.error('[CRON] Exception in sendDailyFocusReminders:', err);
   }
 };
 
-// Schedule daily focus reminder check to run every minute to catch minute-level precision
-cron.schedule('* * * * *', sendDailyFocusReminders);
+// Schedule daily focus reminder check to run every 5 minutes (optimized frequency)
+// This reduces database load while maintaining reasonable notification precision
+cron.schedule('*/5 * * * *', sendDailyFocusReminders);
 
 // Initialize Firebase Admin SDK
 try {

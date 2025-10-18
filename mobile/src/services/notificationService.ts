@@ -222,7 +222,21 @@ class NotificationService {
           // Re-register token with backend
           await this.registerTokenWithBackend(fcmToken);
         } catch (error) {
+          // Log detailed error for developers
           console.error('Error handling token refresh:', error);
+          
+          // Show user-friendly notification about push settings issue
+          try {
+            Alert.alert(
+              'Push Notification Update',
+              'Unable to update push settings — some notifications may not arrive',
+              [{ text: 'OK' }],
+              { cancelable: true }
+            );
+          } catch (alertError) {
+            // Fallback to console if Alert fails
+            console.error('Failed to show push settings alert:', alertError);
+          }
         }
       });
       

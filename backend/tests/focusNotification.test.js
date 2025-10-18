@@ -185,12 +185,12 @@ describe('Focus Notification Feature', () => {
 
     it('should handle DST boundary correctly - fall back', () => {
       // Test DST fall back (2 AM becomes 1 AM)
-      const fallBack = new Date('2025-11-02T06:00:00Z'); // 1 AM CDT becomes 1 AM CST
+      const fallBack = new Date('2025-11-02T07:00:00Z'); // 7 AM UTC is 1 AM CST (after fall back)
       const userTimezone = 'America/Chicago';
       const userTime = utcToZonedTime(fallBack, userTimezone);
       const userHour = userTime.getHours();
       
-      // 6 AM UTC should be 1 AM CST (after fall back)
+      // 7 AM UTC should be 1 AM CST (after fall back)
       expect(userHour).toBe(1);
     });
 
