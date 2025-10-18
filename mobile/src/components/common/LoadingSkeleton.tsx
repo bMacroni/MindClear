@@ -93,7 +93,7 @@ export const LoadingSkeleton: React.FC<LoadingSkeletonProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="loading-skeleton">
       {Array.from({ length: count }).map((_, index) => (
         <View key={index} style={styles.skeletonItem}>
           {renderSkeleton()}

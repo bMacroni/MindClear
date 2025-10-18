@@ -3,6 +3,11 @@ import { notificationsAPI } from './api';
 // import PushNotification from 'react-native-push-notification'; // A popular library for local notifications and badge count
 
 class NotificationService {
+  // Unsubscribe functions for cleanup
+  private foregroundUnsubscribe: (() => void) | null = null;
+  private openedUnsubscribe: (() => void) | null = null;
+  private tokenRefreshUnsubscribe: (() => void) | null = null;
+
   private setBadgeCount(count: number) {
     // This is where you would integrate with a library like react-native-push-notification
     // or another library to set the app icon badge count.
@@ -63,11 +68,9 @@ class NotificationService {
           console.log(`Notification permission ${granted ? 'granted' : 'denied'}`);
           return granted;
         } else {
-          // For older Android versions, use simple request
-          const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-          const granted = result === PermissionsAndroid.RESULTS.GRANTED;
-          console.log(`Notification permission ${granted ? 'granted' : 'denied'} for Android ${androidVersion}`);
-          return granted;
+          // < Android 13: no runtime notif permission required
+          console.log(`Notification permission not required on Android ${androidVersion}`);
+          return true;
         }
       } else if (Platform.OS === 'ios') {
         // iOS notification permissions will be handled by the backend push notification system
@@ -98,11 +101,24 @@ class NotificationService {
     }
   }
 
-  // FCM token handling moved to backend-only approach
-  // The backend will handle device token registration through its own FCM service
-  async getFcmToken() {
-    console.log('FCM token handling moved to backend-only approach');
-    // This method is kept for compatibility but functionality moved to backend
+  async getFcmToken(): Promise<string | null> {
+    try {
+      const messaging = (await import('@react-native-firebase/messaging')).default;
+      const token = await messaging().getToken();
+      console.log('FCM Token obtained:', token.substring(0, 20) + '...');
+      return token;
+    } catch (error) {
+      console.error('Error getting FCM token:', error);
+      
+      // Show user-visible error message
+      Alert.alert(
+        'Push Notifications',
+        'Unable to get push notifications token. You may not receive notifications.',
+        [{ text: 'OK' }]
+      );
+      
+      return null;
+    }
   }
 
   async registerTokenWithBackend(token: string) {
@@ -131,20 +147,190 @@ class NotificationService {
     await this.updateBadgeCount();
   }
 
+  // Show in-app notification
+  private showInAppNotification(title: string, body: string) {
+    try {
+      // For now, use Alert.alert for in-app notifications
+      // TODO: Implement proper toast queue system or use a global notification context
+      // This would typically involve:
+      // 1. A notification queue/context
+      // 2. A toast manager component at the app root level
+      // 3. Methods to show/hide toasts from anywhere in the app
+      
+      console.log('In-app notification:', { title, body });
+      
+      // Show a simple alert for now
+      Alert.alert(title, body, [{ text: 'OK' }]);
+    } catch (error) {
+      console.error('Error showing in-app notification:', error);
+      // Fallback to console log
+      console.log('Notification (error fallback):', { title, body });
+    }
+  }
+
+  private async setupForegroundHandler() {
+    try {
+      // Clear any existing listeners first
+      this.cleanup();
+      
+      const messaging = (await import('@react-native-firebase/messaging')).default;
+      
+      // Handle foreground messages
+      this.foregroundUnsubscribe = messaging().onMessage(async remoteMessage => {
+        try {
+          if (__DEV__) {
+            console.log('Foreground notification received:', remoteMessage);
+          } else {
+            console.log('Foreground notification received');
+          }
+          
+          // Update badge count
+          await this.updateBadgeCount();
+          
+          // Show local notification or handle in-app
+          if (remoteMessage.notification) {
+            // Use SuccessToast instead of Alert.alert for better UX
+            this.showInAppNotification(
+              remoteMessage.notification.title || 'Notification',
+              remoteMessage.notification.body || ''
+            );
+          }
+        } catch (error) {
+          console.error('Error handling foreground notification:', error);
+        }
+      });
+      
+      // Handle notification opened app (from background/killed state)
+      this.openedUnsubscribe = messaging().onNotificationOpenedApp(remoteMessage => {
+        if (__DEV__) {
+          console.log('Notification opened app from background:', remoteMessage);
+        } else {
+          console.log('Notification opened app from background');
+        }
+        // Handle navigation based on notification data
+      });
+      
+      // Handle token refresh
+      this.tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (fcmToken) => {
+        try {
+          if (__DEV__) {
+            console.log('FCM token refreshed:', fcmToken);
+          } else {
+            console.log('FCM token refreshed');
+          }
+          
+          // Re-register token with backend
+          await this.registerTokenWithBackend(fcmToken);
+        } catch (error) {
+          // Log detailed error for developers
+          console.error('Error handling token refresh:', error);
+          
+          // Show user-friendly notification about push settings issue
+          try {
+            Alert.alert(
+              'Push Notification Update',
+              'Unable to update push settings — some notifications may not arrive',
+              [{ text: 'OK' }],
+              { cancelable: true }
+            );
+          } catch (alertError) {
+            // Fallback to console if Alert fails
+            console.error('Failed to show push settings alert:', alertError);
+          }
+        }
+      });
+      
+      // Handle notification that opened app from killed state
+      messaging()
+        .getInitialNotification()
+        .then(remoteMessage => {
+          if (remoteMessage) {
+            if (__DEV__) {
+              console.log('Notification opened app from killed state:', remoteMessage);
+            } else {
+              console.log('Notification opened app from killed state');
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Error getting initial notification:', error);
+        });
+    } catch (error) {
+      console.error('Error setting up foreground notification handler:', error);
+    }
+  }
+
+  // Handle background notifications
+  public async handleBackgroundNotification(remoteMessage: any) {
+    try {
+      if (__DEV__) {
+        console.log('Handling background notification:', remoteMessage);
+      } else {
+        console.log('Handling background notification');
+      }
+      
+      // Update badge count
+      await this.updateBadgeCount();
+      
+      // For background notifications, we rely on the system to display them
+      // The notification should already be displayed by Firebase
+      console.log('Background notification processed');
+    } catch (error) {
+      console.error('Error handling background notification:', error);
+    }
+  }
+
   async initialize(): Promise<void> {
     try {
       const permissionGranted = await this.requestUserPermission();
       if (permissionGranted) {
-        await this.updateBadgeCount(); // Initial count
-        console.log('Notification service initialized with permissions granted');
+        await this.updateBadgeCount();
+        
+        // Get FCM token and register with backend
+        const fcmToken = await this.getFcmToken();
+        if (fcmToken) {
+          await this.registerTokenWithBackend(fcmToken);
+        }
+        
+        // Set up foreground notification handler
+        await this.setupForegroundHandler();
+        
+        console.log('Notification service initialized successfully');
       } else {
-        console.log('Notification service initialized without permissions - continuing gracefully');
+        console.log('Notification service initialized without permissions');
       }
-      // Firebase messaging removed - using backend-only approach
-      console.log('Push notifications will be handled by the backend FCM service');
     } catch (error) {
       console.error('Notification service initialization failed:', error);
       console.log('Continuing without push notifications...');
+    }
+  }
+
+  /**
+   * Cleanup method to remove all notification listeners
+   * Call this when the service is no longer needed or before re-initializing
+   */
+  public cleanup(): void {
+    try {
+      if (this.foregroundUnsubscribe) {
+        this.foregroundUnsubscribe();
+        this.foregroundUnsubscribe = null;
+      }
+      
+      if (this.openedUnsubscribe) {
+        this.openedUnsubscribe();
+        this.openedUnsubscribe = null;
+      }
+      
+      if (this.tokenRefreshUnsubscribe) {
+        this.tokenRefreshUnsubscribe();
+        this.tokenRefreshUnsubscribe = null;
+      }
+      
+      if (__DEV__) {
+        console.log('Notification service listeners cleaned up');
+      }
+    } catch (error) {
+      console.error('Error during notification service cleanup:', error);
     }
   }
 }

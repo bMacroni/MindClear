@@ -1097,7 +1097,7 @@ export const usersAPI = {
       throw error;
     }
   },
-  updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light'|'dark'; notification_preferences: any; }>): Promise<any> => {
+  updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light'|'dark'; notification_preferences: any; timezone: string; }>): Promise<any> => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
@@ -1112,6 +1112,23 @@ export const usersAPI = {
       return response.json();
     } catch (error) {
       console.error('Error updating user profile:', error);
+      throw error;
+    }
+  },
+  updateNotificationPreference: async (notificationType: string, channel: string, enabled: boolean): Promise<void> => {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/notification-preferences`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_type: notificationType, channel, enabled }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+      }
+    } catch (error) {
+      console.error('Error updating notification preference:', error);
       throw error;
     }
   },

@@ -47,8 +47,13 @@
         </intent-filter>
       </activity>
       
-      <!-- Firebase Cloud Messaging Service removed - using backend-only approach -->
-      
-      <!-- Firebase notification metadata removed - using backend-only approach -->
+      <!-- Firebase Cloud Messaging Service -->
+      <service
+          android:name=".FCMService"
+          android:exported="false">
+          <intent-filter>
+              <action android:name="com.google.firebase.MESSAGING_EVENT" />
+          </intent-filter>
+      </service>
     </application>
 </manifest>
