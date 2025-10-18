@@ -85,6 +85,13 @@ android {
 
     namespace "com.foci.mobile"
     
+    // Force Firebase BoM version for React Native Firebase packages
+    configurations.all {
+        resolutionStrategy {
+            force 'com.google.firebase:firebase-bom:34.4.0'
+        }
+    }
+    
     // Optimize build performance
     buildFeatures {
         buildConfig true
@@ -202,7 +209,7 @@ dependencies {
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
 
     // Firebase dependencies for push notifications
-    implementation platform('com.google.firebase:firebase-bom:33.1.2')
+    implementation platform('com.google.firebase:firebase-bom:34.4.0')
     implementation 'com.google.firebase:firebase-messaging'
 
     // Exclude react-native-worklets in release to avoid prefab CMake issues on Windows

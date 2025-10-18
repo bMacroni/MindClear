@@ -43,10 +43,9 @@ export function generateFocusNotificationMessage(userName, taskTitle) {
 
 /**
  * Generate a fallback message when no focus task is set
- * @param {string} userName - The user's full name
  * @returns {string} Motivational message encouraging task setting
  */
-export function generateNoFocusTaskMessage(userName) {
+export function generateNoFocusTaskMessage() {
   const noTaskMessages = [
     "Good Morning! Ready to set your focus for today?",
     "Good Morning! Time to choose your daily task.",

@@ -43,7 +43,7 @@ vi.mock('../src/services/notificationService.js', async () => {
 // Mock the motivational messages
 vi.mock('../src/utils/motivationalMessages.js', () => ({
   generateFocusNotificationMessage: vi.fn((name, task) => `Good morning, ${name}! Let's tackle '${task}' today!`),
-  generateNoFocusTaskMessage: vi.fn((name) => `Good morning, ${name}! Ready to set your focus for today?`),
+  generateNoFocusTaskMessage: vi.fn(() => `Good morning! Ready to set your focus for today?`),
   getFocusNotificationTitle: vi.fn((hasFocusTask) => hasFocusTask ? '🎯 Your Daily Focus' : '🌅 Morning Motivation')
 }));
 
@@ -63,8 +63,8 @@ describe('Focus Notification Feature', () => {
     });
 
     it('should generate no focus task message', () => {
-      const message = generateNoFocusTaskMessage('Jane Smith');
-      expect(message).toBe("Good morning, Jane! Ready to set your focus for today?");
+      const message = generateNoFocusTaskMessage();
+      expect(message).toBe("Good morning! Ready to set your focus for today?");
     });
 
     it('should get correct notification title for focus task', () => {
@@ -117,7 +117,7 @@ describe('Focus Notification Feature', () => {
       expect(sendNotification).toHaveBeenCalledWith(userId, {
         notification_type: 'daily_focus_reminder',
         title: '🌅 Morning Motivation',
-        message: "Good morning, Jane! Ready to set your focus for today?",
+        message: "Good morning! Ready to set your focus for today?",
         details: {
           hasFocusTask: false
         }
@@ -137,7 +137,7 @@ describe('Focus Notification Feature', () => {
       expect(sendNotification).toHaveBeenCalledWith(userId, {
         notification_type: 'daily_focus_reminder',
         title: '🌅 Morning Motivation',
-        message: "Good morning, Bob! Ready to set your focus for today?",
+        message: "Good morning! Ready to set your focus for today?",
         details: {
           hasFocusTask: false
         }

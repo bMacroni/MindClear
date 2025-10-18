@@ -73,7 +73,7 @@ public class FCMService extends FirebaseMessagingService {
 
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (notificationManager != null) {
-            notificationManager.notify(0, notificationBuilder.build());
+            int notificationId = (int) System.currentTimeMillis();
+            notificationManager.notify(notificationId, notificationBuilder.build());
         }
-    }
-}
+    }}

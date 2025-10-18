@@ -587,9 +587,30 @@ const sendDailyFocusReminders = async () => {
       return;
     }
 
-    // Import the notification service
-    const { sendDailyFocusReminder } = await import('./src/services/notificationService.js');
+    // Batch load all users' daily focus reminder push preferences
+    const userIds = users.map(user => user.id);
+    const { data: allPreferences, error: prefsError } = await supabase
+      .from('user_notification_preferences')
+      .select('user_id, enabled')
+      .in('user_id', userIds)
+      .eq('notification_type', 'daily_focus_reminder')
+      .eq('channel', 'push');
 
+    if (prefsError) {
+      logger.error('[CRON] Error fetching notification preferences:', prefsError);
+      return;
+    }
+
+    // Build a map of user_id -> enabled (default true if no record)
+    const preferenceMap = new Map();
+    if (allPreferences) {
+      allPreferences.forEach(pref => {
+        preferenceMap.set(pref.user_id, pref.enabled);
+      });
+    }
+
+    // Import the notification service
+    const { sendDailyFocusReminder } = await import('./services/notificationService.js');
     // Process each user
     for (const user of users) {
       try {
@@ -614,21 +635,8 @@ const sendDailyFocusReminders = async () => {
         }
 
         // Check if user has focus notification preference enabled
-        const { data: prefs, error: prefsError } = await supabase
-          .from('user_notification_preferences')
-          .select('enabled')
-          .eq('user_id', user.id)
-          .eq('notification_type', 'daily_focus_reminder')
-          .eq('channel', 'push')
-          .single();
-
-        if (prefsError && prefsError.code !== 'PGRST116') { // PGRST116 = no rows returned
-          logger.error(`[CRON] Error checking focus notification preferences for user ${user.id}:`, prefsError);
-          continue;
-        }
-
-        // If no preference is set, default to enabled (respecting Tasks toggle)
-        const isEnabled = prefs ? prefs.enabled : true;
+        // Use the pre-loaded preference map (default true if no record exists)
+        const isEnabled = preferenceMap.has(user.id) ? preferenceMap.get(user.id) : true;
         if (!isEnabled) {
           logger.cron(`[CRON] Focus notifications disabled for user ${user.id}`);
           continue;

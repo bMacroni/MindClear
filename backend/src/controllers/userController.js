@@ -335,7 +335,7 @@ export async function updateNotificationPreferences(req, res) {
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-  const allowedTypes = ['goal_completed','milestone_completed','task_reminder','new_message'];
+  const allowedTypes = ['goal_completed','milestone_completed','task_reminder','new_message','daily_focus_reminder'];
   const allowedChannels = ['in_app','push','email'];
   const validationError = preferences.some(p =>
     !p.notification_type ||
@@ -427,8 +427,7 @@ export async function updateSingleNotificationPreference(req, res) {
       return res.status(500).json({ error: 'Failed to update notification preference' });
     }
 
-    res.json({ success: true, preference: data });
-  } catch (e) {
+    res.json(data);  } catch (e) {
     console.error('Exception in updateSingleNotificationPreference:', e);
     res.status(500).json({ error: 'An unexpected error occurred' });
   }

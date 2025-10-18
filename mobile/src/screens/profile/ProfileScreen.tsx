@@ -367,12 +367,16 @@ export default function ProfileScreen({ navigation }: any) {
             testID="tasks-notification-toggle"
             value={prefs.categories.tasks}
             onValueChange={async (v) => {
+              const prevValue = prefs.categories.tasks;
               setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: v } }));
               // Also update daily focus reminder preference
               try {
                 await usersAPI.updateNotificationPreference('daily_focus_reminder', 'push', v);
               } catch (error) {
                 console.error('Failed to update focus reminder preference:', error);
+                // Rollback on error
+                setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: prevValue } }));
+                Alert.alert('Error', 'Failed to update notification preference. Please try again.');
               }
             }}
           />

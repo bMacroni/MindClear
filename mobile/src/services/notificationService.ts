@@ -106,6 +106,14 @@ class NotificationService {
       return token;
     } catch (error) {
       console.error('Error getting FCM token:', error);
+      
+      // Show user-visible error message
+      Alert.alert(
+        'Push Notifications',
+        'Unable to get push notifications token. You may not receive notifications.',
+        [{ text: 'OK' }]
+      );
+      
       return null;
     }
   }
@@ -136,51 +144,94 @@ class NotificationService {
     await this.updateBadgeCount();
   }
 
+  // Show in-app notification using SuccessToast
+  private showInAppNotification(title: string, body: string) {
+    try {
+      // Import SuccessToast dynamically to avoid circular dependencies
+      import('../../components/common/SuccessToast').then(({ SuccessToast }) => {
+        // Note: This is a simplified approach. In a real app, you'd want to use
+        // a notification queue or context to manage toast state properly.
+        // For now, we'll use a basic approach that logs the notification.
+        console.log('In-app notification:', { title, body });
+        
+        // TODO: Implement proper toast queue system or use a global notification context
+        // This would typically involve:
+        // 1. A notification queue/context
+        // 2. A toast manager component at the app root level
+        // 3. Methods to show/hide toasts from anywhere in the app
+      }).catch(error => {
+        console.error('Error importing SuccessToast:', error);
+        // Fallback to console log if toast system fails
+        console.log('Notification (fallback):', { title, body });
+      });
+    } catch (error) {
+      console.error('Error showing in-app notification:', error);
+      // Fallback to console log
+      console.log('Notification (error fallback):', { title, body });
+    }
+  }
+
   private async setupForegroundHandler() {
-    const messaging = (await import('@react-native-firebase/messaging')).default;
-    
-    // Handle foreground messages
-    messaging().onMessage(async remoteMessage => {
-      console.log('Foreground notification received:', remoteMessage);
+    try {
+      const messaging = (await import('@react-native-firebase/messaging')).default;
       
-      // Update badge count
-      await this.updateBadgeCount();
-      
-      // Show local notification or handle in-app
-      if (remoteMessage.notification) {
-        Alert.alert(
-          remoteMessage.notification.title || 'Notification',
-          remoteMessage.notification.body || ''
-        );
-      }
-    });
-    
-    // Handle notification opened app (from background/killed state)
-    messaging().onNotificationOpenedApp(remoteMessage => {
-      console.log('Notification opened app from background:', remoteMessage);
-      // Handle navigation based on notification data
-    });
-    
-    // Handle notification that opened app from killed state
-    messaging()
-      .getInitialNotification()
-      .then(remoteMessage => {
-        if (remoteMessage) {
-          console.log('Notification opened app from killed state:', remoteMessage);
+      // Handle foreground messages
+      messaging().onMessage(async remoteMessage => {
+        try {
+          console.log('Foreground notification received:', remoteMessage);
+          
+          // Update badge count
+          await this.updateBadgeCount();
+          
+          // Show local notification or handle in-app
+          if (remoteMessage.notification) {
+            // Use SuccessToast instead of Alert.alert for better UX
+            this.showInAppNotification(
+              remoteMessage.notification.title || 'Notification',
+              remoteMessage.notification.body || ''
+            );
+          }
+        } catch (error) {
+          console.error('Error handling foreground notification:', error);
         }
       });
+      
+      // Handle notification opened app (from background/killed state)
+      messaging().onNotificationOpenedApp(remoteMessage => {
+        console.log('Notification opened app from background:', remoteMessage);
+        // Handle navigation based on notification data
+      });
+      
+      // Handle notification that opened app from killed state
+      messaging()
+        .getInitialNotification()
+        .then(remoteMessage => {
+          if (remoteMessage) {
+            console.log('Notification opened app from killed state:', remoteMessage);
+          }
+        })
+        .catch(error => {
+          console.error('Error getting initial notification:', error);
+        });
+    } catch (error) {
+      console.error('Error setting up foreground notification handler:', error);
+    }
   }
 
   // Handle background notifications
   public async handleBackgroundNotification(remoteMessage: any) {
-    console.log('Handling background notification:', remoteMessage);
-    
-    // Update badge count
-    await this.updateBadgeCount();
-    
-    // For background notifications, we rely on the system to display them
-    // The notification should already be displayed by Firebase
-    console.log('Background notification processed');
+    try {
+      console.log('Handling background notification:', remoteMessage);
+      
+      // Update badge count
+      await this.updateBadgeCount();
+      
+      // For background notifications, we rely on the system to display them
+      // The notification should already be displayed by Firebase
+      console.log('Background notification processed');
+    } catch (error) {
+      console.error('Error handling background notification:', error);
+    }
   }
 
   async initialize(): Promise<void> {

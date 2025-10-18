@@ -723,7 +723,7 @@ export async function sendDailyFocusReminder(userId, task, userName) {
         const title = getFocusNotificationTitle(hasFocusTask);
         const message = hasFocusTask 
             ? generateFocusNotificationMessage(userName, task.title)
-            : generateNoFocusTaskMessage(userName);
+            : generateNoFocusTaskMessage();
 
         const notification = {
             notification_type: 'daily_focus_reminder',
