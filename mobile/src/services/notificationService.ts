@@ -144,26 +144,20 @@ class NotificationService {
     await this.updateBadgeCount();
   }
 
-  // Show in-app notification using SuccessToast
+  // Show in-app notification
   private showInAppNotification(title: string, body: string) {
     try {
-      // Import SuccessToast dynamically to avoid circular dependencies
-      import('../../components/common/SuccessToast').then(({ SuccessToast }) => {
-        // Note: This is a simplified approach. In a real app, you'd want to use
-        // a notification queue or context to manage toast state properly.
-        // For now, we'll use a basic approach that logs the notification.
-        console.log('In-app notification:', { title, body });
-        
-        // TODO: Implement proper toast queue system or use a global notification context
-        // This would typically involve:
-        // 1. A notification queue/context
-        // 2. A toast manager component at the app root level
-        // 3. Methods to show/hide toasts from anywhere in the app
-      }).catch(error => {
-        console.error('Error importing SuccessToast:', error);
-        // Fallback to console log if toast system fails
-        console.log('Notification (fallback):', { title, body });
-      });
+      // For now, use Alert.alert for in-app notifications
+      // TODO: Implement proper toast queue system or use a global notification context
+      // This would typically involve:
+      // 1. A notification queue/context
+      // 2. A toast manager component at the app root level
+      // 3. Methods to show/hide toasts from anywhere in the app
+      
+      console.log('In-app notification:', { title, body });
+      
+      // Show a simple alert for now
+      Alert.alert(title, body, [{ text: 'OK' }]);
     } catch (error) {
       console.error('Error showing in-app notification:', error);
       // Fallback to console log
