@@ -51,6 +51,7 @@ import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
 import { sendNotification } from './services/notificationService.js';
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
+import { toZonedTime } from 'date-fns-tz';
 
 
 const app = express()
@@ -93,9 +94,6 @@ const configureTrustProxy = () => {
     
     const isTrusted = isIPInAnyCIDR(ip, validCIDRs);
     
-    if (process.env.DEBUG_LOGS === 'true') {
-      logger.debug(`Trust proxy check: IP ${ip} ${isTrusted ? 'trusted' : 'rejected'}`);
-    }
     
     return isTrusted;
   });
@@ -166,19 +164,11 @@ if (supabaseUrl && supabaseKey) {
 }
 
 // Environment check - only log non-sensitive info
-if (process.env.DEBUG_LOGS === 'true') {
-  logger.info('NODE_ENV:', process.env.NODE_ENV);
-  logger.info('PORT:', process.env.PORT);
-  logger.info('Environment variables loaded:', Object.keys(process.env).filter(key =>
-    key.includes('URL') || key.includes('GOOGLE') || key.includes('FRONTEND')
-  ).length, 'configured');
-} else {
-  logger.info('NODE_ENV:', process.env.NODE_ENV);
-  logger.info('PORT:', process.env.PORT);
-  logger.info('Environment variables loaded:', Object.keys(process.env).filter(key =>
-    key.includes('URL') || key.includes('GOOGLE') || key.includes('FRONTEND')
-  ).length, 'configured');
-}
+logger.info('NODE_ENV:', process.env.NODE_ENV);
+logger.info('PORT:', process.env.PORT);
+logger.info('Environment variables loaded:', Object.keys(process.env).filter(key =>
+  key.includes('URL') || key.includes('GOOGLE') || key.includes('FRONTEND')
+).length, 'configured');
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -227,23 +217,13 @@ app.use('/api/auth', authRateLimit, authRouter);
 app.use('/api/auth/google', authRateLimit, googleAuthRoutes);
 app.use('/api/auth/google', authRateLimit, googleMobileAuthRoutes);
 
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering calendar router...');
 app.use('/api/calendar', calendarRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('Calendar router registered');
-
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering AI router...');
 app.use('/api/ai', aiRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('AI router registered');
-
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering conversations router...');
 app.use('/api/conversations', conversationsRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('Conversations router registered');
 
 app.use('/api/user', userRouter);
 
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering analytics router...');
 app.use('/api/analytics', analyticsRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('Analytics router registered');
 
 async function getAllUserIds() {
   // Check if Supabase is initialized
@@ -625,20 +605,62 @@ const sendDailyFocusReminders = async () => {
 
         // Check if it's the right time in user's timezone
         const userTimezone = user.timezone || 'America/Chicago';
-        const userTime = new Date(now.toLocaleString("en-US", { timeZone: userTimezone }));
+        const userTime = toZonedTime(now, userTimezone);
         const userHour = userTime.getHours();
         const userMinute = userTime.getMinutes();
         
         // Parse user's configured focus notification time (default to 07:00 if missing)
         const focusTime = user.focus_notification_time || '07:00:00';
-        const [targetHour, targetMinute] = focusTime.split(':').map(Number);
         
-        // Check if it's within the notification time window (target hour and minute)
-        // Allow a 1-minute window for cron job timing flexibility
-        const isTargetHour = userHour === targetHour;
-        const isTargetMinute = userMinute === targetMinute || userMinute === targetMinute + 1;
+        // Validate and parse the focus notification time
+        let targetHour, targetMinute;
+        try {
+          const timeParts = focusTime.split(':');
+          
+          // Ensure we have at least hour and minute components
+          if (timeParts.length < 2 || !timeParts[0] || !timeParts[1]) {
+            throw new Error(`Invalid time format: ${focusTime}`);
+          }
+          
+          // Parse hour safely
+          const parsedHour = parseInt(timeParts[0], 10);
+          
+          // Validate that parsed value is a number and within valid range
+          if (isNaN(parsedHour) || parsedHour < 0 || parsedHour > 23) {
+            throw new Error(`Invalid hour value: ${parsedHour}`);
+          }
+          
+          targetHour = parsedHour;
+          
+          // Parse minute component
+          const parsedMinute = parseInt(timeParts[1], 10);
+          if (isNaN(parsedMinute) || parsedMinute < 0 || parsedMinute > 59) {
+            throw new Error(`Invalid minute value: ${parsedMinute}`);
+          }
+          
+          targetMinute = parsedMinute;
+          
+        } catch (error) {
+          // Log warning and fallback to default time
+          logger.warn(`[CRON] Invalid focus notification time '${focusTime}' for user ${user.id}: ${error.message}. Using default 07:00.`);
+          targetHour = 7;
+          targetMinute = 0;
+        }
         
-        if (!isTargetHour || !isTargetMinute) {
+        // Check if current minute is within 1-minute tolerance window of target minute
+        // This handles the wrap-around case where minute 59 allows minute 0 as the next minute
+        const isTargetMinute = userMinute === targetMinute || 
+                              userMinute === (targetMinute + 1) % 60;
+        
+        // Check if it's the target hour or next hour (for wrap-around)
+        // If minute wraps around (targetMinute + 1) % 60 === 0, check next hour
+        const isTargetHour = userHour === targetHour || 
+                            (isTargetMinute && (targetMinute + 1) % 60 === 0 && userHour === (targetHour + 1) % 24);
+        
+        // Only proceed if both hour and minute match (with 1-minute tolerance)
+        const isTargetTime = isTargetHour && isTargetMinute;
+        
+        if (!isTargetTime) {
           continue;
         }
 
@@ -657,10 +679,16 @@ const sendDailyFocusReminders = async () => {
           .eq('user_id', user.id)
           .eq('is_today_focus', true)
           .eq('status', 'not_started')
-          .single();
+          .maybeSingle();
 
-        if (taskError && taskError.code !== 'PGRST116') {
+        if (taskError) {
           logger.error(`[CRON] Error fetching focus task for user ${user.id}:`, taskError);
+          continue;
+        }
+
+        // If no focus task found, skip this user
+        if (!focusTask) {
+          logger.cron(`[CRON] No focus task found for user ${user.id}`);
           continue;
         }
 
@@ -691,8 +719,8 @@ const sendDailyFocusReminders = async () => {
   }
 };
 
-// Schedule daily focus reminder check to run every hour
-cron.schedule('0 * * * *', sendDailyFocusReminders);
+// Schedule daily focus reminder check to run every minute to catch minute-level precision
+cron.schedule('* * * * *', sendDailyFocusReminders);
 
 // Initialize Firebase Admin SDK
 try {
