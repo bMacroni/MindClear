@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { initializeFirebaseAdmin } from '../utils/firebaseAdmin.js';
 import webSocketManager from '../utils/webSocketManager.js';
 import logger from '../utils/logger.js';
+import { generateFocusNotificationMessage, generateNoFocusTaskMessage, getFocusNotificationTitle } from '../utils/motivationalMessages.js';
 
 // Module-scoped memoized transporter
 let cachedTransporter = null;
@@ -707,4 +708,45 @@ export async function markAllNotificationsAsRead(userId) {
         logger.error(`Exception in markAllNotificationsAsRead for user ${userId}:`, error);
         return { success: false, error: error.message };
     }
-} 
+}
+
+/**
+ * Send daily focus reminder notification to user
+ * @param {string} userId - The ID of the user to notify
+ * @param {object} task - The focus task object (can be null if no focus task)
+ * @param {string} userName - The user's full name
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export async function sendDailyFocusReminder(userId, task, userName) {
+    try {
+        const hasFocusTask = task && task.title;
+        const title = getFocusNotificationTitle(hasFocusTask);
+        const message = hasFocusTask 
+            ? generateFocusNotificationMessage(userName, task.title)
+            : generateNoFocusTaskMessage(userName);
+
+        const notification = {
+            notification_type: 'daily_focus_reminder',
+            title,
+            message,
+            details: hasFocusTask ? { 
+                taskId: task.id, 
+                taskTitle: task.title,
+                hasFocusTask: true 
+            } : { 
+                hasFocusTask: false 
+            }
+        };
+
+        const result = await sendNotification(userId, notification);
+        
+        if (result.success) {
+            logger.info(`Daily focus reminder sent to user ${userId}${hasFocusTask ? ` for task: ${task.title}` : ' (no focus task set)'}`);
+        }
+        
+        return result;
+    } catch (error) {
+        logger.error(`Failed to send daily focus reminder to user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}

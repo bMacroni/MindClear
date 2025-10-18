@@ -548,6 +548,136 @@ const sendTaskReminders = async () => {
 // Schedule task reminder check to run every 5 minutes
 cron.schedule('*/5 * * * *', sendTaskReminders);
 
+// --- Daily Focus Reminder Cron Job ---
+const sendDailyFocusReminders = async () => {
+  // Check if Supabase is initialized
+  if (!supabase) {
+    logger.warn('[CRON] Supabase client not initialized. Skipping daily focus reminders.');
+    return;
+  }
+
+  logger.cron('[CRON] Checking for daily focus reminders...');
+
+  try {
+    // Get current time in UTC
+    const now = new Date();
+    const currentHour = now.getUTCHours();
+    const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+    // Query users who should receive their focus notification now
+    // We check users where it's 7 AM in their timezone
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select(`
+        id,
+        full_name,
+        timezone,
+        focus_notification_time,
+        last_focus_notification_sent
+      `)
+      .not('timezone', 'is', null);
+
+    if (usersError) {
+      logger.error('[CRON] Error fetching users for focus reminders:', usersError);
+      return;
+    }
+
+    if (!users || users.length === 0) {
+      logger.cron('[CRON] No users found for focus reminders');
+      return;
+    }
+
+    // Import the notification service
+    const { sendDailyFocusReminder } = await import('./src/services/notificationService.js');
+
+    // Process each user
+    for (const user of users) {
+      try {
+        // Check if notification was already sent today
+        if (user.last_focus_notification_sent) {
+          const lastSentDate = new Date(user.last_focus_notification_sent).toISOString().split('T')[0];
+          if (lastSentDate === currentDate) {
+            logger.cron(`[CRON] Focus reminder already sent today for user ${user.id}`);
+            continue;
+          }
+        }
+
+        // Check if it's the right time in user's timezone
+        const userTimezone = user.timezone || 'America/Chicago';
+        const userTime = new Date(now.toLocaleString("en-US", { timeZone: userTimezone }));
+        const userHour = userTime.getHours();
+        const userMinute = userTime.getMinutes();
+        
+        // Check if it's within the notification time window (7:00-7:59 AM)
+        if (userHour !== 7) {
+          continue;
+        }
+
+        // Check if user has focus notification preference enabled
+        const { data: prefs, error: prefsError } = await supabase
+          .from('user_notification_preferences')
+          .select('enabled')
+          .eq('user_id', user.id)
+          .eq('notification_type', 'daily_focus_reminder')
+          .eq('channel', 'push')
+          .single();
+
+        if (prefsError && prefsError.code !== 'PGRST116') { // PGRST116 = no rows returned
+          logger.error(`[CRON] Error checking focus notification preferences for user ${user.id}:`, prefsError);
+          continue;
+        }
+
+        // If no preference is set, default to enabled (respecting Tasks toggle)
+        const isEnabled = prefs ? prefs.enabled : true;
+        if (!isEnabled) {
+          logger.cron(`[CRON] Focus notifications disabled for user ${user.id}`);
+          continue;
+        }
+
+        // Get user's focus task for today
+        const { data: focusTask, error: taskError } = await supabase
+          .from('tasks')
+          .select('id, title, description')
+          .eq('user_id', user.id)
+          .eq('is_today_focus', true)
+          .eq('status', 'not_started')
+          .single();
+
+        if (taskError && taskError.code !== 'PGRST116') {
+          logger.error(`[CRON] Error fetching focus task for user ${user.id}:`, taskError);
+          continue;
+        }
+
+        // Send the notification
+        const result = await sendDailyFocusReminder(user.id, focusTask, user.full_name);
+        
+        if (result.success) {
+          // Update last_focus_notification_sent timestamp
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ last_focus_notification_sent: now.toISOString() })
+            .eq('id', user.id);
+            
+          if (updateError) {
+            logger.error(`[CRON] Failed to update last_focus_notification_sent for user ${user.id}:`, updateError);
+          } else {
+            logger.cron(`[CRON] Successfully sent daily focus reminder to user ${user.id}`);
+          }
+        } else {
+          logger.error(`[CRON] Failed to send focus reminder to user ${user.id}:`, result.error);
+        }
+      } catch (userError) {
+        logger.error(`[CRON] Exception processing user ${user.id} for focus reminder:`, userError);
+      }
+    }
+  } catch (err) {
+    logger.error('[CRON] Exception in sendDailyFocusReminders:', err);
+  }
+};
+
+// Schedule daily focus reminder check to run every hour
+cron.schedule('0 * * * *', sendDailyFocusReminders);
+
 // Initialize Firebase Admin SDK
 try {
   initializeFirebaseAdmin();

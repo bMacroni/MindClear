@@ -383,6 +383,57 @@ export async function updateNotificationPreferences(req, res) {
   }
 }
 
+export async function updateSingleNotificationPreference(req, res) {
+  // Check if user is authenticated
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  const user_id = req.user.id;
+  const { notification_type, channel, enabled } = req.body;
+
+  // Validate input
+  if (!notification_type || !channel || typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'Missing required fields: notification_type, channel, enabled' });
+  }
+
+  const allowedTypes = ['goal_completed','milestone_completed','task_reminder','new_message','daily_focus_reminder'];
+  const allowedChannels = ['in_app','push','email'];
+  
+  if (!allowedTypes.includes(notification_type) || !allowedChannels.includes(channel)) {
+    return res.status(400).json({ error: 'Invalid notification_type or channel' });
+  }
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+  try {
+    // Upsert the notification preference
+    const { data, error } = await supabase
+      .from('user_notification_preferences')
+      .upsert({
+        user_id,
+        notification_type,
+        channel,
+        enabled,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,notification_type,channel'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating notification preference:', error);
+      return res.status(500).json({ error: 'Failed to update notification preference' });
+    }
+
+    res.json({ success: true, preference: data });
+  } catch (e) {
+    console.error('Exception in updateSingleNotificationPreference:', e);
+    res.status(500).json({ error: 'An unexpected error occurred' });
+  }
+}
+
 /**
  * Delete user account and all associated data
  * This endpoint provides user-initiated account deletion for Play policy compliance

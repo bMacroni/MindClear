@@ -98,11 +98,16 @@ class NotificationService {
     }
   }
 
-  // FCM token handling moved to backend-only approach
-  // The backend will handle device token registration through its own FCM service
-  async getFcmToken() {
-    console.log('FCM token handling moved to backend-only approach');
-    // This method is kept for compatibility but functionality moved to backend
+  async getFcmToken(): Promise<string | null> {
+    try {
+      const messaging = (await import('@react-native-firebase/messaging')).default;
+      const token = await messaging().getToken();
+      console.log('FCM Token obtained:', token.substring(0, 20) + '...');
+      return token;
+    } catch (error) {
+      console.error('Error getting FCM token:', error);
+      return null;
+    }
   }
 
   async registerTokenWithBackend(token: string) {
@@ -131,17 +136,72 @@ class NotificationService {
     await this.updateBadgeCount();
   }
 
+  private async setupForegroundHandler() {
+    const messaging = (await import('@react-native-firebase/messaging')).default;
+    
+    // Handle foreground messages
+    messaging().onMessage(async remoteMessage => {
+      console.log('Foreground notification received:', remoteMessage);
+      
+      // Update badge count
+      await this.updateBadgeCount();
+      
+      // Show local notification or handle in-app
+      if (remoteMessage.notification) {
+        Alert.alert(
+          remoteMessage.notification.title || 'Notification',
+          remoteMessage.notification.body || ''
+        );
+      }
+    });
+    
+    // Handle notification opened app (from background/killed state)
+    messaging().onNotificationOpenedApp(remoteMessage => {
+      console.log('Notification opened app from background:', remoteMessage);
+      // Handle navigation based on notification data
+    });
+    
+    // Handle notification that opened app from killed state
+    messaging()
+      .getInitialNotification()
+      .then(remoteMessage => {
+        if (remoteMessage) {
+          console.log('Notification opened app from killed state:', remoteMessage);
+        }
+      });
+  }
+
+  // Handle background notifications
+  public async handleBackgroundNotification(remoteMessage: any) {
+    console.log('Handling background notification:', remoteMessage);
+    
+    // Update badge count
+    await this.updateBadgeCount();
+    
+    // For background notifications, we rely on the system to display them
+    // The notification should already be displayed by Firebase
+    console.log('Background notification processed');
+  }
+
   async initialize(): Promise<void> {
     try {
       const permissionGranted = await this.requestUserPermission();
       if (permissionGranted) {
-        await this.updateBadgeCount(); // Initial count
-        console.log('Notification service initialized with permissions granted');
+        await this.updateBadgeCount();
+        
+        // Get FCM token and register with backend
+        const fcmToken = await this.getFcmToken();
+        if (fcmToken) {
+          await this.registerTokenWithBackend(fcmToken);
+        }
+        
+        // Set up foreground notification handler
+        await this.setupForegroundHandler();
+        
+        console.log('Notification service initialized successfully');
       } else {
-        console.log('Notification service initialized without permissions - continuing gracefully');
+        console.log('Notification service initialized without permissions');
       }
-      // Firebase messaging removed - using backend-only approach
-      console.log('Push notifications will be handled by the backend FCM service');
     } catch (error) {
       console.error('Notification service initialization failed:', error);
       console.log('Continuing without push notifications...');

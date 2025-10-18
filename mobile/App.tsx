@@ -39,6 +39,13 @@ function App() {
         // Initialize notification services when authenticated
         notificationService.initialize();
         
+        // Set up FCM token refresh listener
+        const messaging = require('@react-native-firebase/messaging').default;
+        messaging().onTokenRefresh(async (token: string) => {
+          console.log('FCM token refreshed:', token.substring(0, 20) + '...');
+          await notificationService.registerTokenWithBackend(token);
+        });
+        
         // Connect WebSocket with error handling
         try {
           await webSocketService.connect();

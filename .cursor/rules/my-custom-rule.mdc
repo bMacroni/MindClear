@@ -3,3 +3,4 @@ alwaysApply: true
 ---
 When making major changes, always write test cases first, then make your changes, then run your test cases, fixing your code until it passes each test case.
 If there are external configurations or setups that the user needs to carry out to make your changes work, you need to explain in detail what the user needs to carry out, step-by-step guides are most helpful.
+The app has been renamed for Mind Clear, please use this name for naming schemes instead of when you think you would use MindGarden.

@@ -19,6 +19,9 @@
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "^8.4.3",
     "@react-native-community/netinfo": "^11.4.1",
+    "@react-native-firebase/app": "^20.0.0",
+    "@react-native-firebase/messaging": "^20.0.0",
+    "@react-native-picker/picker": "^2.6.1",
     "@react-native-google-signin/google-signin": "^11.0.1",
     "@react-native/new-app-screen": "0.80.1",
     "@react-navigation/bottom-tabs": "^7.4.4",
@@ -93,6 +96,8 @@
     "2025-01-27 CST: added dependency 'react-native-encrypted-storage' for secure JWT token storage using Android EncryptedSharedPreferences",
     "2025-01-27 CST: added dependency 'jwt-decode' for secure JWT token decoding in auth service",
     "2025-01-27 CST: added devDependency 'babel-plugin-module-resolver' for TypeScript path alias resolution in React Native",
-    "2025-09-28 CST: added dependency 'react-native-markdown-display' to render AI chat Markdown (bold, lists)"
+    "2025-09-28 CST: added dependency 'react-native-markdown-display' to render AI chat Markdown (bold, lists)",
+    "2025-10-17 CST: added dependency '@react-native-picker/picker' for timezone picker in ProfileScreen",
+    "2025-10-17 CST: added dependencies '@react-native-firebase/app' and '@react-native-firebase/messaging' for push notifications"
   ]
 }

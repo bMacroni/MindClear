@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert, Modal } from 'react-native';
+// import { Picker } from '@react-native-picker/picker'; // Temporarily disabled
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -24,6 +25,7 @@ type Profile = {
   theme_preference?: 'light'|'dark';
   notification_preferences?: any;
   geographic_location?: string;
+  timezone?: string;
   is_admin?: boolean;
 };
 
@@ -60,6 +62,7 @@ export default function ProfileScreen({ navigation }: any) {
   const [fullName, setFullName] = useState('');
   const [_avatarUrl, setAvatarUrl] = useState('');
   const [location, setLocation] = useState('');
+  const [timezone, setTimezone] = useState('America/Chicago');
   const [prefs, setPrefs] = useState<Prefs>(defaultPrefs);
 
   const load = useCallback(async () => {
@@ -70,6 +73,7 @@ export default function ProfileScreen({ navigation }: any) {
       setFullName(me.full_name || '');
       setAvatarUrl(me.avatar_url || '');
       setLocation(me.geographic_location || '');
+      setTimezone(me.timezone || 'America/Chicago');
       setPrefs({ ...defaultPrefs, ...(me.notification_preferences || {}) });
       // Check notification permission status
       try {
@@ -116,7 +120,7 @@ export default function ProfileScreen({ navigation }: any) {
   const saveProfile = useCallback(async () => {
     setSavingProfile(true);
     try {
-      const updated = await usersAPI.updateMe({ full_name: fullName, geographic_location: location });
+      const updated = await usersAPI.updateMe({ full_name: fullName, geographic_location: location, timezone: timezone });
       setProfile(updated);
       setToastMessage('Profile updated');
       setToastVisible(true);
@@ -125,7 +129,7 @@ export default function ProfileScreen({ navigation }: any) {
     } finally {
       setSavingProfile(false);
     }
-  }, [fullName, location]);
+  }, [fullName, location, timezone]);
 
   const savePrefs = useCallback(async () => {
     setSavingPrefs(true);
@@ -360,8 +364,17 @@ export default function ProfileScreen({ navigation }: any) {
           <Icon name="checklist" size={18} color={colors.primary} />
           <Text style={styles.rowLabel}>Tasks</Text>
           <Switch
+            testID="tasks-notification-toggle"
             value={prefs.categories.tasks}
-            onValueChange={v => setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: v } }))}
+            onValueChange={async (v) => {
+              setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: v } }));
+              // Also update daily focus reminder preference
+              try {
+                await usersAPI.updateNotificationPreference('daily_focus_reminder', 'push', v);
+              } catch (error) {
+                console.error('Failed to update focus reminder preference:', error);
+              }
+            }}
           />
         </View>
         <View style={styles.row}> 
@@ -405,6 +418,29 @@ export default function ProfileScreen({ navigation }: any) {
           placeholder="City, ST"
           placeholderTextColor={colors.text.disabled}
         />
+        <Text style={styles.inputLabel}>Timezone</Text>
+        <Text style={styles.inputLabel}>Current: {timezone}</Text>
+        {/* Temporarily disabled picker - install @react-native-picker/picker to enable */}
+        {/* <View style={styles.pickerContainer}>
+          <Picker
+            testID="timezone-picker"
+            selectedValue={timezone}
+            style={styles.picker}
+            onValueChange={(itemValue) => setTimezone(itemValue)}
+          >
+            <Picker.Item label="America/New_York (Eastern)" value="America/New_York" />
+            <Picker.Item label="America/Chicago (Central)" value="America/Chicago" />
+            <Picker.Item label="America/Denver (Mountain)" value="America/Denver" />
+            <Picker.Item label="America/Los_Angeles (Pacific)" value="America/Los_Angeles" />
+            <Picker.Item label="America/Phoenix (Arizona)" value="America/Phoenix" />
+            <Picker.Item label="America/Anchorage (Alaska)" value="America/Anchorage" />
+            <Picker.Item label="Pacific/Honolulu (Hawaii)" value="Pacific/Honolulu" />
+            <Picker.Item label="Europe/London (GMT)" value="Europe/London" />
+            <Picker.Item label="Europe/Paris (CET)" value="Europe/Paris" />
+            <Picker.Item label="Asia/Tokyo (JST)" value="Asia/Tokyo" />
+            <Picker.Item label="Australia/Sydney (AEST)" value="Australia/Sydney" />
+          </Picker>
+        </View> */}
         <TouchableOpacity style={[styles.cta, savingProfile && { opacity: 0.7 }]} onPress={saveProfile} disabled={savingProfile}>
           <Icon name="check" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
           <Text style={styles.ctaText}>{savingProfile ? 'Saving…' : 'Save Changes'}</Text>
@@ -691,6 +727,17 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    color: colors.text.primary,
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.background.primary,
+    marginBottom: spacing.sm,
+  },
+  picker: {
+    height: 50,
     color: colors.text.primary,
   },
   cta: {
