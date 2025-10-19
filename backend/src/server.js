@@ -573,32 +573,7 @@ const sendDailyFocusReminders = async () => {
       return;
     }
 
-    // Batch load notification preferences only for selected users (optimized)
-    const userIds = users.map(user => user.id);
-    const prefsStartTime = Date.now();
-    
-    const { data: allPreferences, error: prefsError } = await supabase
-      .from('user_notification_preferences')
-      .select('user_id, enabled')
-      .in('user_id', userIds)
-      .eq('notification_type', 'daily_focus_reminder')
-      .eq('channel', 'push');
-
-    const prefsDuration = Date.now() - prefsStartTime;
-    logger.cron(`[CRON] Notification preferences loaded in ${prefsDuration}ms for ${userIds.length} users`);
-
-    if (prefsError) {
-      logger.error('[CRON] Error fetching notification preferences:', prefsError);
-      return;
-    }
-
-    // Build a map of user_id -> enabled (default true if no record)
-    const preferenceMap = new Map();
-    if (allPreferences) {
-      allPreferences.forEach(pref => {
-        preferenceMap.set(pref.user_id, pref.enabled);
-      });
-    }
+    // Note: Removed push-only preference gating - let sendNotification handle all channels
 
     // Import the notification service
     const { sendDailyFocusReminder } = await import('./services/notificationService.js');
@@ -610,14 +585,7 @@ const sendDailyFocusReminders = async () => {
     // Process each user
     for (const user of users) {
       try {
-        // Check if user has focus notification preference enabled
-        // Use the pre-loaded preference map (default true if no record exists)
-        const isEnabled = preferenceMap.has(user.id) ? preferenceMap.get(user.id) : true;
-        if (!isEnabled) {
-          logger.cron(`[CRON] Focus notifications disabled for user ${user.id}`);
-          notificationsSkipped++;
-          continue;
-        }
+        // Let sendNotification handle channel preferences internally
 
         // Get user's focus task for today
         const { data: focusTask, error: taskError } = await supabase
