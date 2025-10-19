@@ -51,6 +51,7 @@ import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
 import { sendNotification } from './services/notificationService.js';
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
+import { toZonedTime } from 'date-fns-tz';
 
 
 const app = express()
@@ -93,9 +94,6 @@ const configureTrustProxy = () => {
     
     const isTrusted = isIPInAnyCIDR(ip, validCIDRs);
     
-    if (process.env.DEBUG_LOGS === 'true') {
-      logger.debug(`Trust proxy check: IP ${ip} ${isTrusted ? 'trusted' : 'rejected'}`);
-    }
     
     return isTrusted;
   });
@@ -166,19 +164,11 @@ if (supabaseUrl && supabaseKey) {
 }
 
 // Environment check - only log non-sensitive info
-if (process.env.DEBUG_LOGS === 'true') {
-  logger.info('NODE_ENV:', process.env.NODE_ENV);
-  logger.info('PORT:', process.env.PORT);
-  logger.info('Environment variables loaded:', Object.keys(process.env).filter(key =>
-    key.includes('URL') || key.includes('GOOGLE') || key.includes('FRONTEND')
-  ).length, 'configured');
-} else {
-  logger.info('NODE_ENV:', process.env.NODE_ENV);
-  logger.info('PORT:', process.env.PORT);
-  logger.info('Environment variables loaded:', Object.keys(process.env).filter(key =>
-    key.includes('URL') || key.includes('GOOGLE') || key.includes('FRONTEND')
-  ).length, 'configured');
-}
+logger.info('NODE_ENV:', process.env.NODE_ENV);
+logger.info('PORT:', process.env.PORT);
+logger.info('Environment variables loaded:', Object.keys(process.env).filter(key =>
+  key.includes('URL') || key.includes('GOOGLE') || key.includes('FRONTEND')
+).length, 'configured');
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -227,23 +217,13 @@ app.use('/api/auth', authRateLimit, authRouter);
 app.use('/api/auth/google', authRateLimit, googleAuthRoutes);
 app.use('/api/auth/google', authRateLimit, googleMobileAuthRoutes);
 
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering calendar router...');
 app.use('/api/calendar', calendarRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('Calendar router registered');
-
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering AI router...');
 app.use('/api/ai', aiRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('AI router registered');
-
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering conversations router...');
 app.use('/api/conversations', conversationsRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('Conversations router registered');
 
 app.use('/api/user', userRouter);
 
-if (process.env.DEBUG_LOGS === 'true') logger.info('Registering analytics router...');
 app.use('/api/analytics', analyticsRouter);
-if (process.env.DEBUG_LOGS === 'true') logger.info('Analytics router registered');
 
 async function getAllUserIds() {
   // Check if Supabase is initialized
@@ -547,6 +527,132 @@ const sendTaskReminders = async () => {
 
 // Schedule task reminder check to run every 5 minutes
 cron.schedule('*/5 * * * *', sendTaskReminders);
+
+// --- Daily Focus Reminder Cron Job (Optimized) ---
+const sendDailyFocusReminders = async () => {
+  const startTime = Date.now();
+  
+  // Check if Supabase is initialized
+  if (!supabase) {
+    logger.warn('[CRON] Supabase client not initialized. Skipping daily focus reminders.');
+    return;
+  }
+
+  logger.cron('[CRON] Checking for daily focus reminders...');
+
+  try {
+    // Get current time in UTC
+    const now = new Date();
+    const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+    // Optimized SQL query: Use database-level filtering to find users who need notifications
+    // This replaces the in-memory scan with a targeted SQL query
+    const queryStartTime = Date.now();
+    
+    const { data: users, error: usersError } = await supabase
+      .rpc('get_users_for_focus_notifications', {
+        current_utc_time: now.toISOString(),
+        target_date: currentDate
+      });
+
+    const queryDuration = Date.now() - queryStartTime;
+    logger.cron(`[CRON] Focus notification query completed in ${queryDuration}ms, found ${users?.length || 0} users`);
+
+    // Alert if query takes too long (> 1 second)
+    if (queryDuration > 1000) {
+      logger.warn(`[CRON] SLOW QUERY ALERT: Focus notification query took ${queryDuration}ms (> 1s threshold)`);
+    }
+
+    if (usersError) {
+      logger.error('[CRON] Error fetching users for focus reminders:', usersError);
+      return;
+    }
+
+    if (!users || users.length === 0) {
+      logger.cron('[CRON] No users found for focus reminders');
+      return;
+    }
+
+    // Note: Removed push-only preference gating - let sendNotification handle all channels
+
+    // Import the notification service
+    const { sendDailyFocusReminder } = await import('./services/notificationService.js');
+    
+    let notificationsSent = 0;
+    let notificationsSkipped = 0;
+    let notificationsFailed = 0;
+    
+    // Process each user
+    for (const user of users) {
+      try {
+        // Let sendNotification handle channel preferences internally
+
+        // Get user's focus task for today
+        const { data: focusTask, error: taskError } = await supabase
+          .from('tasks')
+          .select('id, title, description')
+          .eq('user_id', user.id)
+          .eq('is_today_focus', true)
+          .eq('status', 'not_started')
+          .maybeSingle();
+
+        if (taskError) {
+          logger.error(`[CRON] Error fetching focus task for user ${user.id}:`, taskError);
+          notificationsFailed++;
+          continue;
+        }
+
+        // If no focus task found, skip this user
+        if (!focusTask) {
+          logger.cron(`[CRON] No focus task found for user ${user.id}`);
+          notificationsSkipped++;
+          continue;
+        }
+
+        // Send the notification
+        const result = await sendDailyFocusReminder(user.id, focusTask, user.full_name);
+        
+        if (result.success) {
+          // Update last_focus_notification_sent timestamp
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ last_focus_notification_sent: now.toISOString() })
+            .eq('id', user.id);
+            
+          if (updateError) {
+            logger.error(`[CRON] Failed to update last_focus_notification_sent for user ${user.id}:`, updateError);
+            notificationsFailed++;
+          } else {
+            logger.cron(`[CRON] Successfully sent daily focus reminder to user ${user.id}`);
+            notificationsSent++;
+          }
+        } else {
+          logger.error(`[CRON] Failed to send focus reminder to user ${user.id}:`, result.error);
+          notificationsFailed++;
+        }
+      } catch (userError) {
+        logger.error(`[CRON] Exception processing user ${user.id} for focus reminder:`, userError);
+        notificationsFailed++;
+      }
+    }
+
+    // Log performance metrics
+    const totalDuration = Date.now() - startTime;
+    logger.cron(`[CRON] Focus reminder job completed in ${totalDuration}ms - Sent: ${notificationsSent}, Skipped: ${notificationsSkipped}, Failed: ${notificationsFailed}`);
+    
+    // Alert if total job takes too long (> 30 seconds)
+    if (totalDuration > 30000) {
+      logger.warn(`[CRON] SLOW JOB ALERT: Focus reminder job took ${totalDuration}ms (> 30s threshold)`);
+    }
+    
+  } catch (err) {
+    logger.error('[CRON] Exception in sendDailyFocusReminders:', err);
+  }
+};
+
+// Schedule daily focus reminder check to run every 5 minutes (optimized frequency)
+// This reduces database load while maintaining reasonable notification precision
+cron.schedule('*/5 * * * *', sendDailyFocusReminders);
 
 // Initialize Firebase Admin SDK
 try {

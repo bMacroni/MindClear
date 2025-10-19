@@ -19,6 +19,7 @@ import { HelpProvider } from './src/contexts/HelpContext';
 import HelpOverlay from './src/components/help/HelpOverlay';
 import { authService } from './src/services/auth';
 import { getCurrentRouteName } from './src/navigation/navigationRef';
+import messaging from '@react-native-firebase/messaging';
 // import { initializeScreenPreloading } from './src/utils/screenPreloader';
 
 // Set Google client IDs immediately when the module loads
@@ -33,11 +34,29 @@ function App() {
     // Initialize screen preloading for better performance
     // initializeScreenPreloading();
     
+    let tokenRefreshUnsubscribe: (() => void) | null = null;
+    
     // Set up auth state listener to initialize services after authentication
     const checkAuthAndInitialize = async () => {
       if (authService.isAuthenticated()) {
         // Initialize notification services when authenticated
         notificationService.initialize();
+        
+        // Clean up any existing token refresh listener before setting up a new one
+        if (tokenRefreshUnsubscribe) {
+          tokenRefreshUnsubscribe();
+        }
+        
+        // Set up FCM token refresh listener
+        tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (token: string) => {
+          console.log('FCM token refreshed:', token.substring(0, 20) + '...');
+          try {
+            await notificationService.registerTokenWithBackend(token);
+          } catch (error) {
+            console.error('Failed to register FCM token with backend:', error);
+            // Don't crash the app on token registration failure
+          }
+        });
         
         // Connect WebSocket with error handling
         try {
@@ -60,6 +79,12 @@ function App() {
         // Skip initialization when not authenticated
         // Disconnect WebSocket if user is not authenticated
         webSocketService.disconnect();
+        
+        // Clean up token refresh listener when not authenticated
+        if (tokenRefreshUnsubscribe) {
+          tokenRefreshUnsubscribe();
+          tokenRefreshUnsubscribe = null;
+        }
       }
     };
 
@@ -107,6 +132,9 @@ function App() {
     return () => {
       if (unsubscribe) {
         unsubscribe();
+      }
+      if (tokenRefreshUnsubscribe) {
+        tokenRefreshUnsubscribe();
       }
     };
   }, []);
