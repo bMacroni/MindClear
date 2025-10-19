@@ -10,6 +10,7 @@ import {
   registerDeviceToken,
   getNotificationPreferences,
   updateNotificationPreferences,
+  updateSingleNotificationPreference,
   deleteUserAccount
 } from '../controllers/userController.js';
 
@@ -35,6 +36,7 @@ router.put('/app-preferences', requireAuth, updateAppPreferences);
 router.post('/device-token', requireAuth, registerDeviceToken);
 router.get('/notifications/preferences', requireAuth, getNotificationPreferences);
 router.put('/notifications/preferences', requireAuth, updateNotificationPreferences);
+router.put('/notification-preferences', requireAuth, updateSingleNotificationPreference);
 
 // Account deletion (Play policy compliance)
 router.delete('/', requireAuth, deleteUserAccount);

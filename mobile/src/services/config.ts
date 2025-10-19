@@ -19,7 +19,8 @@ export const API_CONFIGS: Record<string, ApiConfig> = {
   }
 };
 
-class ConfigService {
+export class ConfigService {
+  private static instance: ConfigService;
   private currentConfig: ApiConfig = __DEV__ ? API_CONFIGS.local : API_CONFIGS.hosted;
   private configKey = 'api_config';
   private googleWebClientId: string | undefined;
@@ -31,9 +32,23 @@ class ConfigService {
 
   // …and expose an async initializer that fully loads the config
   static async initialize(): Promise<ConfigService> {
-    const service = new ConfigService();
-    await service.loadConfig();
-    return service;
+    if (!ConfigService.instance) {
+      ConfigService.instance = new ConfigService();
+      await ConfigService.instance.loadConfig();
+    }
+    return ConfigService.instance;
+  }
+
+  static getInstance(): ConfigService {
+    if (!ConfigService.instance) {
+      ConfigService.instance = new ConfigService();
+      // Load config immediately when creating the instance
+      // This ensures the exported singleton has persisted settings loaded
+      ConfigService.instance.loadConfig().catch(error => {
+        console.warn('Failed to load config in getInstance:', error);
+      });
+    }
+    return ConfigService.instance;
   }
   async loadConfig(): Promise<void> {
     try {
@@ -98,9 +113,15 @@ class ConfigService {
 
   // Google Sign-In Configuration
   setGoogleClientIds(ids: { web?: string; android?: string; ios?: string }) {
-    if (ids.web) this.googleWebClientId = ids.web;
-    if (ids.android) this.googleAndroidClientId = ids.android;
-    if (ids.ios) this.googleIosClientId = ids.ios;
+    if (ids.web) {
+      this.googleWebClientId = ids.web;
+    }
+    if (ids.android) {
+      this.googleAndroidClientId = ids.android;
+    }
+    if (ids.ios) {
+      this.googleIosClientId = ids.ios;
+    }
   }
 
   getGoogleWebClientId(): string {
@@ -129,6 +150,6 @@ class ConfigService {
   }
 }
 
-export const configService = new ConfigService();
+export const configService = ConfigService.getInstance();
 
 

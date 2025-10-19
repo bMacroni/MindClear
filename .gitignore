@@ -118,4 +118,7 @@ get-jwt.js
 # Backup files
 *.bak
 *.backup 
-/frontend/interfaceexamples
+frontend/interfaceexamples/ai-chat-page.tsx
+frontend/interfaceexamples/ui/scroll-area.tsx
+backend/docs/FOCUS_NOTIFICATION_OPTIMIZATION.md
+

@@ -536,8 +536,48 @@ export async function bulkCreateTasks(req, res) {
 }
 
 export async function createTaskFromAI(args, userId, userContext) {
-  const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes } = args;
+  const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes, category, status } = args;
   const token = userContext?.token;
+
+  // Helper function to determine category based on task title and context
+  function determineCategory(title, description) {
+    if (category) return category; // Use provided category if available
+
+    if (!title) return 'personal';
+    const titleLower = title.toLowerCase();
+    // Health-related keywords (check first to avoid conflicts with work keywords)
+    if (titleLower.includes('doctor') || titleLower.includes('medical appointment') ||
+        titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('exercise') ||
+        titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
+        titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
+        titleLower.includes('health appointment')) {
+      return 'health';
+    }
+    
+    // Work-related keywords
+    if (titleLower.includes('meeting') || titleLower.includes('email') ||
+        titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
+        titleLower.includes('deadline') || titleLower.includes('presentation') ||
+        titleLower.includes('client') || titleLower.includes('call client')) {
+      return 'work';
+    }
+    
+    // Social-related keywords
+    if (titleLower.includes('social') || titleLower.includes('friend') ||
+        titleLower.includes('family') || titleLower.includes('party') ||
+        titleLower.includes('gathering') || titleLower.includes('event')) {
+      return 'social';
+    }
+    
+    // Default to personal if no specific category matches
+    return 'personal';
+  }
+
+  // Set default values
+  const defaultPriority = priority || 'medium';
+  const defaultCategory = determineCategory(title, description);
+  const defaultStatus = status || 'not_started';
+  const defaultDeadlineType = deadline_type || 'soft';
 
   // Track analytics event for AI-created tasks
   try {
@@ -549,9 +589,10 @@ export async function createTaskFromAI(args, userId, userContext) {
         event_name: 'task_created',
         payload: {
           source: 'ai',
-          priority: priority || 'medium',
+          priority: defaultPriority,
           has_due_date: !!due_date,
           has_related_goal: !!related_goal,
+          has_category: !!defaultCategory,
           preferred_time_of_day: preferred_time_of_day || null,
           timestamp: new Date().toISOString()
         }
@@ -575,7 +616,10 @@ export async function createTaskFromAI(args, userId, userContext) {
       .from('goals')
       .select('id, title')
       .eq('user_id', userId);
-    if (fetchError) return { error: fetchError.message };
+    if (fetchError) {
+      logger.error('Error fetching goals for task creation:', fetchError);
+      return { error: fetchError.message };
+    }
     const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
     if (match) goalId = match.id;
   }
@@ -611,7 +655,8 @@ export async function createTaskFromAI(args, userId, userContext) {
           }
         }
       }
-    }  }
+    }
+  }
 
   // Ensure due_date is stored as a proper date string to avoid timezone conversion
   let finalDueDate = parsedDueDate;
@@ -627,11 +672,13 @@ export async function createTaskFromAI(args, userId, userContext) {
       title, 
       description, 
       due_date: finalDueDate,
-      priority,
+      priority: defaultPriority,
       goal_id: goalId,
       preferred_time_of_day,
-      deadline_type,
-      travel_time_minutes
+      deadline_type: defaultDeadlineType,
+      travel_time_minutes,
+      category: defaultCategory,
+      status: defaultStatus
     }])
     .select()
     .single();

@@ -132,8 +132,8 @@ class AnalyticsService {
         token = await authService.getAuthToken();
       } catch (importError) {
         logger.error('Analytics: Failed to import auth service or retrieve token', { 
-          error: importError.message,
-          stack: importError.stack 
+          error: importError instanceof Error ? importError.message : String(importError),
+          stack: importError instanceof Error ? importError.stack : undefined
         });
         await this.queueEvent(event);
         return;

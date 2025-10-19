@@ -1,20 +1,8 @@
 import { jwtDecode } from 'jwt-decode';
-import { configService } from './config';
 import { secureStorage } from './secureStorage';
 import { AndroidStorageMigrationService } from './storageMigration';
 import { apiFetch } from './apiService';
 import logger from '../utils/logger';
-
-// Helper function for fetch with timeout
-const fetchWithTimeout = async (input: RequestInfo, init: RequestInit = {}, ms = 10000) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ms);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-};
 
 // Helper function to decode JWT token
 function decodeJWT(token: string): any {
@@ -29,9 +17,13 @@ function decodeJWT(token: string): any {
 // Helper function to check if JWT token is expired
 function isTokenExpired(token: string): boolean {
   const decoded = decodeJWT(token) as any;
-  if (!decoded) return true;
+  if (!decoded) {
+    return true;
+  }
   const exp = Number(decoded?.exp);
-  if (!Number.isFinite(exp)) return true; // no/invalid exp ⇒ treat as expired
+  if (!Number.isFinite(exp)) {
+    return true; // no/invalid exp ⇒ treat as expired
+  }
   const leeway = 30; // seconds - configurable via environment if needed
   const now = Math.floor(Date.now() / 1000);
   // Expire if exp is at or before now + leeway
@@ -74,6 +66,8 @@ class AuthService {
   };
   private listeners: ((_state: AuthState) => void)[] = [];
   private initialized = false;
+  private refreshTimer: NodeJS.Timeout | null = null;
+  private refreshPromise: Promise<boolean> | null = null;
 
   private constructor() {
     this.initializeAuth();
@@ -175,6 +169,8 @@ class AuthService {
               isLoading: false,
               isAuthenticated: true,
             };
+            // Start background token refresh timer
+            this.startBackgroundRefresh();
           } else {
             // If user reconstruction failed but we have a valid token, 
             // attempt to fetch user profile from server
@@ -189,6 +185,8 @@ class AuthService {
                 isLoading: false,
                 isAuthenticated: true,
               };
+              // Start background token refresh timer
+              this.startBackgroundRefresh();
               // Save the user data to storage for future use
               await secureStorage.set('auth_user', JSON.stringify(profileResult.user));
             } else {
@@ -263,7 +261,7 @@ class AuthService {
       this.authState.isLoading = true;
       this.notifyListeners();
 
-      const { ok, status, data } = await apiFetch('/auth/signup', {
+      const { ok, data } = await apiFetch('/auth/signup', {
         method: 'POST',
         body: JSON.stringify({
           email: credentials.email,
@@ -298,7 +296,7 @@ class AuthService {
       this.authState.isLoading = true;
       this.notifyListeners();
 
-      const { ok, status, data } = await apiFetch('/auth/login', {
+      const { ok, data } = await apiFetch('/auth/login', {
         method: 'POST',
         body: JSON.stringify(credentials),
       });
@@ -321,6 +319,9 @@ class AuthService {
   // Logout user
   public async logout(): Promise<void> {
     try {
+      // Stop background refresh timer
+      this.stopBackgroundRefresh();
+      
       await this.clearAuthData();
       
       this.authState = {
@@ -344,7 +345,7 @@ class AuthService {
         return { success: false, message: 'No authentication token' };
       }
 
-      const { ok, status, data } = await apiFetch('/auth/profile', {
+      const { ok, data } = await apiFetch('/auth/profile', {
         method: 'GET',
       }, 15000);
 
@@ -364,7 +365,12 @@ class AuthService {
     if (this.authState.token) {
       // Check if the current token is expired
       if (isTokenExpired(this.authState.token)) {
-        // Token is expired, clear access token and user data but preserve refresh token
+        // Token is expired, attempt to refresh before giving up
+        const refreshSuccess = await this.refreshToken();
+        if (refreshSuccess) {
+          return this.authState.token; // Return the new token
+        }
+        // Only logout if refresh fails
         await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
         this.setUnauthenticatedState();
         this.notifyListeners();
@@ -378,7 +384,12 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          // Token is expired, clear access token and user data but preserve refresh token
+          // Token is expired, attempt to refresh before giving up
+          const refreshSuccess = await this.refreshToken();
+          if (refreshSuccess) {
+            return this.authState.token; // Return the new token
+          }
+          // Only logout if refresh fails
           await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
           this.setUnauthenticatedState();
           this.notifyListeners();
@@ -420,6 +431,9 @@ class AuthService {
       isAuthenticated: true,
     };
     
+    // Start background token refresh timer
+    this.startBackgroundRefresh();
+    
     this.notifyListeners();
   }
 
@@ -450,8 +464,21 @@ class AuthService {
   }
 
 
-  // Refresh token (if needed)
+  // Refresh token (if needed) - with queue to prevent multiple simultaneous attempts
   public async refreshToken(): Promise<boolean> {
+    // If there's already a refresh in progress, return that promise
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+    
+    this.refreshPromise = this.performRefresh();
+    const result = await this.refreshPromise;
+    this.refreshPromise = null;
+    return result;
+  }
+
+  // Internal method to perform the actual refresh
+  private async performRefresh(): Promise<boolean> {
     try {
       const refreshTokenValue = await secureStorage.get('auth_refresh_token');
       if (!refreshTokenValue) {
@@ -481,6 +508,51 @@ class AuthService {
       console.error('Token refresh error:', _error);
       await this.logout();
       return false;
+    }
+  }
+
+  // Start background token refresh timer
+  private startBackgroundRefresh(): void {
+    // Clear any existing timer
+    this.stopBackgroundRefresh();
+    
+    if (!this.authState.isAuthenticated) {
+      return;
+    }
+
+    // Calculate refresh time from token expiry
+    const token = this.authState.token;
+    if (!token) {
+      return;
+    }
+    
+    const decoded = decodeJWT(token);
+    const exp = Number(decoded?.exp);
+    if (!decoded || !Number.isFinite(exp)) {
+      console.warn('Cannot start background refresh: invalid token expiry');
+      return;
+    }
+    
+    const expMs = exp * 1000; // Convert to milliseconds
+    const now = Date.now();
+    const timeUntilExpiry = expMs - now;
+    
+    // Refresh 5 minutes before expiry, or immediately if less than 5 min left
+    const refreshBuffer = 5 * 60 * 1000; // 5 minutes
+    const refreshInterval = Math.max(timeUntilExpiry - refreshBuffer, 0);
+    
+    this.refreshTimer = setTimeout(async () => {
+      if (this.authState.isAuthenticated) {
+        await this.refreshToken();
+      }
+    }, refreshInterval);
+  }
+
+  // Stop background token refresh timer
+  private stopBackgroundRefresh(): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
     }
   }
 }

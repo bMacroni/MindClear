@@ -7,7 +7,7 @@ import { configService, ApiConfig } from '../../services/config';
 import { authService } from '../../services/auth';
 
 interface ApiToggleProps {
-  onConfigChange?: (config: ApiConfig) => void;
+  onConfigChange?: (_config: ApiConfig) => void;
   onLogout?: () => void;
 }
 
@@ -99,7 +99,7 @@ export const ApiToggle: React.FC<ApiToggleProps> = ({ onConfigChange, onLogout }
 
       {showConfigs && (
         <View style={styles.configList}>
-          {Object.entries(availableConfigs).map(([key, config]) => (
+          {Object.entries(availableConfigs).map(([key, config]: [string, ApiConfig]) => (
             <TouchableOpacity
               key={key}
               style={[

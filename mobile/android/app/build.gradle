@@ -1,7 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
-// Google Services plugin removed - using backend-only approach
+apply plugin: 'com.google.gms.google-services'
 
 // Add this line for vector icons
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
@@ -85,6 +85,13 @@ android {
 
     namespace "com.foci.mobile"
     
+    // Force Firebase BoM version for React Native Firebase packages
+    configurations.all {
+        resolutionStrategy {
+            force 'com.google.firebase:firebase-bom:34.4.0'
+        }
+    }
+    
     // Optimize build performance
     buildFeatures {
         buildConfig true
@@ -97,8 +104,8 @@ android {
         applicationId "com.foci.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.0.4"
+        versionCode 7
+        versionName "1.0.6"
     }
     signingConfigs {
         debug {
@@ -201,7 +208,9 @@ dependencies {
     // Google Play Services for Google Sign-In
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
 
-    // Firebase dependencies removed for security - using backend-only approach
+    // Firebase dependencies for push notifications
+    implementation platform('com.google.firebase:firebase-bom:34.4.0')
+    implementation 'com.google.firebase:firebase-messaging'
 
     // Exclude react-native-worklets in release to avoid prefab CMake issues on Windows
     configurations.releaseImplementation {
