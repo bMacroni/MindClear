@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import request from 'supertest';
 
 // Mock the executeTool function
 const mockExecuteTool = vi.fn();
@@ -90,20 +91,16 @@ describe('Action Loop Improvements', () => {
       ]
     });
 
-    const response = await fetch('http://localhost:5000/api/chat?stream=false', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-token'
-      },
-      body: JSON.stringify({
+    const res = await request(app)
+      .post('/api/chat?stream=false')
+      .set('Authorization', 'Bearer test-token')
+      .send({
         message: 'Test message',
         threadId: null
-      })
-    });
+      });
 
-    expect(response.status).toBe(200);
-    const data = await response.json();
+    expect(res.status).toBe(200);
+    const data = res.body;
     expect(data.message).toBe('Test response');
     expect(data.actions).toBeDefined();
     
@@ -138,20 +135,16 @@ describe('Action Loop Improvements', () => {
       .mockResolvedValueOnce({ success: true, id: 1 })
       .mockResolvedValueOnce({ success: true, id: 2 });
 
-    const response = await fetch('http://localhost:5000/api/chat?stream=false', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-token'
-      },
-      body: JSON.stringify({
+    const res = await request(app)
+      .post('/api/chat?stream=false')
+      .set('Authorization', 'Bearer test-token')
+      .send({
         message: 'Test message',
         threadId: null
-      })
-    });
+      });
 
-    expect(response.status).toBe(200);
-    const data = await response.json();
+    expect(res.status).toBe(200);
+    const data = res.body;
     expect(data.message).toBe('Test response');
     expect(data.actions).toBeDefined();
     
@@ -179,20 +172,16 @@ describe('Action Loop Improvements', () => {
 
     mockExecuteTool.mockRejectedValue(new Error('Action execution failed'));
 
-    const response = await fetch('http://localhost:5000/api/chat?stream=false', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-token'
-      },
-      body: JSON.stringify({
+    const res = await request(app)
+      .post('/api/chat?stream=false')
+      .set('Authorization', 'Bearer test-token')
+      .send({
         message: 'Test message',
         threadId: null
-      })
-    });
+      });
 
-    expect(response.status).toBe(200);
-    const data = await response.json();
+    expect(res.status).toBe(200);
+    const data = res.body;
     expect(data.message).toBe('Test response');
     expect(data.actions).toBeDefined();
     
@@ -232,20 +221,16 @@ describe('Action Loop Improvements', () => {
       .mockResolvedValueOnce({ success: true, id: 1 })
       .mockResolvedValueOnce({ success: true, id: 2 });
 
-    const response = await fetch('http://localhost:5000/api/chat?stream=false', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer test-token'
-      },
-      body: JSON.stringify({
+    const res = await request(app)
+      .post('/api/chat?stream=false')
+      .set('Authorization', 'Bearer test-token')
+      .send({
         message: 'Test message',
         threadId: null
-      })
-    });
+      });
 
-    expect(response.status).toBe(200);
-    const data = await response.json();
+    expect(res.status).toBe(200);
+    const data = res.body;
     expect(data.message).toBe('Test response');
     expect(data.actions).toBeDefined();
     

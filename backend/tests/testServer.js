@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import logger from '../src/utils/logger.js';
 
 const env = process.env.NODE_ENV || 'development';
 // Load base, then local, then env-specific, then env-specific local (highest precedence)
@@ -7,6 +6,8 @@ dotenv.config();
 dotenv.config({ path: `.env.local`, override: true });
 dotenv.config({ path: `.env.${env}`, override: true });
 dotenv.config({ path: `.env.${env}.local`, override: true });
+
+import logger from '../src/utils/logger.js';
 
 import express from 'express'
 import http from 'http'
@@ -32,14 +33,9 @@ import assistantChatRouter from '../src/routes/assistantChat.js'
 const app = express()
 const server = http.createServer(app)
 
-// Initialize Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
-logger.info('Supabase client initialized')
 
 // Initialize Firebase Admin SDK
 initializeFirebaseAdmin()
-initializeFirebaseAdmin() // Called twice due to import in both server.js and websocketServer.js
-
 // Initialize WebSocket server
 initializeWebSocketServer(server)
 
@@ -49,10 +45,8 @@ if (trustProxy) {
   app.set('trust proxy', true)
   logger.info('Trust proxy enabled')
 } else {
-  logger.warn('RAILWAY_INGRESS_CIDR not configured. Not trusting any proxies.')
+  logger.warn('TRUST_PROXY not configured. Not trusting any proxies.')
 }
-
-// Security middleware
 app.use(helmetConfig)
 app.use(globalRateLimit)
 

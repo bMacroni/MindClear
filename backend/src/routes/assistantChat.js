@@ -21,10 +21,9 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
     const userId = req.user.id;
     const moodHeader = req.headers['x-user-mood'];
     const timeZoneHeader = req.headers['x-user-timezone'];
-    const token = req.headers.authorization.split(' ')[1];
+    const token = req.headers.authorization?.split(' ')[1];
     const stream = String(req.query.stream || '').toLowerCase() !== 'false' &&
                    String(req.headers['accept'] || '').includes('text/event-stream');
-
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'Message is required and must be a non-empty string' });
     }
@@ -120,6 +119,7 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
     };
     
     // Process each action
+    const validActions = [];
     for (const action of actions) {
       const validation = validateAction(action);
       if (!validation.valid) {
