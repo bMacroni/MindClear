@@ -15,6 +15,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@assistant-ui/react": "^0.11.32",
+    "@assistant-ui/react-ai-sdk": "^1.1.7",
     "@google-cloud/local-auth": "^3.0.1",
     "@hello-pangea/dnd": "^18.0.1",
     "@react-oauth/google": "^0.12.0",
@@ -23,6 +25,7 @@
     "chrono-node": "^2.8.3",
     "date-fns-tz": "^3.2.0",
     "dompurify": "^3.2.7",
+    "motion": "^11.16.0",
     "react": "^18.2.0",
     "react-dnd": "^16.0.1",
     "react-dnd-html5-backend": "^16.0.1",
@@ -30,11 +33,13 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.8.0",
     "remark-gfm": "^4.0.1",
-    "@assistant-ui/react": "^0.7.66",
-    "motion": "^11.16.0",
-    "zustand": "^5.0.0",
-    "@assistant-ui/react-ai-sdk": "^1.0.4"  },
+    "zustand": "^5.0.0"
+  },
   "dependencyNotes": {
+    "2025-01-27 CST": [
+      "@assistant-ui/react (updated to ^0.11.32)",
+      "@assistant-ui/react-ai-sdk (updated to ^1.1.7)"
+    ],
     "2025-10-13 CST": [
       "@assistant-ui/react",
       "@assistant-ui/react-ai-sdk",
