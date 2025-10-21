@@ -522,21 +522,22 @@ router.post('/disconnect', requireAuth, async (req, res) => {
     // Delete tokens from our database
     await deleteGoogleTokens(req.user.id);
     
-    // Clear any cached calendar events for this user
+    // Clear only Google-synced calendar events for this user (preserve locally-created events)
     try {
       const { error: deleteEventsError } = await supabase
         .from('calendar_events')
         .delete()
-        .eq('user_id', req.user.id);
+        .eq('user_id', req.user.id)
+        .not('google_calendar_id', 'is', null);
       
       if (deleteEventsError) {
-        logger.warn('Failed to clear cached calendar events:', deleteEventsError);
+        logger.warn('Failed to clear Google-synced calendar events:', deleteEventsError);
         // Don't fail the disconnect for cache cleanup issues
       } else {
-        logger.info(`Cleared cached calendar events for user: ${req.user.id}`);
+        logger.info(`Cleared Google-synced calendar events for user: ${req.user.id} (locally-created events preserved)`);
       }
     } catch (cacheError) {
-      logger.warn('Error clearing calendar cache:', cacheError);
+      logger.warn('Error clearing Google-synced calendar events:', cacheError);
     }
 
     logger.info(`Successfully disconnected Google Calendar for user: ${req.user.id}`);

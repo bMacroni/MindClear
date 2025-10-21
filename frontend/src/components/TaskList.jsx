@@ -64,10 +64,9 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
         await tasksAPI.delete(id);
         
         if (propTasks !== undefined) {
-          // Controlled mode: derive updated tasks and notify parent
-          const updatedTasks = Array.isArray(propTasks) ? propTasks.filter(task => task.id !== id) : [];
+          // Controlled mode: notify parent to refresh data
           if (onTaskChange) {
-            onTaskChange(updatedTasks);
+            onTaskChange();
           }
         } else {
           // Uncontrolled mode: update local state
@@ -95,10 +94,9 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     // If this was a new task being cancelled, remove it from the list
     if (newTaskId) {
       if (propTasks !== undefined) {
-        // Controlled mode: derive updated tasks and notify parent
-        const updatedTasks = Array.isArray(propTasks) ? propTasks.filter(task => task.id !== newTaskId) : [];
+        // Controlled mode: notify parent to refresh data
         if (onTaskChange) {
-          onTaskChange(updatedTasks);
+          onTaskChange();
         }
       } else {
         // Uncontrolled mode: update local state
@@ -169,10 +167,9 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
       const newTask = response.data;
       
       if (propTasks !== undefined) {
-        // Controlled mode: derive updated tasks and notify parent
-        const updatedTasks = Array.isArray(propTasks) ? [newTask, ...propTasks] : [newTask];
+        // Controlled mode: notify parent to refresh data
         if (onTaskChange) {
-          onTaskChange(updatedTasks);
+          onTaskChange();
         }
       } else {
         // Uncontrolled mode: update local state
@@ -259,10 +256,9 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     const updated = { ...task, status: newStatus };
     
     if (propTasks !== undefined) {
-      // Controlled mode: optimistically update and notify parent
-      const updatedTasks = Array.isArray(propTasks) ? propTasks.map(t => t.id === task.id ? updated : t) : [];
+      // Controlled mode: notify parent to refresh data
       if (onTaskChange) {
-        onTaskChange(updatedTasks);
+        onTaskChange();
       }
     } else {
       // Uncontrolled mode: optimistically update local state
@@ -291,7 +287,7 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     } catch (err) {
       // Revert optimistic update if backend update fails
       if (propTasks !== undefined) {
-        // Controlled mode: revert by notifying parent with original data
+        // Controlled mode: revert by notifying parent to refresh data
         if (onTaskChange) {
           onTaskChange();
         }

@@ -157,6 +157,37 @@ export class SecureTokenStorage {
   private static tokenCache: string | null = null;
   private static cacheTimestamp: number = 0;
   private static readonly CACHE_DURATION = 1000; // 1 second cache
+  private static lastLogTime: number = 0;
+  private static readonly LOG_THROTTLE_MS = 5000; // 5 seconds between logs
+  private static storageListenerInitialized: boolean = false;
+
+  /**
+   * Initializes cross-tab synchronization for token changes
+   * Only runs in browser environment
+   */
+  private static initializeCrossTabSync(): void {
+    if (this.storageListenerInitialized || typeof window === 'undefined') {
+      return;
+    }
+
+    // Listen for storage changes from other tabs
+    window.addEventListener('storage', (event) => {
+      if (event.key === this.TOKEN_KEY) {
+        // Another tab updated or removed the token
+        this.tokenCache = null;
+        this.cacheTimestamp = 0;
+        
+        if (process.env.NODE_ENV === 'development') {
+          logSecurityEvent('Token cache cleared due to cross-tab change', {
+            timestamp: Date.now(),
+            newValue: event.newValue ? 'updated' : 'removed'
+          });
+        }
+      }
+    });
+
+    this.storageListenerInitialized = true;
+  }
 
   /**
    * Stores a token securely
@@ -164,6 +195,9 @@ export class SecureTokenStorage {
    */
   static setToken(token: string): void {
     try {
+      // Initialize cross-tab sync on first use
+      this.initializeCrossTabSync();
+      
       // Store token directly - rely on HTTPS for transport security
       // Consider using sessionStorage for more sensitive scenarios
       localStorage.setItem(this.TOKEN_KEY, token);
@@ -185,6 +219,9 @@ export class SecureTokenStorage {
    */
   static getToken(): string | null {
     try {
+      // Initialize cross-tab sync on first use
+      this.initializeCrossTabSync();
+      
       // Check cache first
       const now = Date.now();
       if (this.tokenCache && (now - this.cacheTimestamp) < this.CACHE_DURATION) {
@@ -198,9 +235,13 @@ export class SecureTokenStorage {
       this.tokenCache = token;
       this.cacheTimestamp = now;
       
-      // Only log token retrieval in development and not for every call
-      if (token && process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-        logSecurityEvent('Token retrieved', { timestamp: now });
+      // Log token retrieval in development with time-based throttling
+      if (token && process.env.NODE_ENV === 'development') {
+        const timeSinceLastLog = now - this.lastLogTime;
+        if (timeSinceLastLog >= this.LOG_THROTTLE_MS) {
+          logSecurityEvent('Token retrieved', { timestamp: now });
+          this.lastLogTime = now;
+        }
       }
       return token;
     } catch (error) {
@@ -214,6 +255,9 @@ export class SecureTokenStorage {
    */
   static removeToken(): void {
     try {
+      // Initialize cross-tab sync on first use
+      this.initializeCrossTabSync();
+      
       localStorage.removeItem(this.TOKEN_KEY);
       
       // Clear cache

@@ -15,21 +15,19 @@ class AnalyticsService {
     if (!eventName || typeof eventName !== 'string') {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[Analytics] Invalid eventName:', {
-          value: eventName,
           type: typeof eventName,
           message: 'eventName must be a non-empty string'
         });
-      }
-      return;
+      }      return;
     }
 
-    if (payload && (typeof payload !== 'object' || Array.isArray(payload))) {
+    if (payload !== null && typeof payload !== 'object' || Array.isArray(payload)) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[Analytics] Invalid payload:', {
-          value: payload,
           type: typeof payload,
           isArray: Array.isArray(payload),
-          message: 'payload must be a plain object (not array or primitive)'
+          keysCount: payload && typeof payload === 'object' ? Object.keys(payload).length : 'N/A',
+          message: 'payload must be a plain object (not null, array, or primitive)'
         });
       }
       return;
@@ -43,8 +41,8 @@ class AnalyticsService {
     } catch (error) {
       // Log error but don't throw - fire-and-forget approach
       console.error('[Analytics] Failed to track event:', eventName, error);
-    }  }
-
+    }
+  }
   // Common event tracking methods for convenience
   trackGoalCreated(source, goalData = {}) {
     const data = goalData && typeof goalData === 'object' ? goalData : {};

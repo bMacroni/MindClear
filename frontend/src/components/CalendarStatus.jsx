@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { calendarAPI } from '../services/api';
 
 const CalendarStatus = () => {
@@ -11,9 +11,19 @@ const CalendarStatus = () => {
   // Add caching state
   const [lastStatusCheck, setLastStatusCheck] = useState(null);
   const STATUS_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes in milliseconds
+  
+  // Ref to store timeout ID for cleanup
+  const successTimeoutRef = useRef(null);
 
   useEffect(() => {
     checkCalendarStatus();
+    
+    // Cleanup function to clear any pending timeouts
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+    };
   }, []);
 
   const checkCalendarStatus = async (forceRefresh = false) => {
@@ -68,22 +78,30 @@ const CalendarStatus = () => {
         // Clear any cached status
         setLastStatusCheck(null);
         
-        // Clear any localStorage/sessionStorage entries related to calendar
+        // Clear specific calendar-related storage entries
         // Note: The main JWT token should remain for app authentication
+        const calendarRelatedKeys = [
+          'google_oauth_email',
+          'google_oauth_name',
+          'csrf_token'
+        ];
+        
+        // Clear localStorage entries (currently no calendar-specific localStorage keys)
+        // This loop is kept for future calendar-related localStorage keys
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && (key.includes('calendar') || key.includes('google'))) {
+          if (key && calendarRelatedKeys.includes(key)) {
             keysToRemove.push(key);
           }
         }
         keysToRemove.forEach(key => localStorage.removeItem(key));
         
-        // Clear sessionStorage as well
+        // Clear sessionStorage entries
         const sessionKeysToRemove = [];
         for (let i = 0; i < sessionStorage.length; i++) {
           const key = sessionStorage.key(i);
-          if (key && (key.includes('calendar') || key.includes('google'))) {
+          if (key && calendarRelatedKeys.includes(key)) {
             sessionKeysToRemove.push(key);
           }
         }
@@ -94,7 +112,11 @@ const CalendarStatus = () => {
         console.log('Google Calendar disconnected successfully');
         
         // Clear success message after 3 seconds
-        setTimeout(() => setSuccess(null), 3000);
+        // Clear any existing timeout first
+        if (successTimeoutRef.current) {
+          clearTimeout(successTimeoutRef.current);
+        }
+        successTimeoutRef.current = setTimeout(() => setSuccess(null), 3000);
         
         // Force refresh the status to reflect the disconnect
         await checkCalendarStatus(true);

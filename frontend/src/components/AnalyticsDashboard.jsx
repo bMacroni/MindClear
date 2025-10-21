@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
 
 /**
@@ -6,6 +6,11 @@ import { api } from '../services/api';
  * Uses SHA-256 hash truncated to 8 characters for consistent anonymization
  */
 const generateAnonymizedUserId = async (userId) => {
+  // Input validation: ensure userId is a non-empty string
+  if (typeof userId !== 'string' || userId.trim() === '') {
+    throw new TypeError('userId must be a non-empty string');
+  }
+
   try {
     // Convert user ID to Uint8Array
     const encoder = new TextEncoder();
@@ -24,8 +29,8 @@ const generateAnonymizedUserId = async (userId) => {
     // Fallback to a simple hash if crypto API fails
     return userId.split('').reduce((a, b) => {
       a = ((a << 5) - a) + b.charCodeAt(0);
-      return a & a;
-    }, 0).toString(16).substring(0, 8);
+      return a & 0xffffffff; // Mask to 32 bits
+    }, 0).toString(16).padStart(8, '0').substring(0, 8);
   }
 };
 
@@ -81,9 +86,9 @@ const AnalyticsDashboard = () => {
     if (analyticsData?.recentEvents) {
       processAnonymizedUserIds();
     }
-  }, [analyticsData]);
+  }, [analyticsData, processAnonymizedUserIds]);
 
-  const processAnonymizedUserIds = async () => {
+  const processAnonymizedUserIds = useCallback(async () => {
     if (!analyticsData?.recentEvents) return;
 
     const uniqueUserIds = [...new Set(analyticsData.recentEvents.map(event => event.user_id))];
@@ -101,7 +106,7 @@ const AnalyticsDashboard = () => {
     if (newAnonymizedIds.size > 0) {
       setAnonymizedUserIds(prev => new Map([...prev, ...newAnonymizedIds]));
     }
-  };
+  }, [analyticsData, anonymizedUserIds, setAnonymizedUserIds]);
 
 
   const formatNumber = (num) => {
