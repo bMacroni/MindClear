@@ -38,7 +38,7 @@ function TasksPage({ showSuccess }) {
   const handleTriggerAutoScheduling = async () => {
     setTriggering(true);
     try {
-      const triggerResponse = await tasksAPI.triggerAutoScheduling();
+      await tasksAPI.triggerAutoScheduling();
       showSuccess('Auto-scheduling triggered successfully!');
       
       // Reload dashboard data and tasks

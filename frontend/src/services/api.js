@@ -252,7 +252,6 @@ class WebSocketService {
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      console.log('WebSocket connected');
       const token = localStorage.getItem('jwt_token');
       if (token) {
         this.ws.send(JSON.stringify({ type: 'auth', token }));
@@ -271,7 +270,6 @@ class WebSocketService {
     };
 
     this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
     };
   }
 

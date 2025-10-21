@@ -13,12 +13,10 @@ class AnalyticsService {
   async track(eventName, payload = {}) {
     // Validate inputs
     if (!eventName || typeof eventName !== 'string') {
-      console.warn('Analytics: Invalid event name provided:', eventName);
       return;
     }
 
     if (payload && (typeof payload !== 'object' || Array.isArray(payload))) {
-      console.warn('Analytics: Invalid payload provided:', payload);
       return;
     }
 
@@ -29,7 +27,6 @@ class AnalyticsService {
       });
     } catch (error) {
       // Log error but don't throw - fire-and-forget approach
-      console.warn('Analytics: Failed to track event:', eventName, error);
     }
   }
 

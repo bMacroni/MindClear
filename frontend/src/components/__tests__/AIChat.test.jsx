@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import AIChat from '../AIChat';
 import { aiAPI, calendarAPI } from '../../services/api';
@@ -158,7 +158,7 @@ describe('AIChat Component', () => {
       priority: 'high',
       completed: false,
     };
-    const lowPriorityTask = {
+    const _lowPriorityTask = {
       id: '2',
       title: 'Low Priority Task',
       priority: 'low',

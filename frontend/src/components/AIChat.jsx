@@ -43,7 +43,7 @@ const formatRelativeTime = (dateString) => {
 
 // Remove getConversationTypeIcon and getConversationTypeColor utility functions
 
-const AIChat = ({ onNavigateToTab, initialMessages }) => {
+const AIChat = ({ initialMessages }) => {
   const [messages, setMessages] = useState(initialMessages || []);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -55,15 +55,12 @@ const AIChat = ({ onNavigateToTab, initialMessages }) => {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const messagesEndRef = useRef(null);
   const [pendingApproval, setPendingApproval] = useState(null);
-  const [taskListByMessageId, setTaskListByMessageId] = useState({});
-  const [listByMessageId, setListByMessageId] = useState({});
   const { calendarEvents, error: calendarError, processAIResponse } = useAIAction();
   const [toast, setToast] = useState({ isVisible: false, message: '', type: 'success' });
   const showToast = (message, type = 'success') => {
     setToast({ isVisible: true, message, type });
   };
   const handleCloseToast = () => setToast({ ...toast, isVisible: false });
-  const [showLoadingScreen, setShowLoadingScreen] = useState(false);
   const [mood, setMood] = useState(null); // 'low', 'okay', 'energized'
   
   // New state for conversation improvements
@@ -262,7 +259,7 @@ I'm here to help you:
     };
   }, [showThreadMenu]);
 
-  const refreshUserData = async () => {
+  const _refreshUserData = async () => {
     try {
       const [goalsResponse, tasksResponse] = await Promise.all([
         goalsAPI.getAll(),
@@ -270,10 +267,10 @@ I'm here to help you:
       ]);
       
       // Only update user data, dont trigger any other effects
-      setUserData(prevData => ({
+      setUserData({
         goals: Array.isArray(goalsResponse.data) ? goalsResponse.data : [],
         tasks: Array.isArray(tasksResponse.data) ? tasksResponse.data : []
-      }));
+      });
     } catch (error) {
       console.error('Error refreshing user data:', error);
     }
@@ -283,7 +280,7 @@ I'm here to help you:
     try {
       setIsLoadingThreads(true);
       const response = await conversationsAPI.getThread(threadId);
-      const { thread, messages } = response.data;
+      const { messages } = response.data;
       
       // Convert database messages to chat format
       const chatMessages = messages.map(msg => ({
@@ -366,81 +363,10 @@ I'm here to help you:
     return bDate - aDate;
   });
 
-  const generateWelcomeMessage = () => {
-    const hasGoals = Array.isArray(userData.goals) ? userData.goals.length > 0 : false;
-    const hasTasks = Array.isArray(userData.tasks) ? userData.tasks.length > 0 : false;
-    
-    if (!hasGoals && !hasTasks) {
-      return `🎯 **Welcome to Mind Clear!** I'm your AI-powered productivity assistant, and I'm here to help you build a focused, organized life.
 
-**Let's get started!** I can help you:
-
-• **Set meaningful goals** - Create clear, achievable objectives
-• **Organize tasks** - Break down goals into actionable steps  
-• **Manage your calendar** - Schedule and track important events
-• **Stay focused** - Get personalized productivity advice
-
-**What would you like to work on today?** You can start by telling me about a goal you have, or I can help you get organized!`;
-    } else if (hasGoals && !hasTasks) {
-      const goalsCount = Array.isArray(userData.goals) ? userData.goals.length : 0;
-      return `🎯 **Welcome back!** I see you have ${goalsCount} goal${goalsCount !== 1 ? 's' : ''} set up. 
-
-**Let's make progress!** I can help you:
-
-• **Break down your goals** into actionable tasks
-• **Create tasks** to move toward your objectives
-• **Review and refine** your existing goals
-• **Plan your week** around your priorities
-
-**What would you like to focus on today?**`;
-    } else if (hasGoals && hasTasks) {
-      const goalsCount = Array.isArray(userData.goals) ? userData.goals.length : 0;
-      const tasksArray = Array.isArray(userData.tasks) ? userData.tasks : [];
-      const completedTasks = tasksArray.filter(task => String(task.status).toLowerCase() === 'completed').length;
-      const totalTasks = tasksArray.length;
-      
-      return `🎯 **Welcome back!**  
-You’re making great strides!  
-  
-**Here’s how I can help you today:**  
-• Review your progress and celebrate wins  
-• Create, update, or organize your goals and tasks  
-• Plan your day or week with the calendar  
-• Get personalized suggestions and productivity tips  
-• Ask for help breaking down big goals into manageable steps  
-  
-**What would you like to focus on or ask me today?**`;
-    } else {
-      const tasksCount = Array.isArray(userData.tasks) ? userData.tasks.length : 0;
-      return `📝 **Welcome back!** I see you have ${tasksCount} task${tasksCount !== 1 ? 's' : ''} to work on.
-
-**Let's get organized!** I can help you:
-
-• **Create goals** to give your tasks direction
-• **Prioritize your tasks** for today
-• **Review and organize** your task list
-• **Plan your week** effectively
-
-**What would you like to work on?**`;
-    }
-  };
-
-  const getRequestType = (message) => {
-    // Simple keyword-based classification for demo; can be replaced with smarter logic
-    if (/goal/i.test(message)) return 'Goal';
-    if (/task/i.test(message)) return 'Task';
-    if (/calendar|event|schedule/i.test(message)) return 'Calendar';
-    return 'General';
-  };
-
-  const getSummary = (message) => {
-    // Use the first 8 words as a summary
-    return message.split(' ').slice(0, 8).join(' ') + (message.split(' ').length > 8 ? '...' : '');
-  };
 
   // Refactored handleGeminiResponse for new backend flow
   const handleGeminiResponse = (response) => {
-    console.debug('🔍 Raw response from API:', response);
     try {
       // Extract the actual response data from the axios response
       const responseData = response.data || response;
@@ -520,9 +446,7 @@ You’re making great strides!
         setConversationThreads(prev => [response.data, ...prev]);
       }
       
-      console.debug('🚀 Sending message to AI API...');
       const response = await aiAPI.sendMessage(messageContent, threadId);
-      console.debug('✅ Received response from AI API');
       const responseData = response.data || response;
       handleGeminiResponse(responseData);
 
@@ -607,134 +531,7 @@ You’re making great strides!
     ]);
   };
 
-  // Execute action based on type and operation
-  const executeAction = async (action) => {
-    console.debug('Executing action:', action);
-    
-    try {
-      switch (action.type) {
-        case 'goal':
-          if (action.operation === 'create') {
-            await goalsAPI.create(action.data);
-            setMessages(prev => [...prev, {
-              id: generateUniqueId(),
-              type: 'ai',
-              content: `✅ Goal "${action.data.title}" has been created!`,
-              timestamp: new Date()
-            }]);
-            showToast(`Goal "${action.data.title}" created!`, 'success');
-            refreshUserData();
-          }
-          break;
-          
-        case 'task':
-          if (action.operation === 'create') {
-            await tasksAPI.create(action.data);
-            setMessages(prev => [...prev, {
-              id: generateUniqueId(),
-              type: 'ai',
-              content: `✅ Task "${action.data.title}" has been created!`,
-              timestamp: new Date()
-            }]);
-            showToast(`Task "${action.data.title}" created!`, 'success');
-            refreshUserData();
-          }
-          break;
-          
-        case 'calendar_event':
-          if (action.operation === 'create') {
-            const data = action.data || action.details || {};
-            const eventPayload = {
-              summary: data.title || data.summary || 'Untitled Event',
-              description: data.description || '',
-              startTime: data.start_time || data.startTime,
-              endTime: data.end_time || data.endTime,
-              timeZone: data.time_zone || data.timeZone || 'UTC',
-            };
-            await calendarAPI.createEvent(eventPayload);
-            setMessages(prev => [...prev, {
-              id: generateUniqueId(),
-              type: 'ai',
-              content: `✅ Calendar event "${eventPayload.summary}" has been scheduled!`,
-              timestamp: new Date()
-            }]);
-            showToast(`Event "${eventPayload.summary}" created!`, 'success');
-          } else if (action.operation === 'read') {
-            // Use events from action.details.events or action.details
-            let events = [];
-            if (Array.isArray(action.details?.events)) {
-              events = action.details.events;
-            } else if (Array.isArray(action.details)) {
-              events = action.details;
-            }
-            setMessages(prev => [...prev, {
-              id: generateUniqueId(),
-              type: 'calendar_events',
-              content: events,
-              timestamp: new Date()
-            }]);
-          }
-          break;
-          
-        default:
-          console.warn('Unknown action type:', action.type);
-      }
-    } catch (error) {
-      console.error('Error executing action:', error);
-      setMessages(prev => [...prev, {
-        id: generateUniqueId(),
-        type: 'ai',
-        content: `❌ Error: Failed to ${action.operation} ${action.type}. Please try again.`,
-        timestamp: new Date()
-      }]);
-      showToast(`Failed to ${action.operation} ${action.type}.`, 'error');
-    }
-  };
 
-  // Helper to fetch tasks for a message
-  const fetchTasksForMessage = async (messageId) => {
-    setTaskListByMessageId(prev => ({
-      ...prev,
-      [messageId]: { loading: true, error: null, tasks: [] }
-    }));
-    try {
-      const response = await tasksAPI.getAll();
-      setTaskListByMessageId(prev => ({
-        ...prev,
-        [messageId]: { loading: false, error: null, tasks: response.data || [] }
-      }));
-    } catch (error) {
-      setTaskListByMessageId(prev => ({
-        ...prev,
-        [messageId]: { loading: false, error: 'Failed to load tasks', tasks: [] }
-      }));
-    }
-  };
-
-  // Helper to fetch list (tasks or goals) for a message
-  const fetchListForMessage = async (messageId, type) => {
-    setListByMessageId(prev => ({
-      ...prev,
-      [messageId]: { type, loading: true, error: null, items: [] }
-    }));
-    try {
-      let response;
-      if (type === 'task') {
-        response = await tasksAPI.getAll();
-      } else if (type === 'goal') {
-        response = await goalsAPI.getAll();
-      }
-      setListByMessageId(prev => ({
-        ...prev,
-        [messageId]: { type, loading: false, error: null, items: response.data || [] }
-      }));
-    } catch (error) {
-      setListByMessageId(prev => ({
-        ...prev,
-        [messageId]: { type, loading: false, error: 'Failed to load ' + type + 's', items: [] }
-      }));
-    }
-  };
 
   // Handler for recommending a low energy task
   const handleRecommendLowEnergyTask = async () => {
@@ -779,16 +576,6 @@ You’re making great strides!
     }
   };
 
-  // Delay showing the loading screen by 300ms
-  useEffect(() => {
-    let timer;
-    if (!hasLoadedData) {
-      timer = setTimeout(() => setShowLoadingScreen(true), 300);
-    } else {
-      setShowLoadingScreen(false);
-    }
-    return () => clearTimeout(timer);
-  }, [hasLoadedData]);
 
   // Dynamic example prompts based on user state
   const getExamplePrompts = () => {
@@ -809,21 +596,14 @@ You’re making great strides!
         'Review my progress',
         'I need motivation'
       ];
-    } else if (hasGoals && hasTasks) {
-      return [
-        "Show me today's priorities",
-        'Help me with overdue tasks',
-        'Celebrate my wins',
-        'I need a low-energy task'
-      ];
-    } else {
-      return [
-        'Help me set my first goal',
-        'Organize my tasks better',
-        'Show me my progress',
-        'I need motivation'
-      ];
-    }
+      } else {
+        return [
+          "Show me today's priorities",
+          'Help me with overdue tasks',
+          'Celebrate my wins',
+          'I need a low-energy task'
+        ];
+      }
   };
 
   const examplePrompts = getExamplePrompts();
@@ -891,15 +671,13 @@ You’re making great strides!
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {sortedThreads.map((thread) => {
-                    // Try to extract type, summary, and created_at from thread
-                    let type = 'General';
-                    let summary = '';
-                    let createdAt = thread.created_at;
+                {sortedThreads.map((thread) => {
+                  // Try to extract summary and created_at from thread
+                  let summary = '';
+                  let createdAt = thread.created_at;
                     if (thread.title && thread.title.startsWith('[')) {
                       const match = thread.title.match(/^\[(.*?)\]\s(.+)/);
                       if (match) {
-                        type = match[1];
                         summary = match[2];
                       } else {
                         summary = thread.title;
@@ -1039,14 +817,12 @@ You’re making great strides!
             ) : (
               <div className="space-y-1">
                 {sortedThreads.map((thread) => {
-                  // Try to extract type, summary, and created_at from thread
-                  let type = 'General';
+                  // Try to extract summary and created_at from thread
                   let summary = '';
                   let createdAt = thread.created_at;
                   if (thread.title && thread.title.startsWith('[')) {
                     const match = thread.title.match(/^\[(.*?)\]\s(.+)/);
                     if (match) {
-                      type = match[1];
                       summary = match[2];
                     } else {
                       summary = thread.title;
@@ -1167,7 +943,7 @@ You’re making great strides!
         </div>
         {/* Messages Area (scrollable) */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hover w-full" style={{ minHeight: 0 }}>
-          {messages.map((message, idx) => {
+          {messages.map((message) => {
             const isPending = message.type === 'user' && message.id === pendingUserMessageId;
             return (
               <React.Fragment key={message.id}>
@@ -1511,7 +1287,7 @@ const MessageBubble = ({ message, onQuickAction }) => {
                         className="px-3 py-1.5 text-sm bg-black text-white rounded-md hover:bg-gray-800"
                         onClick={async () => {
                           try {
-                            const res = await calendarAPI.scheduleTask(task.id);
+                            await calendarAPI.scheduleTask(task.id);
                             alert('Task scheduled successfully');
                           } catch (e) {
                             alert('Failed to schedule task');
@@ -1555,7 +1331,7 @@ const MessageBubble = ({ message, onQuickAction }) => {
                   className="mt-2 w-full px-3 py-2 text-sm bg-black text-white rounded-md hover:bg-gray-800"
                   onClick={async () => {
                     try {
-                      const res = await calendarAPI.scheduleTask(task.id);
+                      await calendarAPI.scheduleTask(task.id);
                       alert('Task scheduled successfully');
                     } catch (e) {
                       alert('Failed to schedule task');
@@ -1619,7 +1395,6 @@ const MessageBubble = ({ message, onQuickAction }) => {
         const activeIndex = getActiveMilestoneIndex();
         const activeMilestone = activeIndex >= 0 ? milestones[activeIndex] : null;
         const steps = activeMilestone ? (activeMilestone.steps || []) : [];
-        const remainingMilestones = activeIndex >= 0 ? Math.max(0, milestones.length - (activeIndex + 1)) : 0;
 
         return (
           <div className="relative bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
@@ -1719,7 +1494,6 @@ const MessageBubble = ({ message, onQuickAction }) => {
           ? (scheduleBlock.events || [])
           : (readCal?.details && (Array.isArray(readCal.details.events) ? readCal.details.events : readCal.details)) || [];
         const title = scheduleBlock?.title || 'Your Schedule';
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
         const formatLocalTime = (value) => {
           if (!value) return '';
           // If already a human label like "12:00 PM", keep it
@@ -1814,7 +1588,6 @@ const MessageBubble = ({ message, onQuickAction }) => {
     if (Array.isArray(message.content) && message.content.length > 0) {
       message.content.forEach(event => {
         // Use browser's timezone for display
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
         const startDate = new Date(event.start.dateTime || event.start.date);
         const dayKey = startDate.toDateString();
         if (!eventsByDay[dayKey]) {
@@ -1998,7 +1771,6 @@ const MessageBubble = ({ message, onQuickAction }) => {
   );
   const hasTaskCategory = jsonObjects && jsonObjects.find(json => json.category === 'task' && Array.isArray(json.tasks));
   if (readTask) {
-    const tasks = readTask.details && (Array.isArray(readTask.details.tasks) ? readTask.details.tasks : readTask.details);
     return (
       <div className="flex">
         <div className="w-full text-left">

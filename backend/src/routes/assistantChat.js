@@ -62,7 +62,7 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
         res.write(`data: ${JSON.stringify(obj)}\n\n`);
         return true;
       } catch (error) {
-        logger.debug('SSE send failed, client may have disconnected:', error.message);
+        logger.debug('SSE send failed, client may have disconnected');
         return false;
       }
     };
@@ -163,7 +163,7 @@ router.post('/', enhancedRequireAuth, async (req, res) => {
         await Promise.all(actionPromises);
       } catch (error) {
         // Individual action errors are already handled above
-        logger.debug('Some actions failed during parallel execution:', error);
+        logger.debug('Some actions failed during parallel execution');
       }
     }
 

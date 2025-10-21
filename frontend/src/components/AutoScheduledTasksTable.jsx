@@ -128,7 +128,6 @@ const AutoScheduledTasksTable = ({ tasks, onTaskUpdate, showSuccess }) => {
       showSuccess('Task updated successfully!');
       onTaskUpdate();
     } catch (error) {
-      console.error('Error updating task:', error);
       showSuccess('Failed to update task');
     } finally {
       setEditingTask(null);

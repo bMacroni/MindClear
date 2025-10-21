@@ -20,13 +20,11 @@ const CalendarStatus = () => {
       // Check if we have cached status and it's still valid
       const now = Date.now();
       if (!forceRefresh && lastStatusCheck && (now - lastStatusCheck) < STATUS_CACHE_DURATION && status) {
-        console.log('[CalendarStatus] Using cached status, last check was', Math.round((now - lastStatusCheck) / 1000), 'seconds ago');
         setLoading(false);
         return;
       }
       
       setLoading(true);
-      console.log('[CalendarStatus] Checking calendar status...');
       const response = await calendarAPI.getStatus();
       setStatus(response.data);
       setLastStatusCheck(now);

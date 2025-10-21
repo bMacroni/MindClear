@@ -245,8 +245,8 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
             hasEstimatedDuration: !!task.estimated_duration_minutes,
             autoScheduleEnabled: task.auto_schedule_enabled
           });
-        } catch (analyticsErr) {
-          console.warn('Failed to track task completion analytics', analyticsErr);
+        } catch (_analyticsErr) {
+          // Analytics error - ignore
         }
       }
     } catch (err) {
@@ -491,7 +491,6 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
                                           showSuccess(`Auto-scheduling ${!task.auto_schedule_enabled ? 'enabled' : 'disabled'} for "${task.title}"`);
                                         } catch (err) {
                                           setError('Failed to toggle auto-scheduling');
-                                          console.error('Error toggling auto-scheduling:', err);
                                         }
                                       }}
                                       disabled={task.status === 'completed'}

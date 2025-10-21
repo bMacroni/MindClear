@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { goalsAPI } from '../services/api';
 import GoalForm from './GoalForm';
-import GoalBreakdownAssistant from './GoalBreakdownAssistant';
 import { milestonesAPI } from '../services/api';
 import { stepsAPI } from '../services/api';
 
@@ -221,7 +220,7 @@ const GoalList = ({ showSuccess }) => {
       setUpdatingStep(stepId);
       const token = localStorage.getItem('jwt_token') || '';
       
-      const updatedStep = await stepsAPI.update(stepId, { completed: !currentCompleted }, token);
+      await stepsAPI.update(stepId, { completed: !currentCompleted }, token);
       
       // Update the local state
       setStepsByMilestone(prev => ({

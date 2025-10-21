@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import GoalList from '../components/GoalList'
-import TaskList from '../components/TaskList'
 import TasksPage from '../components/TasksPage'
 import CalendarStatus from '../components/CalendarStatus'
 import CalendarEvents from '../components/CalendarEvents'

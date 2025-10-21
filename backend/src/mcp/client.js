@@ -1,5 +1,6 @@
 import { createMCPServer } from './server.js';
 import { JSONRPCClient } from 'json-rpc-2.0';
+import logger from '../utils/logger.js';
 
 // In-process client that dispatches directly to server.handle
 const server = createMCPServer();
@@ -12,7 +13,7 @@ const client = new JSONRPCClient(async (jsonRPCRequest) => {
     }
   } catch (error) {
     // Log the error for diagnostics
-    console.error('MCP server.receive error:', error);
+    logger.error('MCP server.receive error:', error);
     
     // Don't send error responses for notifications (requests without id)
     if (jsonRPCRequest.id === undefined) {

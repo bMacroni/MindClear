@@ -126,12 +126,12 @@ const GoalForm = ({ goal = null, onSuccess, onCancel, isInline = false }) => {
             hasTargetDate: !!submitData.target_completion_date
           });
           if (trackingResult && typeof trackingResult.catch === 'function') {
-            trackingResult.catch((analyticsError) => {
-              console.warn('Goal analytics tracking failed', analyticsError);
+            trackingResult.catch((_analyticsError) => {
+              // Analytics error - ignore
             });
           }
-        } catch (analyticsError) {
-          console.warn('Goal analytics tracking failed', analyticsError);
+        } catch (_analyticsError) {
+          // Analytics error - ignore
         }
       }
       onSuccess();

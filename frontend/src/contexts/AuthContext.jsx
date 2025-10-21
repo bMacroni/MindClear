@@ -1,10 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { goalsAPI, tasksAPI } from '../services/api';
 import api from '../services/api';
 import { SecureTokenStorage, sanitizeInput, validateEmail } from '../utils/security';
 
-// API Base URL configuration
-const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const AuthContext = createContext();
 
@@ -30,7 +27,6 @@ export const AuthProvider = ({ children }) => {
     
     if (googleParam === 'info' && email) {
       // Google OAuth provided user info
-      console.log(`Google OAuth user info: ${email} (${name})`);
       // Store the email in sessionStorage for potential use
       sessionStorage.setItem('google_oauth_email', email);
       sessionStorage.setItem('google_oauth_name', name || '');
