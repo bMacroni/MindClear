@@ -122,3 +122,14 @@ frontend/interfaceexamples/ai-chat-page.tsx
 frontend/interfaceexamples/ui/scroll-area.tsx
 backend/docs/FOCUS_NOTIFICATION_OPTIMIZATION.md
 
+.cursor/rules/ai-database-integration.mdc
+.cursor/rules/backend-development.mdc
+.cursor/rules/deployment-environment.mdc
+.cursor/rules/frontend-development.mdc
+.cursor/rules/mobile-development.mdc
+.cursor/rules/my-custom-rule.mdc
+.cursor/rules/project-structure.mdc
+.cursor/rules/README.mdc
+.cursor/rules/testing-qa.mdc
+.cursor/rules/ux-accessibility.mdc
+.cursor/rules/my-custom-rule.mdc
