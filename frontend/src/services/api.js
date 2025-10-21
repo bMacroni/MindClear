@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { SecureTokenStorage, getSecurityHeaders, logSecurityEvent } from '../utils/security';
 
+// Request deduplication cache
+const requestCache = new Map();
+const CACHE_DURATION = 1000; // 1 second
+
 // Create axios instance with base configuration
 const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const api = axios.create({
@@ -21,6 +25,41 @@ api.interceptors.request.use(
     // Add security headers
     const securityHeaders = getSecurityHeaders();
     Object.assign(config.headers, securityHeaders);
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) config.headers['X-User-Timezone'] = tz;
+    } catch (_) {
+      // Ignore timezone detection errors
+    }
+    
+    // Add request deduplication for GET requests
+    if (config.method === 'get') {
+      const cacheKey = `${config.method}:${config.url}:${JSON.stringify(config.params || {})}`;
+      const now = Date.now();
+      const cached = requestCache.get(cacheKey);
+      
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+        // Return cached promise
+        return Promise.reject({ 
+          isCached: true, 
+          cachedResponse: cached.response 
+        });
+      }
+      
+      // Store the request promise in cache
+      const requestPromise = Promise.resolve(config);
+      requestCache.set(cacheKey, {
+        timestamp: now,
+        response: requestPromise
+      });
+      
+      // Clean up old cache entries
+      for (const [key, value] of requestCache.entries()) {
+        if ((now - value.timestamp) > CACHE_DURATION) {
+          requestCache.delete(key);
+        }
+      }
+    }
     
     return config;
   },
@@ -34,6 +73,11 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle cached responses
+    if (error.isCached) {
+      return error.cachedResponse;
+    }
+    
     if (error.response?.status === 401) {
       // Token expired or invalid
       logSecurityEvent('Authentication failed', { status: 401 });
@@ -91,6 +135,7 @@ export const calendarAPI = {
   getCalendarList: () => api.get('/calendar/list'),
   syncEvents: () => api.post('/calendar/sync'),
   scheduleTask: (taskId) => api.post('/calendar/schedule-task', { taskId }),
+  disconnect: () => api.post('/calendar/disconnect'),
 };
 
 // AI API
@@ -102,7 +147,8 @@ export const aiAPI = {
       delete api.defaults.headers.common['X-User-Mood'];
     }
   },
-  sendMessage: (message, threadId) => api.post('/ai/chat', { message, threadId }),
+  // Route legacy AI chat through new Assistant UI endpoint in JSON fallback mode
+  sendMessage: (message, threadId) => api.post('/chat?stream=false', { message, threadId }),
   getGoalSuggestions: (goalTitle) => api.post('/ai/goal-suggestions', { goalTitle }),
   getGoalBreakdown: (goalTitle, goalDescription) => api.post('/ai/goal-breakdown', { goalTitle, goalDescription }),
   createThread: ({ title, summary, messages }) => api.post('/ai/threads', { title, summary, messages }),
@@ -245,7 +291,6 @@ class WebSocketService {
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      console.log('WebSocket connected');
       const token = localStorage.getItem('jwt_token');
       if (token) {
         this.ws.send(JSON.stringify({ type: 'auth', token }));
@@ -264,7 +309,6 @@ class WebSocketService {
     };
 
     this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
     };
   }
 

@@ -55,7 +55,6 @@ const AutoSchedulingDashboard = ({ showSuccess }) => {
       showSuccess('Scheduling preferences updated successfully!');
     } catch (err) {
       setError('Failed to update preferences');
-      console.error('Error updating preferences:', err);
     }
   };
 

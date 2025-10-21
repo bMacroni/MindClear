@@ -478,6 +478,83 @@ router.post('/import/first-run', requireAuth, async (req, res) => {
   }
 });
 
+// Disconnect Google Calendar
+router.post('/disconnect', requireAuth, async (req, res) => {
+  try {
+    logger.info(`Disconnect Google Calendar requested for user: ${req.user.id}`);
+
+    // Get current tokens to revoke them with Google
+    const { getGoogleTokens, deleteGoogleTokens } = await import('../utils/googleTokenStorage.js');
+    const tokens = await getGoogleTokens(req.user.id);
+    
+    if (!tokens) {
+      logger.info(`No Google tokens found for user ${req.user.id} - already disconnected`);
+      return res.json({ 
+        success: true, 
+        message: 'Google Calendar was already disconnected' 
+      });
+    }
+
+    // Revoke the token with Google if we have an access token
+    if (tokens.access_token) {
+      try {
+        const { google } = await import('googleapis');
+        const oauth2Client = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          process.env.GOOGLE_REDIRECT_URI
+        );
+        
+        oauth2Client.setCredentials({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token
+        });
+        
+        // Revoke the token with Google
+        await oauth2Client.revokeToken(tokens.access_token);
+        logger.info(`Successfully revoked Google token for user: ${req.user.id}`);
+      } catch (revokeError) {
+        logger.warn(`Failed to revoke Google token for user ${req.user.id}:`, revokeError);
+        // Continue with local cleanup even if Google revocation fails
+      }
+    }
+
+    // Delete tokens from our database
+    await deleteGoogleTokens(req.user.id);
+    
+    // Clear only Google-synced calendar events for this user (preserve locally-created events)
+    try {
+      const { error: deleteEventsError } = await supabase
+        .from('calendar_events')
+        .delete()
+        .eq('user_id', req.user.id)
+        .not('google_calendar_id', 'is', null);
+      
+      if (deleteEventsError) {
+        logger.warn('Failed to clear Google-synced calendar events:', deleteEventsError);
+        // Don't fail the disconnect for cache cleanup issues
+      } else {
+        logger.info(`Cleared Google-synced calendar events for user: ${req.user.id} (locally-created events preserved)`);
+      }
+    } catch (cacheError) {
+      logger.warn('Error clearing Google-synced calendar events:', cacheError);
+    }
+
+    logger.info(`Successfully disconnected Google Calendar for user: ${req.user.id}`);
+    res.json({ 
+      success: true, 
+      message: 'Google Calendar disconnected successfully' 
+    });
+  } catch (error) {
+    logger.error('Error disconnecting Google Calendar:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to disconnect Google Calendar',
+      details: error.message,
+    });
+  }
+});
+
 
 
 export default router; 

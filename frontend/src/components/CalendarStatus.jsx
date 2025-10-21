@@ -1,18 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { calendarAPI } from '../services/api';
 
 const CalendarStatus = () => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   
   // Add caching state
   const [lastStatusCheck, setLastStatusCheck] = useState(null);
   const STATUS_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes in milliseconds
+  
+  // Ref to store timeout ID for cleanup
+  const successTimeoutRef = useRef(null);
 
   useEffect(() => {
     checkCalendarStatus();
+    
+    // Cleanup function to clear any pending timeouts
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+    };
   }, []);
 
   const checkCalendarStatus = async (forceRefresh = false) => {
@@ -20,17 +31,16 @@ const CalendarStatus = () => {
       // Check if we have cached status and it's still valid
       const now = Date.now();
       if (!forceRefresh && lastStatusCheck && (now - lastStatusCheck) < STATUS_CACHE_DURATION && status) {
-        console.log('[CalendarStatus] Using cached status, last check was', Math.round((now - lastStatusCheck) / 1000), 'seconds ago');
         setLoading(false);
         return;
       }
       
       setLoading(true);
-      console.log('[CalendarStatus] Checking calendar status...');
       const response = await calendarAPI.getStatus();
       setStatus(response.data);
       setLastStatusCheck(now);
       setError(null);
+      setSuccess(null); // Clear any success messages when refreshing
     } catch (err) {
       setError('Failed to check calendar status');
       setStatus({ connected: false });
@@ -53,7 +63,79 @@ const CalendarStatus = () => {
   };
 
   const disconnectGoogleCalendar = async () => {
-    alert('Disconnect functionality coming soon!');
+    try {
+      setLoading(true);
+      setError(null);
+      setSuccess(null);
+      
+      // Call the backend API to disconnect
+      const response = await calendarAPI.disconnect();
+      
+      if (response.data.success) {
+        // Update local state to mark as disconnected
+        setStatus({ connected: false, error: 'google_calendar_disconnected' });
+        
+        // Clear any cached status
+        setLastStatusCheck(null);
+        
+        // Clear specific calendar-related storage entries
+        // Note: The main JWT token should remain for app authentication
+        const calendarRelatedKeys = [
+          'google_oauth_email',
+          'google_oauth_name',
+          'csrf_token'
+        ];
+        
+        // Clear localStorage entries (currently no calendar-specific localStorage keys)
+        // This loop is kept for future calendar-related localStorage keys
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && calendarRelatedKeys.includes(key)) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        // Clear sessionStorage entries
+        const sessionKeysToRemove = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          if (key && calendarRelatedKeys.includes(key)) {
+            sessionKeysToRemove.push(key);
+          }
+        }
+        sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key));
+        
+        // Show success feedback
+        setSuccess('Google Calendar disconnected successfully');
+        console.log('Google Calendar disconnected successfully');
+        
+        // Clear success message after 3 seconds
+        // Clear any existing timeout first
+        if (successTimeoutRef.current) {
+          clearTimeout(successTimeoutRef.current);
+        }
+        successTimeoutRef.current = setTimeout(() => setSuccess(null), 3000);
+        
+        // Force refresh the status to reflect the disconnect
+        await checkCalendarStatus(true);
+      } else {
+        throw new Error(response.data.error || 'Failed to disconnect Google Calendar');
+      }
+    } catch (err) {
+      console.error('Error disconnecting Google Calendar:', err);
+      setError(err.response?.data?.error || err.message || 'Failed to disconnect Google Calendar');
+      
+      // Log the error for debugging
+      console.error('Disconnect error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Determine connection status
@@ -78,7 +160,10 @@ const CalendarStatus = () => {
           <div className="bg-white rounded-3xl shadow-xl border border-black/10 p-8 max-w-sm w-full relative">
             <button
               className="absolute top-3 right-3 p-1 rounded hover:bg-gray-200"
-              onClick={() => setModalOpen(false)}
+              onClick={() => {
+                setModalOpen(false);
+                setSuccess(null); // Clear success message when closing modal
+              }}
               aria-label="Close"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -101,6 +186,10 @@ const CalendarStatus = () => {
             ) : error ? (
               <div className="mb-6 bg-red-50/80 border border-red-200 text-red-700 px-6 py-4 rounded-2xl shadow-sm">
                 <span className="font-medium">{error}</span>
+              </div>
+            ) : success ? (
+              <div className="mb-6 bg-green-50/80 border border-green-200 text-green-700 px-6 py-4 rounded-2xl shadow-sm">
+                <span className="font-medium">{success}</span>
               </div>
             ) : isDisconnected ? (
               <div className="space-y-4">
@@ -131,12 +220,22 @@ const CalendarStatus = () => {
                 <div className="flex space-x-2">
                   <button
                     onClick={() => checkCalendarStatus(true)}
-                    className="px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-900 font-medium"
+                    disabled={loading}
+                    className="px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >Refresh</button>
                   <button
                     onClick={disconnectGoogleCalendar}
-                    className="px-4 py-2 bg-gray-200 text-black rounded-xl hover:bg-gray-300 font-medium"
-                  >Disconnect</button>
+                    disabled={loading}
+                    className="px-4 py-2 bg-gray-200 text-black rounded-xl hover:bg-gray-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    {loading && (
+                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    )}
+                    <span>{loading ? 'Disconnecting...' : 'Disconnect'}</span>
+                  </button>
                 </div>
               </div>
             )}

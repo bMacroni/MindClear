@@ -15,12 +15,6 @@ const CalendarEvents = ({ events: propEvents, error: propError }) => {
   const [dragging, setDragging] = useState(false);
   const calendarRef = useRef(null);
   const [editingEvent, setEditingEvent] = useState(null);
-  // Initialize with detectedTimezone (or UTC if not available yet)
-  const [currentTime, setCurrentTime] = useState(() => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    // Get the current time in the user's timezone
-    return toZonedTime(new Date(), tz);
-  });
   const [showSettings, setShowSettings] = useState(false);
   const [userTimezone, setUserTimezone] = useState('');
   const [detectedTimezone, setDetectedTimezone] = useState('');
@@ -163,15 +157,6 @@ const CalendarEvents = ({ events: propEvents, error: propError }) => {
   }, [events, rangeDays, userTimezone, detectedTimezone]);
 
   // Update current time every minute, using user-selected or detected timezone
-  useEffect(() => {
-    const tz = userTimezone || detectedTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    const updateTime = () => {
-      setCurrentTime(toZonedTime(new Date(), tz));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 60000);
-    return () => clearInterval(interval);
-  }, [userTimezone, detectedTimezone]);
 
   const loadEvents = async (forceRefresh = false) => {
     try {
@@ -287,8 +272,6 @@ const CalendarEvents = ({ events: propEvents, error: propError }) => {
     let y = clickY;
     
     // Debug logging
-    console.log('calculateOptimalPosition input:', { clickX, clickY, overlayWidth, overlayHeight });
-    console.log('viewport dimensions:', { viewportWidth, viewportHeight });
     
     // Adjust horizontal position if overlay would go off-screen
     if (clickX + overlayWidth / 2 > viewportWidth) {
@@ -304,7 +287,6 @@ const CalendarEvents = ({ events: propEvents, error: propError }) => {
       y = overlayHeight / 2 + 20; // 20px margin
     }
     
-    console.log('calculateOptimalPosition output:', { x, y });
     return { x, y };
   }
 
@@ -527,10 +509,8 @@ const CalendarEvents = ({ events: propEvents, error: propError }) => {
       // Capture mouse click position and calculate optimal position
       const clickX = e.clientX;
       const clickY = e.clientY;
-      console.log('handleCardClick - mouse coordinates:', { clickX, clickY });
       const optimalPosition = calculateOptimalPosition(clickX, clickY);
       
-      console.log('handleCardClick - setting overlay position:', optimalPosition);
       setOverlayPosition(optimalPosition);
       setSelectedEvent(event);
       setShowEventOverlay(true);
@@ -898,12 +878,7 @@ const CalendarEvents = ({ events: propEvents, error: propError }) => {
               maxWidth: '320px',
               zIndex: 60
             }}
-            ref={(el) => {
-              if (el) {
-                console.log('Overlay rendered with position:', overlayPosition);
-                console.log('Overlay element rect:', el.getBoundingClientRect());
-              }
-            }}
+            ref={() => {}}
           >
             <button
               className="absolute top-2 right-2 p-1 rounded-full hover:bg-gray-100 transition-colors"

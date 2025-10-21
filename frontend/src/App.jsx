@@ -9,7 +9,7 @@ import './App.css'
 
 // Main app content
 const AppContent = () => {
-  const { user, loginWithCredentials, signup, logout, isAuthenticated } = useAuth();
+  const { loginWithCredentials, signup, isAuthenticated } = useAuth();
   const [showSignup, setShowSignup] = useState(false);
   const [successToast, setSuccessToast] = useState({ message: '', isVisible: false });
 

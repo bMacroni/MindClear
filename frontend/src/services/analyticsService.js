@@ -13,12 +13,23 @@ class AnalyticsService {
   async track(eventName, payload = {}) {
     // Validate inputs
     if (!eventName || typeof eventName !== 'string') {
-      console.warn('Analytics: Invalid event name provided:', eventName);
-      return;
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[Analytics] Invalid eventName:', {
+          type: typeof eventName,
+          message: 'eventName must be a non-empty string'
+        });
+      }      return;
     }
 
-    if (payload && (typeof payload !== 'object' || Array.isArray(payload))) {
-      console.warn('Analytics: Invalid payload provided:', payload);
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[Analytics] Invalid payload:', {
+          type: typeof payload,
+          isArray: Array.isArray(payload),
+          keysCount: payload && typeof payload === 'object' ? Object.keys(payload).length : 'N/A',
+          message: 'payload must be a plain object (not null, array, or primitive)'
+        });
+      }
       return;
     }
 
@@ -29,10 +40,9 @@ class AnalyticsService {
       });
     } catch (error) {
       // Log error but don't throw - fire-and-forget approach
-      console.warn('Analytics: Failed to track event:', eventName, error);
+      console.error('[Analytics] Failed to track event:', eventName, error);
     }
   }
-
   // Common event tracking methods for convenience
   trackGoalCreated(source, goalData = {}) {
     const data = goalData && typeof goalData === 'object' ? goalData : {};

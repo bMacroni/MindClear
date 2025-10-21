@@ -62,12 +62,18 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     if (window.confirm('Are you sure you want to delete this task?')) {
       try {
         await tasksAPI.delete(id);
-        setTasks(prev => Array.isArray(prev) ? prev.filter(task => task.id !== id) : []);
-        showSuccess('Task deleted successfully!');
-        // Notify parent component to refresh dashboard data
-        if (onTaskChange) {
-          onTaskChange();
+        
+        if (propTasks !== undefined) {
+          // Controlled mode: notify parent to refresh data
+          if (onTaskChange) {
+            onTaskChange();
+          }
+        } else {
+          // Uncontrolled mode: update local state
+          setTasks(prev => Array.isArray(prev) ? prev.filter(task => task.id !== id) : []);
         }
+        
+        showSuccess('Task deleted successfully!');
       } catch (err) {
         setError('Failed to delete task');
       }
@@ -87,7 +93,15 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     setInlineEditingTaskId(null);
     // If this was a new task being cancelled, remove it from the list
     if (newTaskId) {
-      setTasks(prev => Array.isArray(prev) ? prev.filter(task => task.id !== newTaskId) : []);
+      if (propTasks !== undefined) {
+        // Controlled mode: notify parent to refresh data
+        if (onTaskChange) {
+          onTaskChange();
+        }
+      } else {
+        // Uncontrolled mode: update local state
+        setTasks(prev => Array.isArray(prev) ? prev.filter(task => task.id !== newTaskId) : []);
+      }
       setNewTaskId(null);
     }
   };
@@ -95,23 +109,35 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
   const handleInlineEditSuccess = () => {
     setInlineEditingTaskId(null);
     setNewTaskId(null); // Clear the new task ID
-    fetchTasks();
-    showSuccess('Task updated successfully!');
-    // Notify parent component to refresh dashboard data
-    if (onTaskChange) {
-      onTaskChange();
+    
+    if (propTasks !== undefined) {
+      // Controlled mode: notify parent to refresh data
+      if (onTaskChange) {
+        onTaskChange();
+      }
+    } else {
+      // Uncontrolled mode: fetch tasks to refresh local state
+      fetchTasks();
     }
+    
+    showSuccess('Task updated successfully!');
   };
 
   const handleFormSuccess = () => {
     setShowForm(false);
     setEditingTask(null);
-    fetchTasks();
-    showSuccess(editingTask ? 'Task updated successfully!' : 'Task created successfully!');
-    // Notify parent component to refresh dashboard data
-    if (onTaskChange) {
-      onTaskChange();
+    
+    if (propTasks !== undefined) {
+      // Controlled mode: notify parent to refresh data
+      if (onTaskChange) {
+        onTaskChange();
+      }
+    } else {
+      // Uncontrolled mode: fetch tasks to refresh local state
+      fetchTasks();
     }
+    
+    showSuccess(editingTask ? 'Task updated successfully!' : 'Task created successfully!');
   };
 
   const handleFormCancel = () => {
@@ -140,8 +166,13 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
       const response = await tasksAPI.create(newTaskData);
       const newTask = response.data;
       
-      // Add the new task to the local state
-      if (propTasks === undefined) {
+      if (propTasks !== undefined) {
+        // Controlled mode: notify parent to refresh data
+        if (onTaskChange) {
+          onTaskChange();
+        }
+      } else {
+        // Uncontrolled mode: update local state
         setTasks(prev => Array.isArray(prev) ? [newTask, ...prev] : [newTask]);
       }
       
@@ -150,10 +181,6 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
       setInlineEditingTaskId(newTask.id);
       
       showSuccess('New task created!');
-      // Notify parent component to refresh dashboard data
-      if (onTaskChange) {
-        onTaskChange();
-      }
     } catch (err) {
       setError('Failed to create new task');
     }
@@ -167,16 +194,15 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
   const getPriorityColor = (priority) => {
     switch (priority) {
       case 'high':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-red-100 text-red-800';
       case 'medium':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-yellow-100 text-yellow-800';
       case 'low':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-blue-100 text-blue-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
-
   const getPriorityLabel = (priority) => {
     return priority ? priority.charAt(0).toUpperCase() + priority.slice(1) : 'None';
   };
@@ -228,11 +254,20 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     if (destination.droppableId === 'done') newStatus = 'completed';
     // Update status only (DB trigger mirrors completed during transition)
     const updated = { ...task, status: newStatus };
-    // Optimistically update local state
-    setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? updated : t));
+    
+    // Optimistically update local state in uncontrolled mode
+    if (propTasks === undefined) {
+      setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? updated : t));
+    }
+    
     // Send update to backend
     try {
       await tasksAPI.update(task.id, updated);
+
+      // Only call onTaskChange after successful API update
+      if (propTasks !== undefined && onTaskChange) {
+        onTaskChange();
+      }
 
       // Track task completion analytics if task was just completed
       if (task.status !== 'completed' && newStatus === 'completed') {
@@ -245,13 +280,17 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
             hasEstimatedDuration: !!task.estimated_duration_minutes,
             autoScheduleEnabled: task.auto_schedule_enabled
           });
-        } catch (analyticsErr) {
-          console.warn('Failed to track task completion analytics', analyticsErr);
+        } catch (_analyticsErr) {
+          // Analytics error - ignore
         }
       }
     } catch (err) {
-      // Revert local state if backend update fails
-      setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? task : t));
+      // Revert optimistic update if backend update fails
+      if (propTasks === undefined) {
+        // Uncontrolled mode: revert local state (do not call onTaskChange)
+        setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? task : t));
+      }
+      // In controlled mode, do not call onTaskChange on failure to avoid double refresh
       setError('Failed to update task status.');
     }
   };
@@ -305,8 +344,7 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
             </svg>
           </div>
           <h3 className="text-xl font-semibold text-black mb-2">No tasks yet</h3>
-          <p className="text-gray-300">Create your first task to get organized!</p>
-        </div>
+          <p className="text-gray-500">Create your first task to get organized!</p>        </div>
       ) : (
         <DragDropContext onDragEnd={onDragEnd}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -433,10 +471,10 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
                                       <span className="capitalize">{task.deadline_type}</span>
                                     </div>
                                   )}
-                                  {task.duration_minutes !== undefined && task.duration_minutes !== null && task.duration_minutes !== '' && (
+                                  {task.estimated_duration_minutes !== undefined && task.estimated_duration_minutes !== null && task.estimated_duration_minutes !== '' && (
                                     <div className="flex items-center space-x-1">
                                       <span className="font-medium">Duration:</span>
-                                      <span>{task.duration_minutes} min</span>
+                                      <span>{task.estimated_duration_minutes} min</span>
                                     </div>
                                   )}
                                   {task.travel_time_minutes !== undefined && task.travel_time_minutes !== null && task.travel_time_minutes !== '' && (
@@ -484,14 +522,22 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
                                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
                                   <div className="flex items-center space-x-2">
                                     <button
-                                      onClick={async () => {
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
                                         try {
                                           await tasksAPI.toggleAutoSchedule(task.id, !task.auto_schedule_enabled);
-                                          fetchTasks(); // Refresh the task list
+                                          
+                                          // Only call onTaskChange after successful API update
+                                          if (propTasks !== undefined && onTaskChange) {
+                                            onTaskChange();
+                                          } else if (propTasks === undefined) {
+                                            // Uncontrolled mode: fetch tasks to refresh local state
+                                            fetchTasks();
+                                          }
+                                          
                                           showSuccess(`Auto-scheduling ${!task.auto_schedule_enabled ? 'enabled' : 'disabled'} for "${task.title}"`);
                                         } catch (err) {
                                           setError('Failed to toggle auto-scheduling');
-                                          console.error('Error toggling auto-scheduling:', err);
                                         }
                                       }}
                                       disabled={task.status === 'completed'}
@@ -510,14 +556,18 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
                                     </button>
                                   </div>
                                   {task.location && (
-                                    <div className="text-xs text-gray-500">
-                                      📍 {task.location}
+                                    <div className="flex items-center space-x-1 text-sm text-gray-500">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      </svg>
+                                      <span>{task.location}</span>
                                     </div>
-                                                                     )}
-                                 </div>
-                               </div>
-                             )}
-                           </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </Draggable>
                     ))}

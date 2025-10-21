@@ -16,7 +16,9 @@ try {
   logger.info('Configuration summary:', getConfigurationSummary());
 } catch (error) {
   logger.error('Configuration validation failed:', error.message);
-  process.exit(1);
+  if (process.env.NODE_ENV !== 'test') {
+    process.exit(1);
+  }
 }
 
 import express from 'express'
@@ -28,6 +30,7 @@ import {
   helmetConfig, 
   globalRateLimit, 
   authRateLimit, 
+  chatRateLimit,
   slowDownConfig, 
   compressionConfig, 
   requestSizeLimit, 
@@ -43,6 +46,7 @@ import authRouter from './routes/auth.js'
 import calendarRouter from './routes/calendar.js'
 import aiRouter from './routes/ai.js'
 import conversationsRouter from './routes/conversations.js'
+import assistantChatRouter from './routes/assistantChat.js'
 import userRouter from './routes/user.js'
 import analyticsRouter from './routes/analytics.js'
 import cron from 'node-cron';
@@ -134,7 +138,14 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Mood', 'X-User-Timezone'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-User-Mood',
+    'X-User-Timezone',
+    'X-CSRF-Token',
+    'X-Requested-With'
+  ],
   exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']
 };
 
@@ -224,6 +235,11 @@ app.use('/api/conversations', conversationsRouter);
 app.use('/api/user', userRouter);
 
 app.use('/api/analytics', analyticsRouter);
+
+// Assistant UI streaming chat route (additive, does not affect mobile)
+if (process.env.DEBUG_LOGS === 'true') logger.info('Registering assistant chat router...');
+app.use('/api/chat', requireAuth, chatRateLimit, assistantChatRouter);
+if (process.env.DEBUG_LOGS === 'true') logger.info('Assistant chat router registered');
 
 async function getAllUserIds() {
   // Check if Supabase is initialized
@@ -687,15 +703,17 @@ if (process.env.NODE_ENV !== 'test') {
 // Error handling middleware
 app.use(errorTracking);
 
-// Add error handlers
-process.on('uncaughtException', (err) => {
-  logger.error('Uncaught Exception:', err);
-  process.exit(1);
-});
+// Add error handlers (skip in test environment)
+if (process.env.NODE_ENV !== 'test') {
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception:', err);
+    process.exit(1);
+  });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+  });
+}
 
 export default app; 

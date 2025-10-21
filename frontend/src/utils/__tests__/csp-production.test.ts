@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getCSPConfig, generateCSP } from '../security';
+import { getCSPConfig, generateCSPForHeaders } from '../security';
 
 describe('Production CSP Security', () => {
   const originalEnv = process.env.NODE_ENV;
@@ -29,14 +29,14 @@ describe('Production CSP Security', () => {
     });
 
     it('should generate CSP string without unsafe-eval in production', () => {
-      const csp = generateCSP();
+      const csp = generateCSPForHeaders();
       
       expect(csp).not.toContain("'unsafe-eval'");
       expect(csp).toContain("script-src 'self' 'unsafe-inline'");
     });
 
     it('should maintain all other security directives in production', () => {
-      const csp = generateCSP();
+      const csp = generateCSPForHeaders();
       
       // Verify all required security directives are present
       expect(csp).toContain("default-src 'self'");
@@ -49,7 +49,7 @@ describe('Production CSP Security', () => {
     });
 
     it('should have proper CSP formatting in production', () => {
-      const csp = generateCSP();
+      const csp = generateCSPForHeaders();
       
       // Should be properly formatted with semicolons
       expect(csp).toMatch(/^[^;]+;[^;]+;.*$/);
@@ -67,12 +67,12 @@ describe('Production CSP Security', () => {
       // Test development
       process.env.NODE_ENV = 'development';
       const devConfig = getCSPConfig();
-      const devCSP = generateCSP();
+      const devCSP = generateCSPForHeaders();
       
       // Test production
       process.env.NODE_ENV = 'production';
       const prodConfig = getCSPConfig();
-      const prodCSP = generateCSP();
+      const prodCSP = generateCSPForHeaders();
       
       // Development should include unsafe-eval
       expect(devConfig['script-src']).toContain("'unsafe-eval'");
@@ -82,12 +82,13 @@ describe('Production CSP Security', () => {
       expect(prodConfig['script-src']).not.toContain("'unsafe-eval'");
       expect(prodCSP).not.toContain("'unsafe-eval'");
       
-      // All other directives should be identical
+      // All other directives should be identical (connect-src differs by http: in dev)
       expect(devConfig['default-src']).toEqual(prodConfig['default-src']);
       expect(devConfig['style-src']).toEqual(prodConfig['style-src']);
       expect(devConfig['font-src']).toEqual(prodConfig['font-src']);
       expect(devConfig['img-src']).toEqual(prodConfig['img-src']);
-      expect(devConfig['connect-src']).toEqual(prodConfig['connect-src']);
+      expect(devConfig['connect-src']).toContain('http://localhost:*');
+      expect(prodConfig['connect-src']).not.toContain('http://localhost:*');
     });
 
     it('should maintain security in all non-development environments', () => {
@@ -96,7 +97,7 @@ describe('Production CSP Security', () => {
       environments.forEach(env => {
         process.env.NODE_ENV = env;
         const config = getCSPConfig();
-        const csp = generateCSP();
+        const csp = generateCSPForHeaders();
         
         expect(config['script-src']).not.toContain("'unsafe-eval'"), 
           `Environment ${env} should not include unsafe-eval`;
@@ -137,8 +138,8 @@ describe('Production CSP Security', () => {
     });
 
     it('should block frame ancestors', () => {
-      const config = getCSPConfig();
-      expect(config['frame-ancestors']).toEqual(["'none'"]);
+      const csp = generateCSPForHeaders();
+      expect(csp).toContain("frame-ancestors 'none'");
     });
 
     it('should upgrade insecure requests', () => {

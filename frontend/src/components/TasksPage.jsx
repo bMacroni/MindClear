@@ -38,7 +38,7 @@ function TasksPage({ showSuccess }) {
   const handleTriggerAutoScheduling = async () => {
     setTriggering(true);
     try {
-      const triggerResponse = await tasksAPI.triggerAutoScheduling();
+      await tasksAPI.triggerAutoScheduling();
       showSuccess('Auto-scheduling triggered successfully!');
       
       // Reload dashboard data and tasks
@@ -49,10 +49,9 @@ function TasksPage({ showSuccess }) {
       setDashboardData(dashboardResponse.data);
       setAllTasks(Array.isArray(tasksResponse.data) ? tasksResponse.data : []);
     } catch (error) {
-      setError('Failed to trigger auto-scheduling');
+      setError(error.response?.data?.error || error.message || 'An error occurred');
     } finally {
-      setTriggering(false);
-    }
+      setTriggering(false);    }
   };
 
   const handleUpdatePreferences = async (updatedPreferences) => {

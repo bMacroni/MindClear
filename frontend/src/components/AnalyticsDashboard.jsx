@@ -1,5 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../services/api';
+
+/**
+ * Generate a deterministic anonymized ID from a user ID
+ * Uses SHA-256 hash truncated to 8 characters for consistent anonymization
+ */
+const generateAnonymizedUserId = async (userId) => {
+  // Input validation: ensure userId is a non-empty string
+  if (typeof userId !== 'string' || userId.trim() === '') {
+    throw new TypeError('userId must be a non-empty string');
+  }
+
+  try {
+    // Convert user ID to Uint8Array
+    const encoder = new TextEncoder();
+    const data = encoder.encode(userId);
+    
+    // Generate SHA-256 hash
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    
+    // Convert to hex string and take first 8 characters
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    return hashHex.substring(0, 8);
+  } catch (error) {
+    console.error('Error generating anonymized user ID:', error);
+    // Fallback to a simple hash if crypto API fails
+    return userId.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & 0xffffffff; // Mask to 32 bits
+    }, 0).toString(16).padStart(8, '0').substring(0, 8);
+  }
+};
 
 /**
  * Internal Analytics Dashboard for Product Team
@@ -10,30 +43,71 @@ const AnalyticsDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedTimeframe, setSelectedTimeframe] = useState('7d');
+  const [anonymizedUserIds, setAnonymizedUserIds] = useState(new Map());
 
   useEffect(() => {
-    loadAnalyticsData();
+    let isMounted = true;
+    
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError('');
+
+        // For now, we'll use the existing API to query analytics data
+        // In a real implementation, you might want to create specific analytics endpoints
+        const response = await api.get('/analytics/dashboard', {
+          params: { timeframe: selectedTimeframe }
+        });
+
+        if (isMounted) {
+          setAnalyticsData(response.data);
+        }
+      } catch (err) {
+        console.error('Error loading analytics:', err);
+        if (isMounted) {
+          setError('Failed to load analytics data');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [selectedTimeframe]);
 
-  const loadAnalyticsData = async () => {
-    try {
-      setLoading(true);
-      setError('');
+  // Process analytics data to generate anonymized user IDs
+  const processAnonymizedUserIds = useCallback(async () => {
+    if (!analyticsData?.recentEvents) return;
 
-      // For now, we'll use the existing API to query analytics data
-      // In a real implementation, you might want to create specific analytics endpoints
-      const response = await api.get('/analytics/dashboard', {
-        params: { timeframe: selectedTimeframe }
-      });
+    const uniqueUserIds = [...new Set(analyticsData.recentEvents.map(event => event.user_id))];
+    const newAnonymizedIds = new Map();
 
-      setAnalyticsData(response.data);
-    } catch (err) {
-      setError('Failed to load analytics data');
-      console.error('Error loading analytics:', err);
-    } finally {
-      setLoading(false);
+    // Generate anonymized IDs for all unique user IDs
+    for (const userId of uniqueUserIds) {
+      if (!anonymizedUserIds.has(userId)) {
+        const anonymizedId = await generateAnonymizedUserId(userId);
+        newAnonymizedIds.set(userId, anonymizedId);
+      }
     }
-  };
+
+    // Update state with new anonymized IDs
+    if (newAnonymizedIds.size > 0) {
+      setAnonymizedUserIds(prev => new Map([...prev, ...newAnonymizedIds]));
+    }
+  }, [analyticsData?.recentEvents, anonymizedUserIds]);
+
+  useEffect(() => {
+    if (analyticsData?.recentEvents) {
+      processAnonymizedUserIds();
+    }
+  }, [analyticsData?.recentEvents, processAnonymizedUserIds]);
+
 
   const formatNumber = (num) => {
     if (num >= 1000000) {
@@ -76,7 +150,7 @@ const AnalyticsDashboard = () => {
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <div className="text-red-800">{error}</div>
           <button
-            onClick={loadAnalyticsData}
+            onClick={() => window.location.reload()}
             className="mt-2 text-red-600 hover:text-red-800 underline"
           >
             Try Again
@@ -285,7 +359,7 @@ const AnalyticsDashboard = () => {
                   </span>
                 </div>
                 <span className="text-sm text-gray-600">
-                  User {event.user_id.slice(0, 8)}...
+                  User {anonymizedUserIds.get(event.user_id) || 'unknown'}
                 </span>
               </div>
             ))

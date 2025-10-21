@@ -1,6 +1,33 @@
 // Test setup file for Vitest
 import { vi } from 'vitest';
 
+// Set NODE_ENV to test to prevent process.exit calls
+process.env.NODE_ENV = 'test';
+
+// Mock process.exit to prevent test failures
+const originalExit = process.exit;
+process.exit = vi.fn((code) => {
+  if (code !== 0) {
+    throw new Error(`process.exit called with code ${code}`);
+  }
+});
+
+// Mock the configValidator to prevent process.exit calls
+vi.mock('../src/utils/configValidator.js', () => ({
+  validateConfiguration: vi.fn(() => {}),
+  getConfigurationSummary: vi.fn(() => ({
+    environment: 'test',
+    port: '5000',
+    nodeEnv: 'test',
+    hasSupabase: true,
+    hasGoogleAuth: true,
+    hasFirebase: true,
+    hasEncryption: true,
+    debugLogs: true,
+    timestamp: new Date().toISOString()
+  }))
+}));
+
 // Mock environment variables
 process.env.GOOGLE_AI_API_KEY = 'test-api-key';
 process.env.SUPABASE_URL = 'https://test.supabase.co';

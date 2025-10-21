@@ -127,6 +127,38 @@ export const authRateLimit = rateLimit({
   }
 });
 
+export const chatRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // Limit each IP to 50 chat requests per windowMs
+  message: {
+    error: 'Too many chat requests, please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false, // Count all requests to prevent abuse
+  keyGenerator: (req) => {
+    // Use user ID if authenticated, otherwise use IP
+    return req.user?.id || ipKeyGenerator(req);
+  },
+  handler: (req, res) => {
+    logger.warn(
+      `Chat rate limit exceeded for ${req.user?.id || req.ip}`,
+      {
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        userId: req.user?.id,
+        endpoint: req.path,
+        method: req.method
+      }
+    );
+    
+    res.status(429).json({
+      error: 'Too many chat requests, please try again later.',
+      retryAfter: '15 minutes'
+    });
+  }
+});
 // Slow down middleware for suspicious activity
 export const slowDownConfig = slowDown({
   windowMs: 15 * 60 * 1000, // 15 minutes

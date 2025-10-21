@@ -19,9 +19,8 @@ export default function GoalBreakdownForm({ goal, initialMilestones = [], onSave
       const response = await aiAPI.getGoalBreakdown(goal.title, goal.description || '');
       setAiSuggestions(response.data.breakdown);
     } catch (err) {
-      setAiError('Failed to generate AI suggestions');
-      console.error('AI suggestion error:', err);
-    } finally {
+      console.error('AI suggestion generation failed:', err);
+      setAiError('Failed to generate AI suggestions');    } finally {
       setAiLoading(false);
     }
   };
@@ -57,7 +56,7 @@ export default function GoalBreakdownForm({ goal, initialMilestones = [], onSave
           totalStepCount: aiSuggestions.milestones.reduce((total, milestone) => total + milestone.steps.length, 0)
         });
       } catch (analyticsErr) {
-        console.warn('Failed to track AI goal creation', analyticsErr);
+        // Analytics error - ignore
       }
 
       await reloadMilestones();
