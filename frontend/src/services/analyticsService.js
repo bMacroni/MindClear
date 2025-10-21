@@ -21,7 +21,7 @@ class AnalyticsService {
       }      return;
     }
 
-    if (payload !== null && typeof payload !== 'object' || Array.isArray(payload)) {
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('[Analytics] Invalid payload:', {
           type: typeof payload,

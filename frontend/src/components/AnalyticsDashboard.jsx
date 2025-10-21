@@ -82,12 +82,6 @@ const AnalyticsDashboard = () => {
   }, [selectedTimeframe]);
 
   // Process analytics data to generate anonymized user IDs
-  useEffect(() => {
-    if (analyticsData?.recentEvents) {
-      processAnonymizedUserIds();
-    }
-  }, [analyticsData, processAnonymizedUserIds]);
-
   const processAnonymizedUserIds = useCallback(async () => {
     if (!analyticsData?.recentEvents) return;
 
@@ -106,7 +100,13 @@ const AnalyticsDashboard = () => {
     if (newAnonymizedIds.size > 0) {
       setAnonymizedUserIds(prev => new Map([...prev, ...newAnonymizedIds]));
     }
-  }, [analyticsData, anonymizedUserIds, setAnonymizedUserIds]);
+  }, [analyticsData?.recentEvents, anonymizedUserIds]);
+
+  useEffect(() => {
+    if (analyticsData?.recentEvents) {
+      processAnonymizedUserIds();
+    }
+  }, [analyticsData?.recentEvents, processAnonymizedUserIds]);
 
 
   const formatNumber = (num) => {

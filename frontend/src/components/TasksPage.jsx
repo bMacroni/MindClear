@@ -49,7 +49,7 @@ function TasksPage({ showSuccess }) {
       setDashboardData(dashboardResponse.data);
       setAllTasks(Array.isArray(tasksResponse.data) ? tasksResponse.data : []);
     } catch (error) {
-      setError(error.message || 'An error occurred');
+      setError(error.response?.data?.error || error.message || 'An error occurred');
     } finally {
       setTriggering(false);    }
   };

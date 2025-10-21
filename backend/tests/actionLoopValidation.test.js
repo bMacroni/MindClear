@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { validateAction } from '../src/utils/actionValidation.js';
-import { constructMethodName } from '../src/utils/actionConstruction.js'; // Update path as needed
+import { constructMethodName } from '../src/utils/actionUtils.js';
 describe('Action Loop Validation Logic', () => {
   it('should validate entity_type and action_type correctly', () => {
     // Test the validation logic using the real validateAction function

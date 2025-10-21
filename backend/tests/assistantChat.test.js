@@ -1,8 +1,9 @@
 import request from 'supertest';
+import { vi } from 'vitest';
 
 // Mock the enhanced auth middleware before importing the app
-jest.mock('../src/middleware/enhancedAuth.js', () => ({
-  requireAuth: jest.fn((req, res, next) => {
+vi.mock('../src/middleware/enhancedAuth.js', () => ({
+  requireAuth: vi.fn((req, res, next) => {
     if (req.headers.authorization) {
       req.user = {
         id: 'test-user-id',
@@ -15,7 +16,7 @@ jest.mock('../src/middleware/enhancedAuth.js', () => ({
   })
 }));
 // Stub GeminiService to keep tests hermetic while exercising real route logic
-jest.mock('../src/utils/geminiService.js', () => {
+vi.mock('../src/utils/geminiService.js', () => {
   return {
     __esModule: true,
     default: class GeminiService {

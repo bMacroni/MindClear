@@ -67,6 +67,7 @@ describe('Action Loop Improvements', () => {
     const { default: router } = await import('../src/routes/assistantChat.js');
     const express = await import('express');
     const app = express.default();
+    app.use(express.json());
     app.use('/api/chat', router);
 
     // Override mock for this specific test
@@ -112,6 +113,7 @@ describe('Action Loop Improvements', () => {
     const { default: router } = await import('../src/routes/assistantChat.js');
     const express = await import('express');
     const app = express.default();
+    app.use(express.json());
     app.use('/api/chat', router);
 
     // Override mock for this specific test
@@ -156,6 +158,7 @@ describe('Action Loop Improvements', () => {
     const { default: router } = await import('../src/routes/assistantChat.js');
     const express = await import('express');
     const app = express.default();
+    app.use(express.json());
     app.use('/api/chat', router);
 
     // Override mock for this specific test
@@ -193,6 +196,7 @@ describe('Action Loop Improvements', () => {
     const { default: router } = await import('../src/routes/assistantChat.js');
     const express = await import('express');
     const app = express.default();
+    app.use(express.json());
     app.use('/api/chat', router);
 
     // Override mock for this specific test

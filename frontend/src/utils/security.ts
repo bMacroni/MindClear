@@ -160,33 +160,51 @@ export class SecureTokenStorage {
   private static lastLogTime: number = 0;
   private static readonly LOG_THROTTLE_MS = 5000; // 5 seconds between logs
   private static storageListenerInitialized: boolean = false;
+  private static storageEventHandler: ((event: StorageEvent) => void) | null = null;
 
   /**
    * Initializes cross-tab synchronization for token changes
-   * Only runs in browser environment
+   * Only runs in browser environment with localStorage support
    */
   private static initializeCrossTabSync(): void {
-    if (this.storageListenerInitialized || typeof window === 'undefined') {
+    if (this.storageListenerInitialized || 
+        typeof window === 'undefined' || 
+        typeof window.localStorage === 'undefined') {
       return;
     }
 
-    // Listen for storage changes from other tabs
-    window.addEventListener('storage', (event) => {
+    // Create and store the event handler for potential removal
+    this.storageEventHandler = (event: StorageEvent) => {
       if (event.key === this.TOKEN_KEY) {
         // Another tab updated or removed the token
         this.tokenCache = null;
         this.cacheTimestamp = 0;
         
-        if (process.env.NODE_ENV === 'development') {
+        if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
           logSecurityEvent('Token cache cleared due to cross-tab change', {
             timestamp: Date.now(),
             newValue: event.newValue ? 'updated' : 'removed'
           });
         }
       }
-    });
+    };
 
+    // Listen for storage changes from other tabs
+    window.addEventListener('storage', this.storageEventHandler);
     this.storageListenerInitialized = true;
+  }
+
+  /**
+   * Removes the storage event listener (for testing/teardown)
+   */
+  static removeStorageListener(): void {
+    if (typeof window !== 'undefined' && 
+        this.storageEventHandler && 
+        this.storageListenerInitialized) {
+      window.removeEventListener('storage', this.storageEventHandler);
+      this.storageListenerInitialized = false;
+      this.storageEventHandler = null;
+    }
   }
 
   /**
@@ -194,6 +212,13 @@ export class SecureTokenStorage {
    * Note: Relies on HTTPS for transport security, not client-side obfuscation
    */
   static setToken(token: string): void {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+      // SSR-safe fallback - just update cache
+      this.tokenCache = token;
+      this.cacheTimestamp = Date.now();
+      return;
+    }
+
     try {
       // Initialize cross-tab sync on first use
       this.initializeCrossTabSync();
@@ -218,6 +243,11 @@ export class SecureTokenStorage {
    * Retrieves a token securely
    */
   static getToken(): string | null {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+      // SSR-safe fallback - return cached token if available
+      return this.tokenCache;
+    }
+
     try {
       // Initialize cross-tab sync on first use
       this.initializeCrossTabSync();
@@ -254,6 +284,13 @@ export class SecureTokenStorage {
    * Removes a token securely
    */
   static removeToken(): void {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+      // SSR-safe fallback - just clear cache
+      this.tokenCache = null;
+      this.cacheTimestamp = 0;
+      return;
+    }
+
     try {
       // Initialize cross-tab sync on first use
       this.initializeCrossTabSync();
@@ -298,6 +335,10 @@ export class CSRFProtection {
    * Stores a CSRF token
    */
   static setToken(token: string): void {
+    if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') {
+      // SSR-safe fallback - no-op
+      return;
+    }
     sessionStorage.setItem(this.CSRF_TOKEN_KEY, token);
   }
 
@@ -305,6 +346,10 @@ export class CSRFProtection {
    * Retrieves a CSRF token
    */
   static getToken(): string | null {
+    if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') {
+      // SSR-safe fallback
+      return null;
+    }
     return sessionStorage.getItem(this.CSRF_TOKEN_KEY);
   }
 
@@ -320,6 +365,10 @@ export class CSRFProtection {
    * Removes a CSRF token
    */
   static removeToken(): void {
+    if (typeof window === 'undefined' || typeof window.sessionStorage === 'undefined') {
+      // SSR-safe fallback - no-op
+      return;
+    }
     sessionStorage.removeItem(this.CSRF_TOKEN_KEY);
   }
 }
@@ -408,6 +457,11 @@ export function logSecurityEvent(event: string, details?: any): void {
  * Initializes security features
  */
 export function initializeSecurity(): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    // SSR-safe fallback - no-op
+    return;
+  }
+
   // Set CSP meta tag
   const cspMeta = document.createElement('meta');
   cspMeta.setAttribute('http-equiv', 'Content-Security-Policy');

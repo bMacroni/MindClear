@@ -255,19 +255,19 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
     // Update status only (DB trigger mirrors completed during transition)
     const updated = { ...task, status: newStatus };
     
-    if (propTasks !== undefined) {
-      // Controlled mode: notify parent to refresh data
-      if (onTaskChange) {
-        onTaskChange();
-      }
-    } else {
-      // Uncontrolled mode: optimistically update local state
+    // Optimistically update local state in uncontrolled mode
+    if (propTasks === undefined) {
       setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? updated : t));
     }
     
     // Send update to backend
     try {
       await tasksAPI.update(task.id, updated);
+
+      // Only call onTaskChange after successful API update
+      if (propTasks !== undefined && onTaskChange) {
+        onTaskChange();
+      }
 
       // Track task completion analytics if task was just completed
       if (task.status !== 'completed' && newStatus === 'completed') {
@@ -286,15 +286,11 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
       }
     } catch (err) {
       // Revert optimistic update if backend update fails
-      if (propTasks !== undefined) {
-        // Controlled mode: revert by notifying parent to refresh data
-        if (onTaskChange) {
-          onTaskChange();
-        }
-      } else {
-        // Uncontrolled mode: revert local state
+      if (propTasks === undefined) {
+        // Uncontrolled mode: revert local state (do not call onTaskChange)
         setTasks(prevTasks => prevTasks.map(t => t.id === task.id ? task : t));
       }
+      // In controlled mode, do not call onTaskChange on failure to avoid double refresh
       setError('Failed to update task status.');
     }
   };
@@ -531,12 +527,10 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
                                         try {
                                           await tasksAPI.toggleAutoSchedule(task.id, !task.auto_schedule_enabled);
                                           
-                                          if (propTasks !== undefined) {
-                                            // Controlled mode: notify parent to refresh data
-                                            if (onTaskChange) {
-                                              onTaskChange();
-                                            }
-                                          } else {
+                                          // Only call onTaskChange after successful API update
+                                          if (propTasks !== undefined && onTaskChange) {
+                                            onTaskChange();
+                                          } else if (propTasks === undefined) {
                                             // Uncontrolled mode: fetch tasks to refresh local state
                                             fetchTasks();
                                           }
