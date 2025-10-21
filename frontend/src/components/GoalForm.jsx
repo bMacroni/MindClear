@@ -118,7 +118,6 @@ const GoalForm = ({ goal = null, onSuccess, onCancel, isInline = false }) => {
         const response = await goalsAPI.create(submitData);
 
         // Track goal creation analytics
-        // Track goal creation analytics
         try {
           const trackingResult = analyticsService.trackGoalCreated('manual', {
             category: submitData.category,

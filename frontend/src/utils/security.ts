@@ -21,7 +21,7 @@ const BASE_CSP_CONFIG = {
   'object-src': ["'none'"],
   'base-uri': ["'self'"],
   'form-action': ["'self'"],
-  'frame-ancestors': ["'none'"],
+  // Note: frame-ancestors is ignored in meta tags, should be set via HTTP headers
   'upgrade-insecure-requests': []
 };
 
@@ -44,11 +44,33 @@ export function getCSPConfig(): typeof BASE_CSP_CONFIG {
 }
 
 /**
- * Generates Content Security Policy header value
+ * Generates Content Security Policy header value for meta tags
  */
 export function generateCSP(): string {
   const cspConfig = getCSPConfig();
   return Object.entries(cspConfig)
+    .map(([directive, sources]) => {
+      if (sources.length === 0) {
+        return directive;
+      }
+      return `${directive} ${sources.join(' ')}`;
+    })
+    .join('; ');
+}
+
+/**
+ * Generates Content Security Policy header value for HTTP headers
+ * Includes frame-ancestors which is ignored in meta tags
+ */
+export function generateCSPForHeaders(): string {
+  const cspConfig = getCSPConfig();
+  // Add frame-ancestors for HTTP headers
+  const headerConfig = {
+    ...cspConfig,
+    'frame-ancestors': ["'none'"]
+  };
+  
+  return Object.entries(headerConfig)
     .map(([directive, sources]) => {
       if (sources.length === 0) {
         return directive;
@@ -132,6 +154,9 @@ export function validatePassword(password: string): {
  */
 export class SecureTokenStorage {
   private static readonly TOKEN_KEY = 'jwt_token';
+  private static tokenCache: string | null = null;
+  private static cacheTimestamp: number = 0;
+  private static readonly CACHE_DURATION = 1000; // 1 second cache
 
   /**
    * Stores a token securely
@@ -142,6 +167,10 @@ export class SecureTokenStorage {
       // Store token directly - rely on HTTPS for transport security
       // Consider using sessionStorage for more sensitive scenarios
       localStorage.setItem(this.TOKEN_KEY, token);
+      
+      // Update cache
+      this.tokenCache = token;
+      this.cacheTimestamp = Date.now();
       
       // Log token storage for security monitoring
       logSecurityEvent('Token stored', { timestamp: Date.now() });
@@ -156,9 +185,22 @@ export class SecureTokenStorage {
    */
   static getToken(): string | null {
     try {
+      // Check cache first
+      const now = Date.now();
+      if (this.tokenCache && (now - this.cacheTimestamp) < this.CACHE_DURATION) {
+        return this.tokenCache;
+      }
+      
+      // Cache miss or expired, read from localStorage
       const token = localStorage.getItem(this.TOKEN_KEY);
-      if (token) {
-        logSecurityEvent('Token retrieved', { timestamp: Date.now() });
+      
+      // Update cache
+      this.tokenCache = token;
+      this.cacheTimestamp = now;
+      
+      // Only log token retrieval in development and not for every call
+      if (token && process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+        logSecurityEvent('Token retrieved', { timestamp: now });
       }
       return token;
     } catch (error) {
@@ -173,6 +215,11 @@ export class SecureTokenStorage {
   static removeToken(): void {
     try {
       localStorage.removeItem(this.TOKEN_KEY);
+      
+      // Clear cache
+      this.tokenCache = null;
+      this.cacheTimestamp = 0;
+      
       logSecurityEvent('Token removed', { timestamp: Date.now() });
     } catch (error) {
       logSecurityEvent('Token removal failed', { error: error.message });

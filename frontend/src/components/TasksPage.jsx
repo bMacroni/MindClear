@@ -49,10 +49,9 @@ function TasksPage({ showSuccess }) {
       setDashboardData(dashboardResponse.data);
       setAllTasks(Array.isArray(tasksResponse.data) ? tasksResponse.data : []);
     } catch (error) {
-      setError('Failed to trigger auto-scheduling');
+      setError(error.message || 'An error occurred');
     } finally {
-      setTriggering(false);
-    }
+      setTriggering(false);    }
   };
 
   const handleUpdatePreferences = async (updatedPreferences) => {

@@ -19,8 +19,8 @@ export default function GoalBreakdownForm({ goal, initialMilestones = [], onSave
       const response = await aiAPI.getGoalBreakdown(goal.title, goal.description || '');
       setAiSuggestions(response.data.breakdown);
     } catch (err) {
-      setAiError('Failed to generate AI suggestions');
-    } finally {
+      console.error('AI suggestion generation failed:', err);
+      setAiError('Failed to generate AI suggestions');    } finally {
       setAiLoading(false);
     }
   };

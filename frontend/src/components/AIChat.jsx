@@ -71,6 +71,8 @@ const AIChat = ({ initialMessages }) => {
 
   // Load user data and conversation threads
   useEffect(() => {
+    let isMounted = true;
+    
     const loadUserData = async () => {
       try {
         const [goalsResponse, tasksResponse, threadsResponse] = await Promise.all([
@@ -79,23 +81,33 @@ const AIChat = ({ initialMessages }) => {
           conversationsAPI.getThreads()
         ]);
         
-        setUserData({
-          goals: Array.isArray(goalsResponse.data) ? goalsResponse.data : [],
-          tasks: Array.isArray(tasksResponse.data) ? tasksResponse.data : []
-        });
-        
-        const threads = Array.isArray(threadsResponse.data) ? threadsResponse.data : [];
-        setConversationThreads(threads);
-        
-        // Don't automatically load any threads - let user choose
-        setHasLoadedData(true);
+        // Only update state if component is still mounted
+        if (isMounted) {
+          setUserData({
+            goals: Array.isArray(goalsResponse.data) ? goalsResponse.data : [],
+            tasks: Array.isArray(tasksResponse.data) ? tasksResponse.data : []
+          });
+          
+          const threads = Array.isArray(threadsResponse.data) ? threadsResponse.data : [];
+          setConversationThreads(threads);
+          
+          // Don't automatically load any threads - let user choose
+          setHasLoadedData(true);
+        }
       } catch (error) {
         console.error('Error loading user data:', error);
-        setHasLoadedData(true);
+        if (isMounted) {
+          setHasLoadedData(true);
+        }
       }
     };
 
     loadUserData();
+    
+    // Cleanup function to prevent state updates on unmounted component
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Apply mood to API headers so backend receives it per request

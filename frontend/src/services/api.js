@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { SecureTokenStorage, getSecurityHeaders, logSecurityEvent } from '../utils/security';
 
+// Request deduplication cache
+const requestCache = new Map();
+const CACHE_DURATION = 1000; // 1 second
+
 // Create axios instance with base configuration
 const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const api = axios.create({
@@ -28,6 +32,35 @@ api.interceptors.request.use(
       // Ignore timezone detection errors
     }
     
+    // Add request deduplication for GET requests
+    if (config.method === 'get') {
+      const cacheKey = `${config.method}:${config.url}:${JSON.stringify(config.params || {})}`;
+      const now = Date.now();
+      const cached = requestCache.get(cacheKey);
+      
+      if (cached && (now - cached.timestamp) < CACHE_DURATION) {
+        // Return cached promise
+        return Promise.reject({ 
+          isCached: true, 
+          cachedResponse: cached.response 
+        });
+      }
+      
+      // Store the request promise in cache
+      const requestPromise = Promise.resolve(config);
+      requestCache.set(cacheKey, {
+        timestamp: now,
+        response: requestPromise
+      });
+      
+      // Clean up old cache entries
+      for (const [key, value] of requestCache.entries()) {
+        if ((now - value.timestamp) > CACHE_DURATION) {
+          requestCache.delete(key);
+        }
+      }
+    }
+    
     return config;
   },
   (error) => {
@@ -40,6 +73,11 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle cached responses
+    if (error.isCached) {
+      return error.cachedResponse;
+    }
+    
     if (error.response?.status === 401) {
       // Token expired or invalid
       logSecurityEvent('Authentication failed', { status: 401 });
@@ -97,6 +135,7 @@ export const calendarAPI = {
   getCalendarList: () => api.get('/calendar/list'),
   syncEvents: () => api.post('/calendar/sync'),
   scheduleTask: (taskId) => api.post('/calendar/schedule-task', { taskId }),
+  disconnect: () => api.post('/calendar/disconnect'),
 };
 
 // AI API
