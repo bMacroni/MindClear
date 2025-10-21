@@ -13,7 +13,7 @@ const InlineTaskEditor = ({ task, goals, loadingGoals, onSuccess, onCancel }) =>
     preferred_time_of_day: task?.preferred_time_of_day || 'any',
     deadline_type: task?.deadline_type || 'soft',
     travel_time_minutes: task?.travel_time_minutes || '',
-    duration_minutes: task?.duration_minutes || '',
+    estimated_duration_minutes: task?.estimated_duration_minutes || '',
     // Auto-scheduling fields
     auto_schedule_enabled: task?.auto_schedule_enabled || false,
     weather_dependent: task?.weather_dependent || false,
@@ -175,14 +175,14 @@ const InlineTaskEditor = ({ task, goals, loadingGoals, onSuccess, onCancel }) =>
         {/* Duration and Travel Time */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="duration_minutes" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="estimated_duration_minutes" className="block text-sm font-medium text-gray-700 mb-1">
               Duration (minutes)
             </label>
             <input
               type="number"
-              id="duration_minutes"
-              name="duration_minutes"
-              value={formData.duration_minutes}
+              id="estimated_duration_minutes"
+              name="estimated_duration_minutes"
+              value={formData.estimated_duration_minutes}
               onChange={handleChange}
               min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"

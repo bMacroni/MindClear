@@ -277,7 +277,7 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
             taskTitle: task.title,
             priority: task.priority,
             hasLocation: !!task.location,
-            hasEstimatedDuration: !!task.duration_minutes,
+            hasEstimatedDuration: !!task.estimated_duration_minutes,
             autoScheduleEnabled: task.auto_schedule_enabled
           });
         } catch (_analyticsErr) {
@@ -471,10 +471,10 @@ const TaskList = ({ showSuccess, onTaskChange, tasks: propTasks }) => {
                                       <span className="capitalize">{task.deadline_type}</span>
                                     </div>
                                   )}
-                                  {task.duration_minutes !== undefined && task.duration_minutes !== null && task.duration_minutes !== '' && (
+                                  {task.estimated_duration_minutes !== undefined && task.estimated_duration_minutes !== null && task.estimated_duration_minutes !== '' && (
                                     <div className="flex items-center space-x-1">
                                       <span className="font-medium">Duration:</span>
-                                      <span>{task.duration_minutes} min</span>
+                                      <span>{task.estimated_duration_minutes} min</span>
                                     </div>
                                   )}
                                   {task.travel_time_minutes !== undefined && task.travel_time_minutes !== null && task.travel_time_minutes !== '' && (

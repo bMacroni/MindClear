@@ -35,17 +35,29 @@ vi.mock('../services/analyticsService', () => ({
 }));
 
 // Mock the AIActionContext
-const MockAIActionProvider = ({ children }) => {
-  const mockContextValue = {
-    calendarEvents: null,
-    error: null,
-    processAIResponse: vi.fn(),
-  };
-  
-  return (
-    <AIActionProvider value={mockContextValue}>
+const mockContextValue = {
+  calendarEvents: null,
+  error: null,
+  processAIResponse: vi.fn(),
+};
+
+const MockContext = React.createContext(mockContextValue);
+
+vi.mock('../contexts/AIActionContext', () => ({
+  AIActionProvider: ({ children }) => (
+    <MockContext.Provider value={mockContextValue}>
       {children}
-    </AIActionProvider>
+    </MockContext.Provider>
+  ),
+  useAIAction: () => mockContextValue,
+}));
+
+// Test wrapper component that uses the mocked provider
+const MockAIActionProvider = ({ children }) => {
+  return (
+    <MockContext.Provider value={mockContextValue}>
+      {children}
+    </MockContext.Provider>
   );
 };
 
