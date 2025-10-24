@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,8 +26,6 @@ import { SearchAndFilter } from '../../components/calendar/SearchAndFilter';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { errorHandlingService, ErrorCategory, UserFriendlyError } from '../../services/errorHandling';
 import {
-  CalendarEvent,
-  Task,
   ViewType,
   CalendarState,
   DayViewEvent,
@@ -42,10 +41,24 @@ import {
 } from '../../utils/animations';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Octicons';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import CalendarEvent from '../../db/models/CalendarEvent';
+import Task from '../../db/models/Task';
+import Goal from '../../db/models/Goal';
+import { authService } from '../../services/auth';
+import { Q } from '@nozbe/watermelondb';
 
 // const { width } = Dimensions.get('window');
 
-export default function CalendarScreen() {
+interface CalendarScreenProps {
+  events: CalendarEvent[];
+  tasks: Task[];
+  goals: Goal[];
+  database: any; // Pass database through for debug action
+}
+
+function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const dayViewScrollRef = useRef<ScrollView>(null);
@@ -57,12 +70,9 @@ export default function CalendarScreen() {
   // Stagger animation for event cards (disabled)
   // const eventAnimations = useRef<Animated.Value[]>([]).current;
   
-  const [state, setState] = useState<CalendarState>({
+  const [state, setState] = useState<Omit<CalendarState, 'events' | 'tasks' | 'goals'>>({
     selectedDate: new Date(),
     viewType: 'month',
-    events: [],
-    tasks: [],
-    goals: [],
     loading: false,
     error: null,
   });
@@ -91,122 +101,26 @@ export default function CalendarScreen() {
   const [filteredEvents, setFilteredEvents] = useState<CalendarEvent[]>([]);
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
 
+  useEffect(() => {
+    setFilteredEvents(events);
+  }, [events]);
+
+  useEffect(() => {
+    setFilteredTasks(tasks);
+  }, [tasks]);
+
   // Handle filter changes
   const handleFilterChange = useCallback((nextFilteredEvents: CalendarEvent[], nextFilteredTasks: Task[]) => {
-    setFilteredEvents(nextFilteredEvents);
-    setFilteredTasks(nextFilteredTasks);
+    // This will need to be adapted for WatermelonDB models
+    // setFilteredEvents(nextFilteredEvents);
+    // setFilteredTasks(nextFilteredTasks);
   }, []);
 
-  // Load calendar data with enhanced error handling
-  const loadCalendarData = useCallback(async (page = 1, append = false) => {
-    if (page === 1) {
-      setState(prev => ({ ...prev, loading: true, error: null }));
-      setCurrentError(null);
-      // Only fade out content if we're not in initial load
-      // Temporarily disabled animations for debugging
-      // if (!append) {
-      //   contentFadeOut(); // Fade out content while loading
-      // }
-    } else {
-      setLoadingMore(true);
-    }
-    
-    try {
-      // loading calendar data
-      
-      // Load events from backend with proper pagination using enhanced API
-      // For initial load, request a larger number to get all upcoming events
-      const initialMaxResults = 500; // Increased from 50 to get more events initially
-      const maxResults = page === 1 ? initialMaxResults : 50 * page;
-      const events = await enhancedAPI.getEvents(maxResults);
-      // events loaded
-      
-      // Load tasks from backend using enhanced API
-      const tasks = await enhancedAPI.getTasks();
-      // tasks loaded
-      
-      // Load goals from backend using enhanced API
-      const goals = await enhancedAPI.getGoals();
-      // goals loaded
-      
-      setState(prev => ({
-        ...prev,
-        events: append ? [...prev.events, ...(events || [])] : (events || []),
-        tasks: tasks || [],
-        goals: goals || [],
-        loading: false,
-        error: null,
-      }));
-      
-      // Initialize filtered state with all data
-      if (!append) {
-        setFilteredEvents(events || []);
-        setFilteredTasks(tasks || []);
-        // calendar data loaded
-      }
-      
-      // Animate content in for initial load
-      if (page === 1) {
-        // Temporarily disabled animations for debugging
-        // contentFadeIn();
-        // // Initialize event animations for stagger effect
-        // const totalEvents = (events?.length || 0) + (tasks?.length || 0);
-        // eventAnimations.length = 0; // Clear existing animations
-        // for (let i = 0; i < totalEvents; i++) {
-        //   eventAnimations.push(new Animated.Value(0));
-        // }
-        
-        // // Stagger animation for event cards
-        // setTimeout(() => {
-        //   const animations = eventAnimations.map((anim, index) => 
-        //     Animated.timing(anim, {
-        //       toValue: 1,
-        //       duration: 300,
-        //       delay: index * 50,
-        //       useNativeDriver: true,
-        //     })
-        //   );
-        //   Animated.parallel(animations).start();
-        // }, 100);
-      }
-      
-      // Update pagination state
-      setCurrentPage(page);
-      setHasMoreEvents((events?.length || 0) >= 50); // Check if we got a full page
-      setLoadingMore(false);
-    } catch (_error) {
-      // error loading calendar data
-      
-      // Handle error with enhanced error handling service
-      if (_error && typeof _error === 'object' && 'title' in _error) {
-        // This is a UserFriendlyError from our enhanced API
-        setCurrentError(_error as UserFriendlyError);
-        setErrorVisible(true);
-      } else {
-        // Fallback error handling
-        const userError = await errorHandlingService.handleError(
-          _error,
-          ErrorCategory.CALENDAR,
-          {
-            operation: 'loadCalendarData',
-            endpoint: 'calendar/events',
-            timestamp: Date.now(),
-            retryCount: 0,
-          }
-        );
-        setCurrentError(userError);
-        setErrorVisible(true);
-      }
-      
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: 'Failed to load calendar data',
-      }));
-      setLoadingMore(false);
-      // Ensure content is visible even on error
-      // contentFadeIn();
-    }
+  // Load calendar data - now a no-op as data is reactive
+  const loadCalendarData = useCallback(async () => {
+    // This function is now intentionally left blank.
+    // Data is supplied reactively by the withObservables HOC.
+    return Promise.resolve();
   }, []);
 
   // Load more events (unused handler removed to satisfy linter)
@@ -215,60 +129,58 @@ export default function CalendarScreen() {
   const onRefresh = useCallback(async () => {
     hapticFeedback.light();
     setRefreshing(true);
-    await loadCalendarData(1, false);
-    setRefreshing(false);
-  }, [loadCalendarData]);
+    // Data will refresh automatically, just give visual feedback
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
 
-  // Load data on mount
+  // Load data on mount - no longer needed
   useEffect(() => {
-    loadCalendarData();
     setIsFirstLoad(false);
-  }, [loadCalendarData]);
+  }, []);
 
-  // Refresh data when screen comes into focus (e.g., when user navigates to calendar tab)
+  // Refresh data when screen comes into focus - no longer needed
   useFocusEffect(
     React.useCallback(() => {
-      // Skip refresh on first load to avoid double loading
-      if (!isFirstLoad) {
-        loadCalendarData();
-      }
-    }, [isFirstLoad, loadCalendarData])
+      // Data is now live, no need to refetch on focus.
+    }, [])
   );
 
   // Check first-visit import conditions
+  // This logic will need to be re-evaluated post-migration
+  // For now, disable it to prevent API calls.
   useEffect(() => {
     const checkImportPrompt = async () => {
-      try {
-        const status = await enhancedAPI.getCalendarStatus();
-        const prefs = await enhancedAPI.getAppPreferences();
-        const completed = !!(prefs && (prefs as any).calendar_first_import_completed);
-        if (status && status.connected === true && !completed) {
-          setShowImportPrompt(true);
-        }
-      } catch (_e) {
-        // non-blocking
-      }
+      // try {
+      //   const status = await enhancedAPI.getCalendarStatus();
+      //   const prefs = await enhancedAPI.getAppPreferences();
+      //   const completed = !!(prefs && (prefs as any).calendar_first_import_completed);
+      //   if (status && status.connected === true && !completed) {
+      //     setShowImportPrompt(true);
+      //   }
+      // } catch (_e) {
+      //   // non-blocking
+      // }
     };
-    checkImportPrompt();
+    // checkImportPrompt();
   }, []);
 
   const handleImportNow = useCallback(async () => {
     try {
       setImporting(true);
-      await enhancedAPI.importCalendarFirstRun();
-      await loadCalendarData(1, false);
+      // await enhancedAPI.importCalendarFirstRun();
+      // await loadCalendarData(1, false);
       setShowImportPrompt(false);
     } catch (_e) {
       // leave prompt for retry
     } finally {
       setImporting(false);
     }
-  }, [loadCalendarData]);
+  }, []);
 
   const handleNotNow = useCallback(async () => {
     try {
       setShowImportPrompt(false);
-      await enhancedAPI.updateAppPreferences({ calendar_import_prompt_dismissed_at: new Date().toISOString() });
+      // await enhancedAPI.updateAppPreferences({ calendar_import_prompt_dismissed_at: new Date().toISOString() });
     } catch (_e) {
       // ignore
     }
@@ -276,9 +188,9 @@ export default function CalendarScreen() {
 
   const handleImportModalComplete = useCallback(() => {
     // Refresh calendar data after successful import
-    loadCalendarData(1, false);
+    // loadCalendarData(1, false);
     setShowImportPrompt(false);
-  }, [loadCalendarData]);
+  }, []);
 
   // Handle date selection
   const handleDateSelect = useCallback((day: DateData) => {
@@ -311,209 +223,31 @@ export default function CalendarScreen() {
 
   // Handle event delete with optimistic updates
   const handleEventDelete = useCallback(async (eventId: string) => {
-    let deletedEvent: CalendarEvent | undefined;
-
     try {
-      // Find the event to delete
-      deletedEvent = state.events.find(e => e.id === eventId);
-
-      if (!deletedEvent) {
-        throw new Error('Event not found');
-      }
-
-      // Optimistic update: immediately remove the event from UI
-      setState(prev => ({
-        ...prev,
-        events: prev.events.filter(e => e.id !== eventId)
-      }));
-
-      // Also remove from filtered events if it exists there
-      setFilteredEvents(prev => prev.filter(e => e.id !== eventId));
-
+      hapticFeedback.medium();
+      const eventToDelete = await database.get<CalendarEvent>('calendar_events').find(eventId);
+      
+      await database.write(async () => {
+        await eventToDelete.update(e => {
+          e.status = 'pending_delete';
+        });
+      });
       hapticFeedback.success();
-
-      // Make the API call in the background
-      try {
-        await enhancedAPI.deleteEvent(eventId);
-        // Success - optimistic update was correct, no further action needed
-      } catch (apiError) {
-        // API call failed - restore the event and show error
-        if (deletedEvent) {
-          setState(prev => ({
-            ...prev,
-            events: [...prev.events, deletedEvent!]
-          }));
-          setFilteredEvents(prev => [...prev, deletedEvent!]);
-        }
-
-        hapticFeedback.error();
-
-        // Handle error with enhanced error handling
-        if (apiError && typeof apiError === 'object' && 'title' in apiError) {
-          setCurrentError(apiError as UserFriendlyError);
-          setErrorVisible(true);
-        } else {
-          const userError = await errorHandlingService.handleError(
-            apiError,
-            ErrorCategory.CALENDAR,
-            {
-              operation: 'deleteEvent',
-              endpoint: `calendar/events/${eventId}`,
-              timestamp: Date.now(),
-              retryCount: 0,
-            }
-          );
-          setCurrentError(userError);
-          setErrorVisible(true);
-        }
-      }
-    } catch (initialError) {
-      // Error finding event or other initial error
+    } catch (error) {
       hapticFeedback.error();
-
-      if (initialError && typeof initialError === 'object' && 'title' in initialError) {
-        setCurrentError(initialError as UserFriendlyError);
-        setErrorVisible(true);
-      } else {
-        const userError = await errorHandlingService.handleError(
-          initialError,
-          ErrorCategory.CALENDAR,
-          {
-            operation: 'deleteEvent',
-            endpoint: `calendar/events/${eventId}`,
-            timestamp: Date.now(),
-            retryCount: 0,
-          }
-        );
-        setCurrentError(userError);
-        setErrorVisible(true);
-      }
+      Alert.alert('Error', 'Failed to delete event locally.');
     }
-  }, [state.events]);
+  }, [database]);
 
   // Handle task completion with enhanced error handling
   const handleTaskComplete = useCallback(async (taskId: string) => {
-    // Find the task in the current state
-    const taskIndex = state.tasks.findIndex(t => t.id === taskId);
-    if (taskIndex === -1) {
-      throw new Error('Task not found');
-    }
-
-    const currentTask = state.tasks[taskIndex];
-    const isCurrentlyCompleted = currentTask.status === 'completed';
-    const newStatus = isCurrentlyCompleted ? 'in_progress' : 'completed';
-
-    try {
-      // Optimistic update - immediately update the UI
-      setState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === taskId 
-            ? { ...task, status: newStatus }
-            : task
-        )
-      }));
-
-      // Update the backend using enhanced API
-      await enhancedAPI.updateTask(taskId, { status: newStatus });
-      
-      // Success - no need to reload, UI is already updated
-      hapticFeedback.success();
-    } catch (_error) {
-      // error completing task
-      hapticFeedback.error();
-      
-      // Revert the optimistic update on error
-      setState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => 
-          task.id === taskId 
-            ? { ...task, status: currentTask.status } // Revert to original status
-            : task
-        )
-      }));
-      
-      // Handle error with enhanced error handling
-      if (_error && typeof _error === 'object' && 'title' in _error) {
-        setCurrentError(_error as UserFriendlyError);
-        setErrorVisible(true);
-      } else {
-        const userError = await errorHandlingService.handleError(
-          _error,
-          ErrorCategory.TASKS,
-          {
-            operation: 'completeTask',
-            endpoint: `tasks/${taskId}`,
-            timestamp: Date.now(),
-            retryCount: 0,
-          }
-        );
-        setCurrentError(userError);
-        setErrorVisible(true);
-      }
-    }
-  }, [state.tasks]);
+    // This will be handled by optimistic updates in Milestone 3
+  }, []);
 
   // Handle event rescheduling with enhanced error handling
   const handleReschedule = useCallback(async (eventId: string, newDate: Date) => {
-    let event: CalendarEvent | undefined;
-    
-    try {
-      // Only reschedule calendar events from Calendar screen
-      event = state.events.find(e => e.id === eventId);
-      
-      if (event) {
-        const startTime = event.start_time || event.start?.dateTime;
-        const endTime = event.end_time || event.end?.dateTime;
-        
-        if (startTime && endTime) {
-          const startDate = new Date(startTime);
-          const endDate = new Date(endTime);
-          const duration = endDate.getTime() - startDate.getTime();
-          
-          // Calculate new start and end times
-          const newStartTime = new Date(newDate);
-          const newEndTime = new Date(newStartTime.getTime() + duration);
-          
-          await enhancedAPI.updateEvent(eventId, {
-            summary: event.summary || event.title || 'Untitled Event',
-            description: event.description,
-            startTime: newStartTime.toISOString(),
-            endTime: newEndTime.toISOString(),
-            location: event.location,
-          });
-        }
-      } else {
-        throw new Error('Event not found');
-      }
-      
-      // Refresh data
-      await loadCalendarData();
-      hapticFeedback.success();
-    } catch (_error) {
-      // error rescheduling event
-      hapticFeedback.error();
-      
-      // Handle error with enhanced error handling
-      if (_error && typeof _error === 'object' && 'title' in _error) {
-        setCurrentError(_error as UserFriendlyError);
-        setErrorVisible(true);
-      } else {
-        const userError = await errorHandlingService.handleError(
-          _error,
-          ErrorCategory.CALENDAR,
-          {
-            operation: 'rescheduleEvent',
-            endpoint: `calendar/events/${eventId}`,
-            timestamp: Date.now(),
-            retryCount: 0,
-          }
-        );
-        setCurrentError(userError);
-        setErrorVisible(true);
-      }
-    }
-  }, [state.events, loadCalendarData]);
+    // This will be handled by optimistic updates in Milestone 3
+  }, []);
 
   // Create new event
   const handleCreateEvent = useCallback(() => {
@@ -531,8 +265,8 @@ export default function CalendarScreen() {
         const isCalendarEventLike = (obj: any) => {
           try {
             return !!(
-              obj?.start_time ||
-              obj?.end_time ||
+              obj?.startTime ||
+              obj?.endTime ||
               obj?.start?.dateTime ||
               obj?.end?.dateTime
             );
@@ -546,41 +280,41 @@ export default function CalendarScreen() {
           const preservedTaskId = existing.task_id || existing.taskId;
           const preservedGoalId = existing.goal_id || existing.goalId;
 
-          await enhancedAPI.updateEvent(editingEvent.id, {
-            summary: formData.title,
-            description: formData.description,
-            startTime: formData.startTime.toISOString(),
-            endTime: formData.endTime.toISOString(),
-            location: formData.location,
-            eventType: preservedEventType,
-            taskId: preservedTaskId,
-            goalId: preservedGoalId,
-          });
+          // await enhancedAPI.updateEvent(editingEvent.id, { // No longer needed
+          //   summary: formData.title,
+          //   description: formData.description,
+          //   startTime: formData.startTime.toISOString(),
+          //   endTime: formData.endTime.toISOString(),
+          //   location: formData.location,
+          //   eventType: preservedEventType,
+          //   taskId: preservedTaskId,
+          //   goalId: preservedGoalId,
+          // });
         } else {
           // Editing a task: create a linked calendar event for the task
-          await enhancedAPI.createEvent({
-            summary: formData.title,
-            description: formData.description,
-            startTime: formData.startTime.toISOString(),
-            endTime: formData.endTime.toISOString(),
-            location: formData.location,
-            eventType: 'task',
-            taskId: (editingEvent as any).id,
-          });
+          // await enhancedAPI.createEvent({ // No longer needed
+          //   summary: formData.title,
+          //   description: formData.description,
+          //   startTime: formData.startTime.toISOString(),
+          //   endTime: formData.endTime.toISOString(),
+          //   location: formData.location,
+          //   eventType: 'task',
+          //   taskId: (editingEvent as any).id,
+          // });
         }
       } else {
         // Create new event
-        await enhancedAPI.createEvent({
-          summary: formData.title,
-          description: formData.description,
-          startTime: formData.startTime.toISOString(),
-          endTime: formData.endTime.toISOString(),
-          location: formData.location,
-        });
+        // await enhancedAPI.createEvent({ // No longer needed
+        //   summary: formData.title,
+        //   description: formData.description,
+        //   startTime: formData.startTime.toISOString(),
+        //   endTime: formData.endTime.toISOString(),
+        //   location: formData.location,
+        // });
       }
       
       // Refresh data
-      await loadCalendarData();
+      // await loadCalendarData(); // No longer needed
       hapticFeedback.success();
     } catch (error) {
       // error saving event
@@ -589,7 +323,7 @@ export default function CalendarScreen() {
     } finally {
       setFormLoading(false);
     }
-  }, [editingEvent, loadCalendarData]);
+  }, [editingEvent]);
 
   // Close form modal
   const handleCloseForm = useCallback(() => {
@@ -613,16 +347,16 @@ export default function CalendarScreen() {
     hapticFeedback.medium();
     setCurrentError(null);
     setErrorVisible(false);
-    loadCalendarData(1, false);
-  }, [loadCalendarData]);
+    // loadCalendarData(1, false); // No longer needed
+  }, []);
 
   // Compute lapsed goals (overdue target date and not completed)
   const getLapsedGoals = useCallback(() => {
     const todayKey = formatDateToYYYYMMDD(new Date());
-    return state.goals.filter((goal: any) => {
-      if (!goal?.target_completion_date) {return false;}
+    return goals.filter((goal: any) => {
+      if (!goal?.targetCompletionDate) {return false;}
       try {
-        const goalKey = formatDateToYYYYMMDD(new Date(goal.target_completion_date));
+        const goalKey = formatDateToYYYYMMDD(new Date(goal.targetCompletionDate));
         const isOverdue = goalKey < todayKey;
         const isCompleted = goal?.status === 'completed' || (Array.isArray(goal?.milestones) && goal.milestones.length > 0 && goal.milestones.every((m: any) => m.completed || ((m.steps || []).every((s: any) => s.completed))));
         return isOverdue && !isCompleted;
@@ -630,7 +364,7 @@ export default function CalendarScreen() {
         return false;
       }
     });
-  }, [state.goals]);
+  }, [goals]);
 
   // Get events for selected date (only calendar events; tasks are no longer rendered directly as events)
   const getEventsForSelectedDate = useCallback(() => {
@@ -638,38 +372,18 @@ export default function CalendarScreen() {
     const dayEvents: DayViewEvent[] = [];
     const goalsDueToday: any[] = [];
 
-    // Add calendar events (skip goal markers)
+    // Add calendar events
     filteredEvents.forEach((event) => {
       try {
-        if ((event as any).event_type === 'goal') {return;}
-        // Handle both database format and Google Calendar API format
-        let eventStartTime: string;
-        let eventEndTime: string;
-        
-        if (event.start_time && event.end_time) {
-          // Database format
-          eventStartTime = event.start_time;
-          eventEndTime = event.end_time;
-
-        } else if (event.start?.dateTime && event.end?.dateTime) {
-          // Google Calendar API format
-          eventStartTime = event.start.dateTime;
-          eventEndTime = event.end.dateTime;
-
-        } else {
-          // invalid event format
-          return;
-        }
-
-        const eventDate = new Date(eventStartTime);
+        const eventDate = new Date(event.startTime);
         const eventDateStr = getLocalDateKey(eventDate);
         
         if (eventDateStr === selectedDateStr) {
           const dayEvent = {
             id: event.id,
-            title: event.summary || event.title || 'Untitled Event',
-            startTime: new Date(eventStartTime),
-            endTime: new Date(eventEndTime),
+            title: event.title || 'Untitled Event',
+            startTime: new Date(event.startTime),
+            endTime: new Date(event.endTime),
             type: 'event' as const,
             data: event,
             color: colors.info,
@@ -681,13 +395,11 @@ export default function CalendarScreen() {
       }
     });
 
-    // Do not render raw tasks as events anymore; tasks should appear as linked calendar events via task_id
-
     // Collect goals due today for a lightweight summary card in Day view
-    state.goals.forEach(goal => {
-      if (!goal.target_completion_date) {return;}
+    goals.forEach(goal => {
+      if (!goal.targetCompletionDate) {return;}
       try {
-        const goalDate = new Date(goal.target_completion_date);
+        const goalDate = new Date(goal.targetCompletionDate);
         if (getLocalDateKey(goalDate) === selectedDateStr) {
           goalsDueToday.push(goal);
         }
@@ -698,18 +410,18 @@ export default function CalendarScreen() {
     (getEventsForSelectedDate as any)._goalsDueToday = goalsDueToday;
 
     return dayEvents.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-  }, [filteredEvents, state.selectedDate]);
+  }, [filteredEvents, goals, state.selectedDate]);
 
   // Get goals due in the current month
   const getGoalsForCurrentMonth = useCallback(() => {
     const currentMonth = state.selectedDate.getMonth();
     const currentYear = state.selectedDate.getFullYear();
     
-    return state.goals.filter(goal => {
-      if (!goal.target_completion_date) {return false;}
+    return goals.filter(goal => {
+      if (!goal.targetCompletionDate) {return false;}
       
       try {
-        const goalDate = new Date(goal.target_completion_date);
+        const goalDate = new Date(goal.targetCompletionDate);
         return goalDate.getMonth() === currentMonth && goalDate.getFullYear() === currentYear;
       } catch (_error) {
         // invalid goal date
@@ -717,14 +429,14 @@ export default function CalendarScreen() {
       }
     }).sort((a, b) => {
       // Sort by completion date, then by title
-      const dateA = new Date(a.target_completion_date || '');
-      const dateB = new Date(b.target_completion_date || '');
+      const dateA = new Date(a.targetCompletionDate || '');
+      const dateB = new Date(b.targetCompletionDate || '');
       if (dateA.getTime() !== dateB.getTime()) {
         return dateA.getTime() - dateB.getTime();
       }
       return a.title.localeCompare(b.title);
     });
-  }, [state.goals, state.selectedDate]);
+  }, [goals, state.selectedDate]);
 
   // Get marked dates for calendar
   const getMarkedDates = useCallback(() => {
@@ -737,23 +449,15 @@ export default function CalendarScreen() {
       return marked[date];
     };
 
-    // Events → blue dot (info) for regular events, green dot (success) for task-linked events; skip goal markers
+    // Events
     filteredEvents.forEach(event => {
       try {
-        let eventStartTime: string | undefined;
-        if (event.start_time) {
-          eventStartTime = event.start_time;
-        } else if (event.start?.dateTime) {
-          eventStartTime = event.start.dateTime;
-        }
+        const eventStartTime = event.startTime;
         if (!eventStartTime) {return;}
-        // Skip goal markers in events array
-        if ((event as any).event_type === 'goal') {return;}
         const date = getLocalDateKey(new Date(eventStartTime));
         const entry = ensureEntry(date);
 
-        // Determine dot color based on whether event is linked to a task
-        const dotColor = (event as any).task_id ? colors.success : colors.info;
+        const dotColor = event.taskId ? colors.success : colors.info;
 
         if (!entry.dots.some(d => d.color === dotColor)) {
           entry.dots.push({ color: dotColor });
@@ -761,13 +465,11 @@ export default function CalendarScreen() {
       } catch {}
     });
 
-    // Task-linked events get green dots, regular events get blue dots
-
-    // Goals → amber dot (warning)
-    state.goals.forEach(goal => {
-      if (!goal.target_completion_date) {return;}
+    // Goals
+    goals.forEach(goal => {
+      if (!goal.targetCompletionDate) {return;}
       try {
-        const date = getLocalDateKey(new Date(goal.target_completion_date));
+        const date = getLocalDateKey(new Date(goal.targetCompletionDate));
         const entry = ensureEntry(date);
         if (!entry.dots.some(d => d.color === colors.warning)) {
           entry.dots.push({ color: colors.warning });
@@ -776,7 +478,7 @@ export default function CalendarScreen() {
     });
 
     return marked;
-  }, [filteredEvents, state.goals]);
+  }, [filteredEvents, goals]);
 
   // Render day view with time blocks
   const renderDayView = useCallback(() => {
@@ -961,16 +663,16 @@ export default function CalendarScreen() {
     filteredEvents.forEach(event => {
       try {
         // Handle both database format and Google Calendar API format
-        const eventDate = new Date(event.start_time || event.start?.dateTime || '');
+        const eventDate = new Date(event.startTime);
         const eventDateStr = getLocalDateKey(eventDate);
         
         const group = dateGroups.find(g => g.dateString === eventDateStr);
         if (group) {
           group.events.push({
             id: event.id,
-            title: event.title || event.summary || 'Untitled Event',
+            title: event.title,
             startTime: eventDate,
-            endTime: new Date(event.end_time || event.end?.dateTime || eventDate.getTime() + 60 * 60 * 1000),
+            endTime: new Date(event.endTime),
             day: eventDate.getDay(),
             type: 'event' as const,
             data: event,
@@ -990,10 +692,10 @@ export default function CalendarScreen() {
     });
     
     // Add a compact goal-due entry into each group's end if any goal is due that day
-    state.goals.forEach(goal => {
-      if (!goal.target_completion_date) {return;}
+    goals.forEach(goal => {
+      if (!goal.targetCompletionDate) {return;}
       try {
-        const goalDateStr = getLocalDateKey(new Date(goal.target_completion_date));
+        const goalDateStr = getLocalDateKey(new Date(goal.targetCompletionDate));
         const group = dateGroups.find(g => g.dateString === goalDateStr);
         if (group) {
           group.events.push({
@@ -1086,7 +788,7 @@ export default function CalendarScreen() {
         )}
       </ScrollView>
     );
-  }, [filteredEvents, filteredTasks, handleCreateEvent, handleEventDelete, handleEventEdit, handleReschedule, handleTaskComplete, onRefresh, refreshing, state.selectedDate]);
+  }, [filteredEvents, filteredTasks, goals, handleCreateEvent, handleEventDelete, handleEventEdit, handleReschedule, handleTaskComplete, onRefresh, refreshing, state.selectedDate]);
 
   // Render month view
   const renderMonthView = () => {
@@ -1095,11 +797,11 @@ export default function CalendarScreen() {
     const nextGoal = monthGoals
       .filter(g => !!g)
       .sort((a, b) => {
-        const aDate = a.target_completion_date ? new Date(a.target_completion_date).getTime() : Number.MAX_SAFE_INTEGER;
-        const bDate = b.target_completion_date ? new Date(b.target_completion_date).getTime() : Number.MAX_SAFE_INTEGER;
+        const aDate = a.targetCompletionDate ? new Date(a.targetCompletionDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const bDate = b.targetCompletionDate ? new Date(b.targetCompletionDate).getTime() : Number.MAX_SAFE_INTEGER;
         if (aDate !== bDate) {return aDate - bDate;}
-        const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+        const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bCreated - aCreated;
       })[0];
 
@@ -1228,7 +930,7 @@ export default function CalendarScreen() {
   };
 
   // Only show loading skeleton for initial load, not for pagination
-  if (state.loading && currentPage === 1) {
+  if (state.loading) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
@@ -1239,6 +941,28 @@ export default function CalendarScreen() {
     );
   }
 
+  const addDebugEvent = async () => {
+    const user = authService.getCurrentUser();
+    if (!user) {
+      Alert.alert('Not Logged In', 'Please log in to create a debug event.');
+      return;
+    }
+
+    await database.write(async () => {
+      const newEvent = await database.get('calendar_events').create(e => {
+        const now = new Date();
+        e.userId = user.id;
+        e.title = `Debug Event @ ${now.toLocaleTimeString()}`;
+        e.startTime = now;
+        e.endTime = new Date(now.getTime() + 60 * 60 * 1000);
+        e.isAllDay = false;
+        e.status = 'synced'; // Will be 'pending_create' in Milestone 3
+      });
+      return newEvent;
+    });
+    Alert.alert('Success', 'Debug event created locally.');
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Error Banner for critical errors */}
@@ -1248,7 +972,7 @@ export default function CalendarScreen() {
           onRetry={() => {
             setCurrentError(null);
             setErrorVisible(false);
-            loadCalendarData();
+            // loadCalendarData(); // No longer needed
           }}
           onDismiss={() => {
             setCurrentError(null);
@@ -1271,6 +995,9 @@ export default function CalendarScreen() {
         title="Calendar"
         rightActions={(
           <>
+            <TouchableOpacity onPress={addDebugEvent} style={{marginRight: 10}}>
+              <Icon name="bug" size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => setShowImportModal(true)} 
               style={styles.importButton}
@@ -1368,8 +1095,8 @@ export default function CalendarScreen() {
 
       {/* Search and Filter */}
       <SearchAndFilter
-        events={state.events}
-        tasks={state.tasks}
+        events={filteredEvents}
+        tasks={filteredTasks}
         onFilterChange={handleFilterChange}
         viewType={state.viewType}
       />
@@ -1399,7 +1126,7 @@ export default function CalendarScreen() {
           onRetry={() => {
             setCurrentError(null);
             setErrorVisible(false);
-            loadCalendarData();
+            // loadCalendarData(); // No longer needed
           }}
           onDismiss={() => {
             setCurrentError(null);
@@ -1421,8 +1148,6 @@ export default function CalendarScreen() {
         visible={formModalVisible}
         event={editingEvent}
         onClose={handleCloseForm}
-        onSubmit={handleFormSubmit}
-        loading={formLoading}
       />
 
       {/* Calendar Import Modal */}
@@ -1889,3 +1614,20 @@ const styles = StyleSheet.create({
     color: colors.secondary,
   },
 });
+
+const enhance = withObservables(['database'], ({database}) => ({
+  events: database.collections.get('calendar_events').query(
+    Q.where('status', Q.notEq('pending_delete'))
+  ).observe(),
+  tasks: database.collections.get('tasks').query().observe(),
+  goals: database.collections.get('goals').query().observe(),
+}));
+
+const EnhancedCalendarScreen = enhance(CalendarScreen);
+
+const CalendarScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedCalendarScreen {...props} database={database} />;
+};
+
+export default CalendarScreenWithDatabase;

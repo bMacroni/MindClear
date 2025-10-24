@@ -5,8 +5,8 @@
  * @format
  */
 
-import React, { useEffect } from 'react';
-import { Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Platform, View, ActivityIndicator, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -20,6 +20,9 @@ import HelpOverlay from './src/components/help/HelpOverlay';
 import { authService } from './src/services/auth';
 import { getCurrentRouteName } from './src/navigation/navigationRef';
 import messaging from '@react-native-firebase/messaging';
+import { Database } from '@nozbe/watermelondb';
+import { initializeDatabase } from './src/db';
+import { DatabaseProvider } from './src/contexts/DatabaseContext';
 // import { initializeScreenPreloading } from './src/utils/screenPreloader';
 
 // Set Google client IDs immediately when the module loads
@@ -30,6 +33,25 @@ configService.setGoogleClientIds({
 });
 
 function App() {
+  const [database, setDatabase] = useState<Database | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const setupDatabase = async () => {
+      try {
+        const db = await initializeDatabase();
+        setDatabase(db);
+      } catch (error) {
+        console.error('Failed to initialize database', error);
+        Alert.alert('Error', 'Could not load data. Please restart the app.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    setupDatabase();
+  }, []);
+
   useEffect(() => {
     // Initialize screen preloading for better performance
     // initializeScreenPreloading();
@@ -138,14 +160,33 @@ function App() {
       }
     };
   }, []);
+
+  if (isLoading) {
+    return (
+      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (!database) {
+    return (
+      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+        <Text>An error occurred while loading the app.</Text>
+      </View>
+    );
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <HelpProvider>
-          <AppNavigator />
-          <HelpOverlay />
-        </HelpProvider>
-      </SafeAreaProvider>
+    <GestureHandlerRootView style={{flex: 1}}>
+      <DatabaseProvider database={database}>
+        <SafeAreaProvider>
+          <HelpProvider>
+            <AppNavigator />
+            <HelpOverlay />
+          </HelpProvider>
+        </SafeAreaProvider>
+      </DatabaseProvider>
     </GestureHandlerRootView>
   );
 }

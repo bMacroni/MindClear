@@ -16,6 +16,7 @@
     "build:aab": "cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
+    "@nozbe/watermelondb": "^0.28.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "^8.4.3",
     "@react-native-community/netinfo": "^11.4.1",
@@ -37,6 +38,7 @@
     "react-native-draggable-flatlist": "^4.0.1",
     "react-native-encrypted-storage": "^4.0.3",
     "react-native-gesture-handler": "^2.27.2",
+    "react-native-get-random-values": "^1.9.0",
     "react-native-haptic-feedback": "^2.3.3",
     "react-native-markdown-display": "^7.0.2",
     "react-native-modal-datetime-picker": "^18.0.0",
@@ -44,12 +46,15 @@
     "react-native-popable": "^0.4.3",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.13.0",
+    "react-native-sqlite-storage": "^6.0.1",
     "react-native-svg": "^15.12.1",
     "react-native-vector-icons": "^10.3.0",
+    "react-native-worklets": "^0.6.1",
     "yup": "^1.6.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@babel/plugin-proposal-decorators": "^7.28.0",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
     "@react-native-community/cli": "^19.0.0",
