@@ -16,14 +16,12 @@ const getPassphrase = async (): Promise<string> => {
     let passphrase = await EncryptedStorage.getItem(DB_ENCRYPTION_KEY);
 
     if (!passphrase) {
-      if (!passphrase) {
-        // Generate a cryptographically secure random key
-        const randomBytes = new Uint8Array(32);
-        crypto.getRandomValues(randomBytes);
-        passphrase = Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('');
-        await EncryptedStorage.setItem(DB_ENCRYPTION_KEY, passphrase);
-      }    }
-    return passphrase;
+      // Generate a cryptographically secure random key
+      const randomBytes = new Uint8Array(32);
+      crypto.getRandomValues(randomBytes);
+      passphrase = Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      await EncryptedStorage.setItem(DB_ENCRYPTION_KEY, passphrase);
+    }    return passphrase;
   } catch (error) {
     console.error('Failed to get or create DB passphrase', error);
     throw new Error('Failed to initialize secure database passphrase. Cannot proceed with database initialization.');

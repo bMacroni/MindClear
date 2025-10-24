@@ -148,7 +148,7 @@ class NotificationService {
   }
 
   // Show in-app notification
-  private showInAppNotification(title: string, body: string) {
+  public showInAppNotification(title: string, body: string) {
     try {
       // For now, use Alert.alert for in-app notifications
       // TODO: Implement proper toast queue system or use a global notification context

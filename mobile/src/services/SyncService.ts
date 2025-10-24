@@ -5,10 +5,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CalendarEvent from '../db/models/CalendarEvent';
 import Task from '../db/models/Task';
 import Goal from '../db/models/Goal';
+import { notificationService } from './notificationService';
 
 const LAST_SYNCED_AT_KEY = 'last_synced_at';
 
 class SyncService {
+  private isSyncing = false;
+
   async pushData() {
     const database = getDatabase();
 
@@ -27,6 +30,8 @@ class SyncService {
     }
 
     console.log(`Push: Found ${allDirtyRecords.length} local changes to push.`);
+
+    const pushErrors: { recordId: string; error: any }[] = [];
 
     for (const record of allDirtyRecords) {
       try {
@@ -69,11 +74,51 @@ class SyncService {
           }
         });
 
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Push: Failed to sync record ${record.id}. Status: ${record.status}`, JSON.stringify(error, null, 2));
+        pushErrors.push({ recordId: record.id, error });
+        
+        // Differentiate error types for better handling
+        if (error?.response?.status === 401 || error?.response?.status === 403) {
+          // Auth error - should probably stop sync entirely
+          throw new Error('Authentication failed. Please log in again.');
+        }
         // In a real app, you would implement more robust error handling,
         // like a failed queue or marking the record as sync_failed.
         // For now, we'll just log the error and continue.
+      }    }
+
+    if (pushErrors.length > 0) {
+      const errorMessage = `Failed to push ${pushErrors.length} of ${allDirtyRecords.length} changes.`;
+      notificationService.showInAppNotification(
+        'Push Incomplete',
+        errorMessage,
+      );
+
+      const failedRecordIds = pushErrors.map(e => e.recordId);
+      const recordsToUpdate = allDirtyRecords.filter(r =>
+        failedRecordIds.includes(r.id),
+      );
+
+      if (recordsToUpdate.length > 0) {
+        const database = getDatabase();
+        try {
+          await database.write(async () => {
+            for (const record of recordsToUpdate) {
+              await record.update(r => {
+                r.status = 'sync_failed';
+              });
+            }
+          });
+          console.log(
+            `Push: Marked ${recordsToUpdate.length} records as sync_failed.`,
+          );
+        } catch (dbError) {
+          console.error(
+            'Push: Failed to mark records as sync_failed.',
+            dbError,
+          );
+        }
       }
     }
 
@@ -108,34 +153,41 @@ class SyncService {
       await database.write(async () => {
         for (const eventData of allChanges) {
           const eventCollection = database.get<CalendarEvent>('calendar_events');
-          
-          try {
-            // Check if the record already exists locally
-            const localEvent = await eventCollection.find(eventData.id);
+          const existingEvents = await eventCollection.query(Q.where('id', eventData.id)).fetch();
+          const localEvent = existingEvents.length > 0 ? existingEvents[0] : null;
 
+          if (localEvent) {
             // If it exists, update it
             await localEvent.update(record => {
               record.title = eventData.summary;
               record.description = eventData.description;
-              record.startTime = new Date(eventData.start.dateTime);
-              record.endTime = new Date(eventData.end.dateTime);
+              if (eventData.start?.dateTime) {
+                record.startTime = new Date(eventData.start.dateTime);
+              }
+              if (eventData.end?.dateTime) {
+                record.endTime = new Date(eventData.end.dateTime);
+              }
               record.location = eventData.location;
               record.isAllDay = eventData.is_all_day;
-              // We keep status as 'synced' because this change comes from the server
-            });
-          } catch (error) {
-            // If it doesn't exist, create it
-            await eventCollection.create(record => {
-              record._raw.id = eventData.id; // Correct way to set ID on creation
-              record.title = eventData.summary;
-              record.description = eventData.description;
-              record.startTime = new Date(eventData.start.dateTime);
-              record.endTime = new Date(eventData.end.dateTime);
-              record.location = eventData.location;
-              record.isAllDay = eventData.is_all_day;
-              record.userId = eventData.user_id; // Assuming user_id is in the response
               record.status = 'synced';
             });
+          } else {
+            // If it doesn't exist, create it
+            if (eventData.start?.dateTime && eventData.end?.dateTime) {
+              await eventCollection.create(record => {
+                record._raw.id = eventData.id; // Correct way to set ID on creation
+                record.title = eventData.summary;
+                record.description = eventData.description;
+                record.startTime = new Date(eventData.start.dateTime);
+                record.endTime = new Date(eventData.end.dateTime);
+                record.location = eventData.location;
+                record.isAllDay = eventData.is_all_day;
+                record.userId = eventData.user_id; // Assuming user_id is in the response
+                record.status = 'synced';
+              });
+            } else {
+              console.warn(`Pull: Skipping event creation for ID ${eventData.id} due to missing start or end dateTime.`);
+            }
           }
         }
       });
@@ -144,21 +196,63 @@ class SyncService {
       await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
       console.log(`Pull: Successfully processed ${allChanges.length} changes. New sync time: ${serverTimeBeforePull}`);
 
-    } catch (error) {
-      console.error('Pull: Failed to fetch or process changes from server.', error);
-      throw error; // Re-throw to be caught by the main sync function
+    } catch (error: any) {
+      let userMessage = 'An unknown error occurred while syncing.';
+      let shouldRetry = false;
+
+      if (error?.response?.status) {
+        const status = error.response.status;
+        if (status === 401 || status === 403) {
+          userMessage = 'Authentication failed. Please log in again to sync your data.';
+          shouldRetry = false;
+        } else if (status >= 500) {
+          userMessage = 'There was a problem with the server. Please try again later.';
+          shouldRetry = true;
+        } else { // Other 4xx errors e.g. data/validation
+          userMessage = 'A data validation error occurred. Please check your inputs.';
+          shouldRetry = false;
+        }
+      } else if (error.message && (error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('timeout'))) {
+        userMessage = 'A network error occurred. Please check your connection and try again.';
+        shouldRetry = true;
+      } else if (error instanceof Error) {
+        userMessage = `An unexpected error occurred: ${error.message}`;
+      }
+
+      console.error('Pull: Failed to fetch or process changes from server.', {
+        errorMessage: error.message,
+        statusCode: error?.response?.status,
+        responseData: error?.response?.data,
+        shouldRetry,
+        originalError: error,
+      });
+
+      notificationService.showInAppNotification('Data Pull Failed', userMessage);
+
+      // Re-throw the original error so the main sync logic can handle it
+      throw error;
     }
   }
 
   async sync() {
+    if (this.isSyncing) {
+      console.log('Sync already in progress. Skipping.');
+      notificationService.showInAppNotification('Sync in Progress', 'A sync is already running.');
+      return;
+    }
+
+    this.isSyncing = true;
     try {
-      console.log('Sync started...');
+      notificationService.showInAppNotification('Sync Started', 'Syncing your data...');
       await this.pushData();
       await this.pullData();
-      console.log('Sync completed successfully.');
+      notificationService.showInAppNotification('Sync Successful', 'Your data is up to date.');
     } catch (error) {
       console.error('Sync failed:', error);
-      // In a real app, you might want to show a user-facing error
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+      notificationService.showInAppNotification('Sync Failed', `Could not sync data: ${errorMessage}`);
+    } finally {
+      this.isSyncing = false;
     }
   }
 }

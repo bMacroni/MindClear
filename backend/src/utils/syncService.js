@@ -104,9 +104,12 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
 
     // Add `since` filter for delta sync
     if (since) {
+      const sinceDate = new Date(since);
+      if (isNaN(sinceDate.getTime())) {
+        throw new Error('Invalid "since" timestamp format. Please use a valid ISO 8601 date string.');
+      }
       query = query.gt('updated_at', since);
     }
-
     const { data, error } = await query;
 
     if (error) {

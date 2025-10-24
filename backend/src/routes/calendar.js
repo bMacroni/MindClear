@@ -81,6 +81,10 @@ router.get('/events', requireAuth, async (req, res) => {
     const maxResults = parseInt(req.query.maxResults) || 200;
     const since = req.query.since; // For delta sync
     
+    // Validate since parameter if provided
+    if (since && isNaN(Date.parse(since))) {
+      return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
+    }    
     // Get user's subscription tier and calculate appropriate date range
     const subscriptionTier = await getUserSubscriptionTier(req.user.id);
     const { timeMin, timeMax } = calculateDateRangeForTier(subscriptionTier);
