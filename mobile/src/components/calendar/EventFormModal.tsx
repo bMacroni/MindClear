@@ -19,6 +19,7 @@ import { useDatabase } from '../../contexts/DatabaseContext';
 import { authService } from '../../services/auth';
 import CalendarEvent from '../../db/models/CalendarEvent';
 import Task from '../../db/models/Task';
+import { v4 as uuidv4 } from 'uuid';
 
 interface EventFormData {
   title: string;
@@ -91,7 +92,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
         description: event.description || '',
         startTime,
         endTime,
-        location: (event as CalendarEvent).location || '',
+        location: 'location' in event && event.location ? event.location : '',
         isRecurring: false, // TODO: Add recurring support
         recurringPattern: 'weekly',
       });
@@ -99,10 +100,12 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       // Populate linked task estimated duration for task-linked events
       (async () => {
         try {
-          if (event instanceof CalendarEvent && event.taskId) {
-            const task = await database.get<Task>('tasks').find(event.taskId);
-            const minutes = Number(task?.estimatedDurationMinutes);
-            setLinkedTaskDurationMinutes(Number.isFinite(minutes) && minutes > 0 ? minutes : null);
+          if (event instanceof CalendarEvent) {
+            const task = await event.task.fetch();
+            if (task) {
+              const minutes = Number(task.estimatedDurationMinutes);
+              setLinkedTaskDurationMinutes(Number.isFinite(minutes) && minutes > 0 ? minutes : null);
+            }
           } else if (event instanceof Task) {
             const minutes = Number(event?.estimatedDurationMinutes);
             setLinkedTaskDurationMinutes(Number.isFinite(minutes) && minutes > 0 ? minutes : null);
@@ -160,22 +163,45 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       }
 
       if (isEditing && event) {
-        // Update existing event
-        const eventRecord = await database.get<CalendarEvent>('calendar_events').find(event.id);
-        await database.write(async () => {
-          await eventRecord.update(e => {
-            e.title = formData.title;
-            e.description = formData.description;
-            e.startTime = formData.startTime;
-            e.endTime = formData.endTime;
-            e.location = formData.location;
-            e.status = 'pending_update';
+        // Update existing event based on its type
+        if (event instanceof CalendarEvent) {
+          const eventRecord = await database.get<CalendarEvent>('calendar_events').find(event.id);
+          await database.write(async () => {
+            await eventRecord.update(e => {
+              e.title = formData.title;
+              e.description = formData.description;
+              e.startTime = formData.startTime;
+              e.endTime = formData.endTime;
+              e.location = formData.location;
+              e.status = 'pending_update';
+            });
           });
-        });
+        } else if (event instanceof Task) {
+          const taskRecord = await database.get<Task>('tasks').find(event.id);
+          await database.write(async () => {
+            await taskRecord.update(t => {
+              t.title = formData.title;
+              t.description = formData.description;
+              t.dueDate = formData.startTime;
+              // Update duration based on form times
+              const duration = (formData.endTime.getTime() - formData.startTime.getTime()) / 60000;
+              t.estimatedDurationMinutes = duration > 0 ? duration : 0;
+              t.status = 'pending_update';
+            });
+          });
+        } else {
+          // Fallback or error for unknown event types
+          console.warn('Attempted to edit an unknown event type:', event);
+          Alert.alert('Error', 'Cannot edit this item type.');
+          setLoading(false);
+          return;
+        }
       } else {
         // Create new event
         await database.write(async () => {
+          const newId = uuidv4();
           await database.get<CalendarEvent>('calendar_events').create(e => {
+            e._raw.id = newId; // Set the ID explicitly
             e.userId = user.id;
             e.title = formData.title;
             e.description = formData.description;
@@ -190,6 +216,7 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       onClose();
     } catch (_error) {
       hapticFeedback.error();
+      console.error('Failed to save event locally:', _error); // More detailed logging
       Alert.alert('Error', 'Failed to save event locally.');
     } finally {
       setLoading(false);

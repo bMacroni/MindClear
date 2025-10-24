@@ -79,6 +79,7 @@ router.get('/list', requireAuth, async (req, res) => {
 router.get('/events', requireAuth, async (req, res) => {
   try {
     const maxResults = parseInt(req.query.maxResults) || 200;
+    const since = req.query.since; // For delta sync
     
     // Get user's subscription tier and calculate appropriate date range
     const subscriptionTier = await getUserSubscriptionTier(req.user.id);
@@ -88,7 +89,7 @@ router.get('/events', requireAuth, async (req, res) => {
     logger.info(`[Calendar API] Time range: ${timeMin.toISOString()} to ${timeMax.toISOString()}`);
     
     // Get events from local database with subscription-based time range
-    const events = await getCalendarEventsFromDB(req.user.id, maxResults, timeMin, timeMax);
+    const events = await getCalendarEventsFromDB(req.user.id, maxResults, timeMin, timeMax, null, since);
     
     logger.info(`[Calendar API] Returning ${events.length} events for ${subscriptionTier} tier user`);
     
@@ -287,6 +288,8 @@ router.delete('/events/:eventId', requireAuth, async (req, res) => {
   try {
     const { eventId } = req.params;
     const { useSupabase = false } = req.query;
+
+    logger.info(`[Calendar API] Delete request for eventId: ${eventId} by user: ${req.user.id}`);
 
     if (useSupabase) {
       // Delete event directly from Supabase

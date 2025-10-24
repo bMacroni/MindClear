@@ -75,9 +75,10 @@ export async function syncGoogleCalendarEvents(userId) {
  * @param {Date} timeMin - start time filter (optional)
  * @param {Date} timeMax - end time filter (optional)
  * @param {string} taskId - filter by task ID (optional)
+ * @param {string} since - filter by updated_at timestamp (optional, for delta sync)
  * @returns {Promise<Array>} events from database
  */
-export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin = null, timeMax = null, taskId = null) {
+export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin = null, timeMax = null, taskId = null, since = null) {
   try {
 
 
@@ -89,16 +90,21 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
       .limit(maxResults);
 
     // Add time filters if provided
-    if (timeMin) {
+    if (timeMin && !since) { // Do not apply timeMin if `since` is used
       query = query.gte('start_time', timeMin.toISOString());
     }
-    if (timeMax) {
+    if (timeMax && !since) { // Do not apply timeMax if `since` is used
       query = query.lte('start_time', timeMax.toISOString());
     }
 
     // Add task ID filter if provided
     if (taskId) {
       query = query.eq('task_id', taskId);
+    }
+
+    // Add `since` filter for delta sync
+    if (since) {
+      query = query.gt('updated_at', since);
     }
 
     const { data, error } = await query;

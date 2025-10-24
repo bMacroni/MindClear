@@ -1,4 +1,4 @@
-import {Platform} from 'react-native';
+import {Platform, Alert} from 'react-native';
 import {Database} from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 import EncryptedStorage from 'react-native-encrypted-storage';
@@ -9,49 +9,81 @@ import 'react-native-get-random-values';
 const DB_ENCRYPTION_KEY = 'mindclear_db_encryption_key';
 
 let database: Database;
+let initializingPromise: Promise<Database> | null = null;
 
 const getPassphrase = async (): Promise<string> => {
   try {
     let passphrase = await EncryptedStorage.getItem(DB_ENCRYPTION_KEY);
 
     if (!passphrase) {
-      // In a real app, you would use a more robust key generation method
-      passphrase = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      await EncryptedStorage.setItem(DB_ENCRYPTION_KEY, passphrase);
-    }
+      if (!passphrase) {
+        // Generate a cryptographically secure random key
+        const randomBytes = new Uint8Array(32);
+        crypto.getRandomValues(randomBytes);
+        passphrase = Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        await EncryptedStorage.setItem(DB_ENCRYPTION_KEY, passphrase);
+      }    }
     return passphrase;
   } catch (error) {
     console.error('Failed to get or create DB passphrase', error);
-    // Fallback for safety, but this indicates a serious issue.
-    return 'fallback_insecure_key';
-  }
-};
+    throw new Error('Failed to initialize secure database passphrase. Cannot proceed with database initialization.');
+  }};
 
+/**
+ * Initializes the WatermelonDB database.
+ * This function is idempotent and can be called multiple times.
+ * @throws {Error} Throws an error if database initialization fails.
+ * @returns {Promise<Database>} A promise that resolves with the database instance.
+ */
 export const initializeDatabase = async (): Promise<Database> => {
   if (database) {
     return database;
   }
 
-  const passphrase = await getPassphrase();
+  if (initializingPromise) {
+    return await initializingPromise;
+  }
 
-  const adapter = new SQLiteAdapter({
-    schema: mySchema,
-    jsi: true,
-    onSetUpError: error => {
-      console.error('SQLiteAdapter setup error:', error);
-    },
-    ...(Platform.OS === 'android' && {
-      dbName: 'MindClearDB',
-      passphrase,
-    }),
-  });
+  initializingPromise = (async () => {
+    try {
+      const passphrase = await getPassphrase();
 
-  database = new Database({
-    adapter,
-    modelClasses: models,
-  });
+      const adapter = new SQLiteAdapter({
+        schema: mySchema,
+        jsi: true, // JSI is required for synchronous connections
+        onSetUpError: error => {
+          console.error('SQLiteAdapter setup error:', error);
+          // Forward the error to the outer catch block.
+          throw error;
+        },
+        ...(Platform.OS === 'android' && {
+          dbName: 'MindClearDB',
+          passphrase,
+        }),
+      });
 
-  return database;
+      const db = new Database({
+        adapter,
+        modelClasses: models,
+      });
+      
+      database = db;
+      return database;
+    } catch (error) {
+      console.error("Database initialization failed:", error);
+      Alert.alert(
+        'Database Initialization Failed',
+        'An error occurred while setting up the local database. Please try restarting the app.',
+        [{ text: 'OK' }],
+        { cancelable: false }
+      );
+      throw error; // Rethrow to allow caller to handle
+    } finally {
+      initializingPromise = null;
+    }
+  })();
+
+  return await initializingPromise;
 };
 
 export const getDatabase = () => {

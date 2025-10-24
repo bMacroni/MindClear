@@ -48,6 +48,7 @@ import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { authService } from '../../services/auth';
 import { Q } from '@nozbe/watermelondb';
+import { syncService } from '../../services/SyncService';
 
 // const { width } = Dimensions.get('window');
 
@@ -963,6 +964,12 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     Alert.alert('Success', 'Debug event created locally.');
   };
 
+  const handleSync = async () => {
+    Alert.alert('Syncing...', 'Manual sync has been initiated.');
+    await syncService.sync();
+    Alert.alert('Sync Complete', 'Manual sync has finished.');
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Error Banner for critical errors */}
@@ -997,6 +1004,9 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
           <>
             <TouchableOpacity onPress={addDebugEvent} style={{marginRight: 10}}>
               <Icon name="bug" size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSync} style={{marginRight: 10}}>
+              <Icon name="sync" size={18} color={colors.text.secondary} />
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={() => setShowImportModal(true)} 

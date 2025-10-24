@@ -24,6 +24,8 @@ export default class CalendarEvent extends Model {
   @date('updated_at') updatedAt!: Date;
   @text('status') status!: string;
   @text('user_id') userId!: string;
+  @text('task_id') taskId?: string;
+  @text('goal_id') goalId?: string;
 
   @relation('tasks', 'task_id') task: any;
   @relation('goals', 'goal_id') goal: any;

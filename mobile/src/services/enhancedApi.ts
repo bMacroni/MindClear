@@ -85,9 +85,13 @@ class EnhancedAPI {
   }
 
   // Calendar API methods
-  async getEvents(maxResults: number = 100): Promise<any> {
+  async getEvents(maxResults: number = 100, since?: string): Promise<any> {
+    let url = `${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`;
+    if (since) {
+      url += `&since=${encodeURIComponent(since)}`;
+    }
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`,
+      url,
       { method: 'GET' },
       ErrorCategory.CALENDAR,
       'getEvents'
