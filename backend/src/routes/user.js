@@ -36,25 +36,7 @@ router.put('/app-preferences', requireAuth, updateAppPreferences);
 
 // This endpoint is now public and does not require authentication,
 // as it only provides publicly available client-side keys.
-router.get('/config', (req, res) => {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      logger.error('Supabase URL or Anon Key is not configured on the backend.');
-      return res.status(500).json({ error: 'Server configuration error.' });
-    }
-
-    res.json({
-      supabaseUrl,
-      supabaseAnonKey,
-    });
-  } catch (error) {
-    logger.error('Error fetching user config:', error);
-    res.status(500).json({ error: 'Failed to fetch user configuration.' });
-  }
-});
+router.get('/config', getClientConfig);
 
 // Notification settings
 router.post('/device-token', requireAuth, registerDeviceToken);

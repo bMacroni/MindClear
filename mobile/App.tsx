@@ -77,25 +77,24 @@ function App() {
         },
       );
 
-      // Set up Supabase Realtime subscription
-      const currentUser = authService.getCurrentUser();
-      let channel: any;
-      if (currentUser) {
-        const supabase = getSupabaseClient();
-        channel = supabase.channel(`user-${currentUser.id}-changes`)
-          .on('broadcast', { event: 'update' }, (payload) => {
-            console.log('Realtime update received!', payload);
-            syncService.sync();
-          })
-          .subscribe();
-
-        console.log(`Subscribed to Supabase channel: user-${currentUser.id}-changes`);
-      }
-
       // After all initialization is complete, set up auth-dependent services
+      let channel: any = null;
       let tokenRefreshUnsubscribe: (() => void) | null = null;
       const checkAuthAndInitialize = async () => {
         if (authService.isAuthenticated()) {
+          // Set up Supabase Realtime subscription for authenticated users
+          const currentUser = authService.getCurrentUser();
+          if (currentUser && !channel) {
+            const supabase = getSupabaseClient();
+            channel = supabase.channel(`user-${currentUser.id}-changes`)
+              .on('broadcast', { event: 'update' }, (payload) => {
+                console.log('Realtime update received!', payload);
+                syncService.sync();
+              })
+              .subscribe();
+            console.log(`Subscribed to Supabase channel: user-${currentUser.id}-changes`);
+          }
+
           notificationService.initialize();
           if (tokenRefreshUnsubscribe) {
             tokenRefreshUnsubscribe();
@@ -124,6 +123,13 @@ function App() {
             console.error('Failed to initialize WebSocket connection:', error);
           }
         } else {
+          // Clean up Supabase channel on logout
+          if (channel) {
+            const supabase = getSupabaseClient();
+            supabase.removeChannel(channel);
+            console.log('Unsubscribed from Supabase channel on logout.');
+            channel = null;
+          }
           webSocketService.disconnect();
           if (tokenRefreshUnsubscribe) {
             tokenRefreshUnsubscribe();

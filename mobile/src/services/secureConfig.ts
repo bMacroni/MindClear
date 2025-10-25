@@ -61,16 +61,20 @@ class SecureConfigService {
 
   private async loadRemoteConfig(): Promise<void> {
     try {
+      if (!this.config) {
+        throw new Error('Secure config is not initialized; cannot load remote config.');
+      }
       const remoteConfig = await enhancedAPI.getUserConfig();
       if (remoteConfig.supabaseUrl && remoteConfig.supabaseAnonKey) {
-        this.config!.remoteConfig = remoteConfig;
+        this.config.remoteConfig = remoteConfig;
         logger.info('Secure remote config loaded from server');
       } else {
         logger.warn('Remote config from server is missing required keys.');
       }
     } catch (error) {
       logger.error('Failed to load secure remote config:', error);
-      // App can continue with potentially undefined keys, depending on usage context.
+      // Re-throw to allow callers to handle the failure, enabling UI feedback.
+      throw new Error(`Failed to load remote configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

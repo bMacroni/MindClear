@@ -79,15 +79,24 @@ class SyncService {
         console.error(`Push: Failed to sync record ${record.id}. Status: ${record.status}`, JSON.stringify(error, null, 2));
         pushErrors.push({ recordId: record.id, error });
         
-        // Differentiate error types for better handling
-        if (error?.response?.status === 401 || error?.response?.status === 403) {
-          // Auth error - should probably stop sync entirely
-          throw new Error('Authentication failed. Please log in again.');
-        }
         // In a real app, you would implement more robust error handling,
         // like a failed queue or marking the record as sync_failed.
         // For now, we'll just log the error and continue.
-      }    }
+      }
+    }
+
+    // Check for auth errors after the loop and before other error handling
+    const hasAuthError = pushErrors.some(
+      e => e.error?.response?.status === 401 || e.error?.response?.status === 403,
+    );
+
+    if (hasAuthError) {
+      notificationService.showInAppNotification(
+        'Authentication Failed',
+        'Please log in again to sync your data.',
+      );
+      throw new Error('Authentication failed');
+    }
 
     if (pushErrors.length > 0) {
       const errorMessage = `Failed to push ${pushErrors.length} of ${allDirtyRecords.length} changes.`;
