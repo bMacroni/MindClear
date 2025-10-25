@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Platform, View, ActivityIndicator, Text } from 'react-native';
+import { Platform, View, ActivityIndicator, Text, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -23,142 +23,163 @@ import messaging from '@react-native-firebase/messaging';
 import { Database } from '@nozbe/watermelondb';
 import { initializeDatabase } from './src/db';
 import { DatabaseProvider } from './src/contexts/DatabaseContext';
+import { syncService } from './src/services/SyncService';
+import secureConfigService from './src/services/secureConfig';
+import getSupabaseClient from './src/services/supabaseClient';
 // import { initializeScreenPreloading } from './src/utils/screenPreloader';
 
 // Set Google client IDs immediately when the module loads
-configService.setGoogleClientIds({
-  web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
-  android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
-  ios: '', // iOS client ID not needed for Android development
-});
+// This is now delayed until after secure config is loaded
+// configService.setGoogleClientIds({
+//   web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
+//   android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
+//   ios: '', // iOS client ID not needed for Android development
+// });
 
 function App() {
   const [database, setDatabase] = useState<Database | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const setupDatabase = async () => {
+    const initializeApp = async () => {
       try {
+        // First, initialize secure config
+        await secureConfigService.initialize();
+
+        // Now, set up other services that depend on this config
+        configService.setGoogleClientIds({
+          web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
+          android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
+          ios: '', // iOS client ID not needed for Android development
+        });
+
+        // Then, set up the database
         const db = await initializeDatabase();
         setDatabase(db);
+
       } catch (error) {
-        console.error('Failed to initialize database', error);
-        Alert.alert('Error', 'Could not load data. Please restart the app.');
+        console.error('Failed to initialize app:', error);
+        Alert.alert('Initialization Error', 'Could not start the application correctly. Please restart.');
       } finally {
         setIsLoading(false);
       }
     };
 
-    setupDatabase();
-  }, []);
-
-  useEffect(() => {
-    // Initialize screen preloading for better performance
-    // initializeScreenPreloading();
-    
-    let tokenRefreshUnsubscribe: (() => void) | null = null;
-    
-    // Set up auth state listener to initialize services after authentication
-    const checkAuthAndInitialize = async () => {
-      if (authService.isAuthenticated()) {
-        // Initialize notification services when authenticated
-        notificationService.initialize();
-        
-        // Clean up any existing token refresh listener before setting up a new one
-        if (tokenRefreshUnsubscribe) {
-          tokenRefreshUnsubscribe();
-        }
-        
-        // Set up FCM token refresh listener
-        tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (token: string) => {
-          console.log('FCM token refreshed:', token.substring(0, 20) + '...');
-          try {
-            await notificationService.registerTokenWithBackend(token);
-          } catch (error) {
-            console.error('Failed to register FCM token with backend:', error);
-            // Don't crash the app on token registration failure
+    initializeApp().then(() => {
+      // Set up sync triggers only after successful initialization
+      const appStateSubscription = AppState.addEventListener(
+        'change',
+        nextAppState => {
+          if (nextAppState === 'active') {
+            console.log('App has come to the foreground, triggering sync.');
+            syncService.sync();
           }
-        });
-        
-        // Connect WebSocket with error handling
-        try {
-          await webSocketService.connect();
-          webSocketService.onMessage((message) => {
-            if (message.type === 'new_notification') {
-              const currentRoute = getCurrentRouteName();
-              // Suppress in-app popup when user is on AIChat screen to avoid redundancy
-              if (currentRoute === 'AIChat') { return; }
-              Alert.alert(
-                message.payload.title,
-                message.payload.message
-              );
+        },
+      );
+
+      // Set up Supabase Realtime subscription
+      const currentUser = authService.getCurrentUser();
+      let channel: any;
+      if (currentUser) {
+        const supabase = getSupabaseClient();
+        channel = supabase.channel(`user-${currentUser.id}-changes`)
+          .on('broadcast', { event: 'update' }, (payload) => {
+            console.log('Realtime update received!', payload);
+            syncService.sync();
+          })
+          .subscribe();
+
+        console.log(`Subscribed to Supabase channel: user-${currentUser.id}-changes`);
+      }
+
+      // After all initialization is complete, set up auth-dependent services
+      let tokenRefreshUnsubscribe: (() => void) | null = null;
+      const checkAuthAndInitialize = async () => {
+        if (authService.isAuthenticated()) {
+          notificationService.initialize();
+          if (tokenRefreshUnsubscribe) {
+            tokenRefreshUnsubscribe();
+          }
+          tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (token: string) => {
+            console.log('FCM token refreshed:', token.substring(0, 20) + '...');
+            try {
+              await notificationService.registerTokenWithBackend(token);
+            } catch (error) {
+              console.error('Failed to register FCM token with backend:', error);
             }
           });
-        } catch (error) {
-          console.error('Failed to initialize WebSocket connection:', error);
+          try {
+            await webSocketService.connect();
+            webSocketService.onMessage((message) => {
+              if (message.type === 'new_notification') {
+                const currentRoute = getCurrentRouteName();
+                if (currentRoute === 'AIChat') { return; }
+                Alert.alert(
+                  message.payload.title,
+                  message.payload.message
+                );
+              }
+            });
+          } catch (error) {
+            console.error('Failed to initialize WebSocket connection:', error);
+          }
+        } else {
+          webSocketService.disconnect();
+          if (tokenRefreshUnsubscribe) {
+            tokenRefreshUnsubscribe();
+            tokenRefreshUnsubscribe = null;
+          }
         }
-      } else {
-        // Skip initialization when not authenticated
-        // Disconnect WebSocket if user is not authenticated
-        webSocketService.disconnect();
-        
-        // Clean up token refresh listener when not authenticated
-        if (tokenRefreshUnsubscribe) {
-          tokenRefreshUnsubscribe();
-          tokenRefreshUnsubscribe = null;
-        }
-      }
-    };
-
-    // Check immediately
-    checkAuthAndInitialize();
-    
-    // Set up listener for auth state changes
-    const unsubscribe = authService.subscribe(checkAuthAndInitialize);
-    
-    // Setting up Google Sign-In...
-    try {
-      const webClientId = configService.getGoogleWebClientId();
-      const androidClientId = configService.getGoogleAndroidClientId();
-      const iosClientId = configService.getGoogleIosClientId();
-      
-      const baseConfig: any = {
-        webClientId: webClientId, // Firebase web client ID
-        offlineAccess: true, // Required for getting the access token
-        forceCodeForRefreshToken: true, // Required for getting the refresh token
-        scopes: [
-          'openid',
-          'email',
-          'profile',
-          'https://www.googleapis.com/auth/calendar.events.readonly'
-        ],
-        // Use backend OAuth endpoint for sensitive scopes
-        redirectUri: `${configService.getBaseUrl()}/auth/google/callback`,
       };
 
-      // Add platform-specific client IDs
-      if (Platform.OS === 'android') {
-        baseConfig.androidClientId = androidClientId;
+      checkAuthAndInitialize();
+      const authUnsubscribe = authService.subscribe(checkAuthAndInitialize);
+
+      // Also configure Google Sign-In now that config is loaded
+      try {
+        const webClientId = configService.getGoogleWebClientId();
+        const androidClientId = configService.getGoogleAndroidClientId();
+        const iosClientId = configService.getGoogleIosClientId();
+        
+        const baseConfig: any = {
+          webClientId: webClientId,
+          offlineAccess: true,
+          forceCodeForRefreshToken: true,
+          scopes: [
+            'openid',
+            'email',
+            'profile',
+            'https://www.googleapis.com/auth/calendar.events.readonly'
+          ],
+          redirectUri: `${configService.getBaseUrl()}/auth/google/callback`,
+        };
+
+        if (Platform.OS === 'android') {
+          baseConfig.androidClientId = androidClientId;
+        }
+
+        if (Platform.OS === 'ios') {
+          baseConfig.iosClientId = iosClientId;
+        }
+
+        GoogleSignin.configure(baseConfig);
+      } catch (e) {
+        console.warn('Failed to configure Google Sign-In at app init:', e);
       }
 
-      if (Platform.OS === 'ios') {
-        baseConfig.iosClientId = iosClientId;
-      }
-
-      GoogleSignin.configure(baseConfig);
-    } catch (e) {
-      console.warn('Failed to configure Google Sign-In at app init:', e);
-    }
-    
-    // Cleanup listener on unmount
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-      if (tokenRefreshUnsubscribe) {
-        tokenRefreshUnsubscribe();
-      }
-    };
+      return () => {
+        authUnsubscribe();
+        if (tokenRefreshUnsubscribe) {
+          tokenRefreshUnsubscribe();
+        }
+        appStateSubscription.remove();
+        if (channel) {
+          const supabase = getSupabaseClient();
+          supabase.removeChannel(channel);
+          console.log('Unsubscribed from Supabase channel.');
+        }
+      };
+    });
   }, []);
 
   if (isLoading) {

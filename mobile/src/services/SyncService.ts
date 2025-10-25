@@ -6,6 +6,7 @@ import CalendarEvent from '../db/models/CalendarEvent';
 import Task from '../db/models/Task';
 import Goal from '../db/models/Goal';
 import { notificationService } from './notificationService';
+import { authService } from './auth';
 
 const LAST_SYNCED_AT_KEY = 'last_synced_at';
 
@@ -235,6 +236,12 @@ class SyncService {
   }
 
   async sync() {
+    const user = authService.getCurrentUser();
+    if (!user) {
+      console.log('Sync skipped: No authenticated user.');
+      return;
+    }
+
     if (this.isSyncing) {
       console.log('Sync already in progress. Skipping.');
       notificationService.showInAppNotification('Sync in Progress', 'A sync is already running.');

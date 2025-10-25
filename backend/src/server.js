@@ -229,6 +229,7 @@ app.use('/api/auth/google', authRateLimit, googleAuthRoutes);
 app.use('/api/auth/google', authRateLimit, googleMobileAuthRoutes);
 
 app.use('/api/calendar', calendarRouter);
+app.use('/api/user', userRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/conversations', conversationsRouter);
 

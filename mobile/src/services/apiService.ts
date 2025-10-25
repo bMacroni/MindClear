@@ -1,6 +1,6 @@
-import { configService } from './config';
 import { authService } from './auth';
-import { secureConfigService } from './secureConfig';
+import { configService } from './config';
+import secureConfigService from './secureConfig';
 import logger from '../utils/logger';
 
 // Helper function to get secure API base URL

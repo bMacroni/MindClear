@@ -48,7 +48,7 @@ export const initializeDatabase = async (): Promise<Database> => {
 
       const adapter = new SQLiteAdapter({
         schema: mySchema,
-        jsi: true, // JSI is required for synchronous connections
+        // jsi: true, // commented out to disable JSI and avoid native build issues
         onSetUpError: error => {
           console.error('SQLiteAdapter setup error:', error);
           // Forward the error to the outer catch block.

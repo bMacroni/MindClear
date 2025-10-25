@@ -2,7 +2,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Platform } from 'react-native';
 import { configService } from './config';
 import { authService } from './auth';
-import { secureConfigService } from './secureConfig';
+import secureConfigService from './secureConfig';
 import logger from '../utils/logger';
 
 // Helper function to get secure API base URL

@@ -8,6 +8,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { configService } from './config';
 import logger from '../utils/logger';
+import { enhancedAPI } from './enhancedApi'; // Import enhancedAPI
+
+interface RemoteConfig {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+}
 
 interface SecureConfig {
   apiBaseUrl: string;
@@ -22,6 +28,7 @@ interface SecureConfig {
     requestSigning: boolean;
     encryption: boolean;
   };
+  remoteConfig?: RemoteConfig; // Add remoteConfig
 }
 
 class SecureConfigService {
@@ -45,12 +52,26 @@ class SecureConfigService {
    * Asynchronously initialize the singleton by loading secure config.
    * Must be awaited at app startup before using the service.
    */
-  static async initialize(): Promise<SecureConfigService> {
-    const instance = SecureConfigService.getInstance();
-    if (!instance.isLoaded) {
-      await instance.loadSecureConfig();
+  async initialize(): Promise<void> {
+    if (!this.isLoaded) {
+      await this.loadSecureConfig();
+      await this.loadRemoteConfig(); // Load remote config after initial load
     }
-    return instance;
+  }
+
+  private async loadRemoteConfig(): Promise<void> {
+    try {
+      const remoteConfig = await enhancedAPI.getUserConfig();
+      if (remoteConfig.supabaseUrl && remoteConfig.supabaseAnonKey) {
+        this.config!.remoteConfig = remoteConfig;
+        logger.info('Secure remote config loaded from server');
+      } else {
+        logger.warn('Remote config from server is missing required keys.');
+      }
+    } catch (error) {
+      logger.error('Failed to load secure remote config:', error);
+      // App can continue with potentially undefined keys, depending on usage context.
+    }
   }
 
   private async loadSecureConfig(): Promise<void> {
@@ -88,6 +109,22 @@ class SecureConfigService {
     };
     this.isLoaded = true;
     logger.info('Secure config initialized with defaults');
+  }
+
+  getSupabaseUrl(): string {
+    if (!this.config?.remoteConfig?.supabaseUrl) {
+      logger.warn('Supabase URL not available from remote config.');
+      return ''; // Return empty or a default, but warn.
+    }
+    return this.config.remoteConfig.supabaseUrl;
+  }
+
+  getSupabaseAnonKey(): string {
+    if (!this.config?.remoteConfig?.supabaseAnonKey) {
+      logger.warn('Supabase Anon Key not available from remote config.');
+      return ''; // Return empty or a default, but warn.
+    }
+    return this.config.remoteConfig.supabaseAnonKey;
   }
 
   getApiBaseUrl(): string {
@@ -283,5 +320,4 @@ class SecureConfigService {
 }
 
 // Export singleton instance
-export const secureConfigService = SecureConfigService.getInstance();
-export default secureConfigService;
+export default SecureConfigService.getInstance();

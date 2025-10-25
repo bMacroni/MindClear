@@ -198,6 +198,15 @@ router.post('/events', requireAuth, async (req, res) => {
       }
 
       logger.info('Successfully created event in Supabase:', data);
+
+      // Broadcast a change notification
+      const channel = supabase.channel(`user-${req.user.id}-changes`);
+      await channel.send({
+        type: 'broadcast',
+        event: 'update',
+        payload: { message: `Event ${data.id} created` },
+      });
+
       return res.status(201).json(data);
     } else {
       // Use existing Google Calendar integration
@@ -263,6 +272,14 @@ router.put('/events/:eventId', requireAuth, async (req, res) => {
         return res.status(500).json({ error: 'Failed to update calendar event' });
       }
 
+      // Broadcast a change notification
+      const channel = supabase.channel(`user-${req.user.id}-changes`);
+      await channel.send({
+        type: 'broadcast',
+        event: 'update',
+        payload: { message: `Event ${data.id} updated` },
+      });
+
       return res.json(data);
     } else {
       // Use existing Google Calendar integration
@@ -307,6 +324,14 @@ router.delete('/events/:eventId', requireAuth, async (req, res) => {
         logger.error('Supabase error deleting calendar event:', error);
         return res.status(500).json({ error: 'Failed to delete calendar event' });
       }
+
+      // Broadcast a change notification
+      const channel = supabase.channel(`user-${req.user.id}-changes`);
+      await channel.send({
+        type: 'broadcast',
+        event: 'update',
+        payload: { message: `Event ${eventId} deleted` },
+      });
 
       return res.json({ message: 'Event deleted successfully' });
     } else {

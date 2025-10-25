@@ -1,7 +1,7 @@
 import { errorHandlingService, ErrorCategory, ErrorContext, UserFriendlyError } from './errorHandling';
 import { authService } from './auth';
 import { configService } from './config';
-import { secureConfigService } from './secureConfig';
+import secureConfigService from './secureConfig';
 import logger from '../utils/logger';
 
 // Helper function to get secure API base URL
@@ -258,6 +258,16 @@ class EnhancedAPI {
       },
       ErrorCategory.SYNC,
       'updateAppPreferences'
+    );
+  }
+
+  // User config
+  async getUserConfig(): Promise<{ supabaseUrl: string; supabaseAnonKey: string; }> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/user/config`,
+      { method: 'GET' },
+      ErrorCategory.SYNC,
+      'getUserConfig'
     );
   }
 

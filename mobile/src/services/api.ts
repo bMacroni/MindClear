@@ -1,7 +1,7 @@
 // Real API implementation for backend integration
 // Uses secure configuration service for API base URL
 import { authService } from './auth';
-import { secureConfigService } from './secureConfig';
+import secureConfigService from './secureConfig';
 import { sanitizeApiError, logErrorSecurely } from '../utils/errorSanitizer';
 import logger from '../utils/logger';
 

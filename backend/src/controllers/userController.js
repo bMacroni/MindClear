@@ -246,6 +246,27 @@ export async function updateAppPreferences(req, res) {
   }
 }
 
+export async function getClientConfig(req, res) {
+  try {
+    const config = {
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+    };
+
+    if (!config.supabaseUrl || !config.supabaseAnonKey) {
+      // Assuming logger is available globally or imported elsewhere
+      // logger.error('getClientConfig: Missing Supabase environment variables on the server.');
+      return res.status(500).json({ error: 'Server configuration error.' });
+    }
+
+    res.json(config);
+  } catch (error) {
+    // Assuming logger is available globally or imported elsewhere
+    // logger.error('Error fetching client config:', error);
+    res.status(500).json({ error: 'Failed to fetch client configuration' });
+  }
+}
+
 
 // === Notification Preferences ===
 
