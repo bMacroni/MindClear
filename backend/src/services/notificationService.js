@@ -72,7 +72,7 @@ export async function sendNotification(userId, notification) {
     const { notification_type, title, message, details } = notification;
 
     // 1. Fetch user preferences and device tokens in parallel
-    const supabaseClient = getSupabaseClient();
+    const supabaseClient = await getSupabaseClient();
     const [prefsResult, tokensResult, userResult] = await Promise.all([
       supabaseClient.from('user_notification_preferences').select('*').eq('user_id', userId).eq('notification_type', notification_type),
       supabaseClient.from('user_device_tokens').select('device_token').eq('user_id', userId),
@@ -83,10 +83,18 @@ export async function sendNotification(userId, notification) {
       logger.error(`User not found for notification: ${userId}`, userResult.error);
       return { success: false, error: 'User not found' };
     }
+
+    if (prefsResult.error) {
+      logger.warn(`Failed to fetch notification preferences for user ${userId}:`, prefsResult.error);
+    }
+
+    if (tokensResult.error) {
+      logger.warn(`Failed to fetch device tokens for user ${userId}:`, tokensResult.error);
+    }
+
     const user = userResult.data;
     const preferences = prefsResult.data || [];
     const deviceTokens = tokensResult.data?.map(t => t.device_token) || [];
-
     // 2. Anti-spam check: a simple check to avoid sending the exact same notification in a short period.
     const { data: recentNotifications, error: recentCheckError } = await supabaseClient
       .from('user_notifications')
@@ -154,7 +162,7 @@ export async function sendSilentSyncNotification(userId) {
 
   try {
     // 1. Fetch device tokens for the user
-    const supabaseClient = getSupabaseClient();
+    const supabaseClient = await getSupabaseClient();
     const { data: tokensData, error: tokensError } = await supabaseClient
       .from('user_device_tokens')
       .select('device_token')
@@ -174,15 +182,13 @@ export async function sendSilentSyncNotification(userId) {
     // 2. Construct the silent, data-only message
     const message = {
       data: {
-        type: 'sync',
-        // 'content-available' is used by APNs to launch the app in the background.
-        // For Android, 'priority: high' serves a similar purpose for data-only messages.
-        'content-available': '1'
+        type: 'sync'
       },
       tokens: tokens,
       apns: {
         payload: {
           aps: {
+            // Launch the app in the background for silent sync
             'content-available': 1
           }
         },
@@ -192,10 +198,10 @@ export async function sendSilentSyncNotification(userId) {
         }
       },
       android: {
+        // High priority allows data-only messages to wake the app
         priority: 'high'
       }
     };
-
     // 3. Send the message
     const response = await firebaseAdmin.messaging().sendMulticast(message);
     logger.info(`Sent silent sync notification to ${response.successCount} of ${tokens.length} devices for user ${userId}.`);
@@ -307,7 +313,7 @@ async function handleFailedTokens(responses, tokens) {
   // Remove invalid tokens from database
   if (invalidTokens.length > 0) {
     try {
-      const supabaseClient = getSupabaseClient();
+      const supabaseClient = await getSupabaseClient();
       const { error } = await supabaseClient
         .from('user_device_tokens')
         .delete()
@@ -554,7 +560,7 @@ function createGenericNotificationEmail(userName, message, details) {
  */
 async function storeInAppNotification(userId, notification) {
     try {
-        const supabaseClient = getSupabaseClient();
+        const supabaseClient = await getSupabaseClient();
         const { data, error: insertError } = await supabaseClient
             .from('user_notifications')
             .insert([{
@@ -593,7 +599,7 @@ export async function getUserNotifications(userId, status = 'unread', limit = 20
             Number.isNaN(parseInt(limit)) || parseInt(limit) <= 0 ? 20 : parseInt(limit)
         ));
 
-        const supabaseClient = getSupabaseClient();
+        const supabaseClient = await getSupabaseClient();
         let query = supabaseClient
             .from('user_notifications')
             .select('*')
@@ -627,7 +633,7 @@ export async function getUserNotifications(userId, status = 'unread', limit = 20
  */
 export async function markNotificationAsRead(notificationId, userId) {
     try {
-        const supabaseClient = getSupabaseClient();
+        const supabaseClient = await getSupabaseClient();
         const { data, error } = await supabaseClient
             .from('user_notifications')
             .update({ read: true })
@@ -661,7 +667,7 @@ export async function markAllNotificationsAsReadAndArchive(userId) {
         await markAllNotificationsAsRead(userId);
 
         // Get all read notifications
-        const supabaseClient = getSupabaseClient();
+        const supabaseClient = await getSupabaseClient();
         const { data: readNotifications, error: fetchError } = await supabaseClient
             .from('user_notifications')
             .select('*')
@@ -716,7 +722,7 @@ export async function markAllNotificationsAsReadAndArchive(userId) {
 
 export async function getUnreadNotificationsCount(userId) {
     try {
-        const supabaseClient = getSupabaseClient();
+        const supabaseClient = await getSupabaseClient();
         const { count, error } = await supabaseClient
             .from('user_notifications')
             .select('*', { count: 'exact', head: true })
@@ -740,7 +746,7 @@ export async function getUnreadNotificationsCount(userId) {
  */
 export async function markAllNotificationsAsRead(userId) {
     try {
-        const supabaseClient = getSupabaseClient();
+        const supabaseClient = await getSupabaseClient();
         const { data, error } = await supabaseClient
             .from('user_notifications')
             .update({ read: true })

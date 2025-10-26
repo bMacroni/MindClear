@@ -21,11 +21,11 @@ try {
   }
 }
 
-import express from 'express'
-import http from 'http'
-import cors from 'cors'
-import { createClient } from '@supabase/supabase-js'
-import { requireAuth } from './middleware/auth.js'
+import express from 'express';
+import http from 'http';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
+import { requireAuth } from './middleware/auth.js';
 import { 
   helmetConfig, 
   globalRateLimit, 
@@ -36,19 +36,19 @@ import {
   requestSizeLimit, 
   securityHeaders, 
   securityLogging 
-} from './middleware/security.js'
-import { requestTracking, errorTracking } from './middleware/requestTracking.js'
-import goalsRouter from './routes/goals.js'
-import tasksRouter from './routes/tasks.js'
-import googleAuthRoutes from './routes/googleAuth.js'
-import googleMobileAuthRoutes from './routes/googleMobileAuth.js'
-import authRouter from './routes/auth.js'
-import calendarRouter from './routes/calendar.js'
-import aiRouter from './routes/ai.js'
-import conversationsRouter from './routes/conversations.js'
-import assistantChatRouter from './routes/assistantChat.js'
-import userRouter from './routes/user.js'
-import analyticsRouter from './routes/analytics.js'
+} from './middleware/security.js';
+import { requestTracking, errorTracking } from './middleware/requestTracking.js';
+import goalsRouter from './routes/goals.js';
+import tasksRouter from './routes/tasks.js';
+import googleAuthRoutes from './routes/googleAuth.js';
+import googleMobileAuthRoutes from './routes/googleMobileAuth.js';
+import authRouter from './routes/auth.js';
+import calendarRouter from './routes/calendar.js';
+import aiRouter from './routes/ai.js';
+import conversationsRouter from './routes/conversations.js';
+import assistantChatRouter from './routes/assistantChat.js';
+import userRouter from './routes/user.js';
+import analyticsRouter from './routes/analytics.js';
 import cron from 'node-cron';
 import { syncGoogleCalendarEvents } from './utils/syncService.js';
 import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
@@ -58,7 +58,7 @@ import webSocketManager from './utils/webSocketManager.js';
 import { toZonedTime } from 'date-fns-tz';
 
 
-const app = express()
+const app = express();
 
 // Secure proxy trust configuration - only trust Railway's ingress
 const configureTrustProxy = () => {
@@ -106,14 +106,14 @@ const configureTrustProxy = () => {
 // Configure secure proxy trust
 configureTrustProxy();
 const server = http.createServer(app);
-const PORT = process.env.PORT || 5000
+const PORT = process.env.PORT || 5000;
 
 // Security Middleware (applied in order)
-app.use(helmetConfig) // Security headers
-app.use(securityHeaders) // Additional custom security headers
-app.use(compressionConfig) // Response compression
-app.use(requestTracking) // Request ID tracking
-app.use(securityLogging) // Security request/response logging
+app.use(helmetConfig); // Security headers
+app.use(securityHeaders); // Additional custom security headers
+app.use(compressionConfig); // Response compression
+app.use(requestTracking); // Request ID tracking
+app.use(securityLogging); // Security request/response logging
 
 // CORS configuration with specific origins
 const corsOptions = {
@@ -149,29 +149,29 @@ const corsOptions = {
   exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']
 };
 
-app.use(cors(corsOptions))
+app.use(cors(corsOptions));
 
 // Request size limiting
-app.use(requestSizeLimit('10mb'))
+app.use(requestSizeLimit('10mb'));
 
 // Body parsing with size limits
-app.use(express.json({ limit: '10mb' }))
-app.use(express.urlencoded({ extended: true, limit: '10mb' }))
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting
-app.use(globalRateLimit) // Global rate limiting
-app.use(slowDownConfig) // Slow down suspicious activity
+app.use(globalRateLimit); // Global rate limiting
+app.use(slowDownConfig); // Slow down suspicious activity
 
 // Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_ANON_KEY
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-let supabase
+let supabase;
 if (supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey)
-  logger.info('Supabase client initialized')
+  supabase = createClient(supabaseUrl, supabaseKey);
+  logger.info('Supabase client initialized');
 } else {
-  logger.warn('Supabase credentials not found. Some features may not work.')
+  logger.warn('Supabase credentials not found. Some features may not work.');
 }
 
 // Environment check - only log non-sensitive info
@@ -212,8 +212,8 @@ app.get('/api', (req, res) => {
       goals: '/api/goals',
       tasks: '/api/tasks'
     }
-  })
-})
+  });
+});
 
 app.get('/api/protected', requireAuth, (req, res) => {
   res.json({ message: `Hello, ${req.user.email}! You have accessed a protected route.` });

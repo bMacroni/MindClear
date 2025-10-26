@@ -7,6 +7,7 @@ import Task from '../db/models/Task';
 import Goal from '../db/models/Goal';
 import { notificationService } from './notificationService';
 import { authService } from './auth';
+import { safeParseDate } from '../utils/dateUtils';
 
 const LAST_SYNCED_AT_KEY = 'last_synced_at';
 
@@ -36,7 +37,7 @@ class SyncService {
 
     for (const record of allDirtyRecords) {
       try {
-        let serverResponse;
+        let serverResponse: any;
         const recordData = {
           summary: record.title, // Map title to summary for the API
           description: record.description,
@@ -72,7 +73,12 @@ class SyncService {
             await record.update(r => {
               r.status = 'synced';
               if (serverResponse && serverResponse.updated_at) {
-                r.updatedAt = new Date(serverResponse.updated_at);
+                const parsedUpdatedAt = safeParseDate(serverResponse.updated_at);
+                if (parsedUpdatedAt) {
+                  r.updatedAt = parsedUpdatedAt;
+                } else {
+                  console.warn(`Push: Failed to parse updated_at for record ${record.id}:`, serverResponse.updated_at);
+                }
               }
             });
           }
@@ -84,16 +90,40 @@ class SyncService {
           console.warn(`Push: Conflict detected for record ${record.id}. Overwriting local with server version.`);
           const serverRecord = error.response.data?.server_record;
           if (serverRecord) {
+            // Safely parse dates from server record
+            const parsedStartTime = safeParseDate(serverRecord.start_time);
+            const parsedEndTime = safeParseDate(serverRecord.end_time);
+            const parsedUpdatedAt = safeParseDate(serverRecord.updated_at);
+            
+            // Check if any critical dates failed to parse
+            if (!parsedStartTime || !parsedEndTime || !parsedUpdatedAt) {
+              console.error(`Push: Failed to parse dates for record ${record.id} during conflict resolution:`, {
+                start_time: serverRecord.start_time,
+                end_time: serverRecord.end_time,
+                updated_at: serverRecord.updated_at,
+                parsedStartTime: parsedStartTime?.toISOString() || 'FAILED',
+                parsedEndTime: parsedEndTime?.toISOString() || 'FAILED',
+                parsedUpdatedAt: parsedUpdatedAt?.toISOString() || 'FAILED'
+              });
+              
+              // Add to pushErrors instead of corrupting the local record
+              pushErrors.push({ 
+                recordId: record.id, 
+                error: new Error(`Date parsing failed during conflict resolution for record ${record.id}`) 
+              });
+              continue;
+            }
+            
             await database.write(async () => {
               await record.update(r => {
                 r.title = serverRecord.title;
                 r.description = serverRecord.description;
-                r.startTime = new Date(serverRecord.start_time);
-                r.endTime = new Date(serverRecord.end_time);
+                r.startTime = parsedStartTime;
+                r.endTime = parsedEndTime;
                 r.location = serverRecord.location;
                 r.isAllDay = serverRecord.is_all_day;
                 r.status = 'synced';
-                r.updatedAt = new Date(serverRecord.updated_at);
+                r.updatedAt = parsedUpdatedAt;
               });
             });
             // Successfully handled conflict, so we don't add it to pushErrors
@@ -203,14 +233,26 @@ class SyncService {
 
           if (localEvent) {
             // If it exists, update it
+            // Safely parse dates from server data
+            const parsedStartTime = eventData.start?.dateTime ? safeParseDate(eventData.start.dateTime) : null;
+            const parsedEndTime = eventData.end?.dateTime ? safeParseDate(eventData.end.dateTime) : null;
+            
+            // Check if any critical dates failed to parse
+            if (eventData.start?.dateTime && !parsedStartTime) {
+              console.error(`Pull: Failed to parse start time for event ${eventData.id}:`, eventData.start.dateTime);
+            }
+            if (eventData.end?.dateTime && !parsedEndTime) {
+              console.error(`Pull: Failed to parse end time for event ${eventData.id}:`, eventData.end.dateTime);
+            }
+            
             await localEvent.update(record => {
               record.title = eventData.summary;
               record.description = eventData.description;
-              if (eventData.start?.dateTime) {
-                record.startTime = new Date(eventData.start.dateTime);
+              if (parsedStartTime) {
+                record.startTime = parsedStartTime;
               }
-              if (eventData.end?.dateTime) {
-                record.endTime = new Date(eventData.end.dateTime);
+              if (parsedEndTime) {
+                record.endTime = parsedEndTime;
               }
               record.location = eventData.location;
               record.isAllDay = eventData.is_all_day;
@@ -219,12 +261,28 @@ class SyncService {
           } else {
             // If it doesn't exist, create it
             if (eventData.start?.dateTime && eventData.end?.dateTime) {
+              // Safely parse dates from server data
+              const parsedStartTime = safeParseDate(eventData.start.dateTime);
+              const parsedEndTime = safeParseDate(eventData.end.dateTime);
+              
+              // Check if any critical dates failed to parse
+              if (!parsedStartTime || !parsedEndTime) {
+                console.error(`Pull: Failed to parse dates for new event ${eventData.id}:`, {
+                  start_time: eventData.start.dateTime,
+                  end_time: eventData.end.dateTime,
+                  parsedStartTime: parsedStartTime?.toISOString() || 'FAILED',
+                  parsedEndTime: parsedEndTime?.toISOString() || 'FAILED'
+                });
+                console.warn(`Pull: Skipping event creation for ID ${eventData.id} due to invalid date parsing.`);
+                continue;
+              }
+              
               await eventCollection.create(record => {
                 record._raw.id = eventData.id; // Correct way to set ID on creation
                 record.title = eventData.summary;
                 record.description = eventData.description;
-                record.startTime = new Date(eventData.start.dateTime);
-                record.endTime = new Date(eventData.end.dateTime);
+                record.startTime = parsedStartTime;
+                record.endTime = parsedEndTime;
                 record.location = eventData.location;
                 record.isAllDay = eventData.is_all_day;
                 record.userId = eventData.user_id; // Assuming user_id is in the response

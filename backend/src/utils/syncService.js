@@ -145,13 +145,11 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
 
       if (deletedError) {
         logger.error('Error fetching deleted records:', deletedError);
-        // We can choose to fail or continue without deleted records.
-        // For now, let's continue.
+        throw new Error('Failed to fetch deleted records for delta sync');
       } else {
         deleted = deletedData.map(r => r.record_id);
       }
     }
-
     return { changed, deleted };
     
   } catch (error) {

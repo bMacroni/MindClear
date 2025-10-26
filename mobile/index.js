@@ -24,14 +24,18 @@ messaging().setBackgroundMessageHandler(async remoteMessage => {
     console.log('Sync trigger received from silent push, starting sync...');
     try {
       isSyncing = true;
-      await syncService.sync();
+      await Promise.race([
+        syncService.sync(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Sync timeout')), 30000)
+        )
+      ]);
       console.log('Background sync complete.');
     } catch (error) {
       console.error('Background sync failed:', error);
     } finally {
       isSyncing = false;
-    }
-  }
+    }  }
 });
 
 AppRegistry.registerComponent(appName, () => App);
