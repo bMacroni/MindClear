@@ -14,9 +14,12 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
 import { Button } from '../common/Button';
-import { CalendarEvent, Task } from '../../types/calendar';
 import { hapticFeedback } from '../../utils/hapticFeedback';
-import { enhancedAPI } from '../../services/enhancedApi';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import { authService } from '../../services/auth';
+import CalendarEvent from '../../db/models/CalendarEvent';
+import Task from '../../db/models/Task';
+import { v4 as uuidv4 } from 'uuid';
 
 interface EventFormData {
   title: string;
@@ -32,17 +35,15 @@ interface EventFormModalProps {
   visible: boolean;
   event?: CalendarEvent | Task | null; // For editing existing events
   onClose: () => void;
-  onSubmit: (formData: EventFormData) => Promise<void>;
-  loading?: boolean;
 }
 
 export const EventFormModal: React.FC<EventFormModalProps> = ({
   visible,
   event,
   onClose,
-  onSubmit,
-  loading = false,
 }) => {
+  const database = useDatabase();
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<EventFormData>({
     title: '',
     description: '',
@@ -67,31 +68,31 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       let startTime: Date;
       let endTime: Date;
       
-      if ('start_time' in event) {
-        // It's a CalendarEvent with database format
-        startTime = new Date(event.start_time || Date.now());
-        endTime = new Date(event.end_time || Date.now());
-      } else if ('start' in event && typeof event.start === 'object' && event.start?.dateTime) {
-        // It's a CalendarEvent with Google Calendar API format
-        startTime = new Date(event.start.dateTime);
-        endTime = new Date(event.end?.dateTime || event.start.dateTime);
-      } else {
-        // It's a Task
+      if (event instanceof CalendarEvent) {
+        // It's a WatermelonDB CalendarEvent model
+        startTime = event.startTime;
+        endTime = event.endTime;
+      } else if (event instanceof Task) {
+        // It's a WatermelonDB Task model
         const task = event as Task;
-        startTime = new Date(task.due_date || Date.now());
+        startTime = task.dueDate || new Date();
         // Default endTime from task estimated duration if available, else same as start
-        endTime = task.estimated_duration_minutes && task.estimated_duration_minutes > 0
-          ? new Date((new Date(task.due_date || Date.now())).getTime() + task.estimated_duration_minutes * 60000)
-          : new Date(task.due_date || Date.now());
+        endTime = task.estimatedDurationMinutes && task.estimatedDurationMinutes > 0
+          ? new Date((task.dueDate || new Date()).getTime() + task.estimatedDurationMinutes * 60000)
+          : new Date(task.dueDate || new Date());
+      } else {
+        // Fallback for safety, though should not happen with new data flow
+        startTime = new Date();
+        endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
       }
       
-      const computedTitle = 'summary' in event ? (event.title || (event as any).summary || '') : (event.title || '');
+      const computedTitle = event.title || '';
       setFormData({
         title: computedTitle,
         description: event.description || '',
         startTime,
         endTime,
-        location: 'location' in event ? event.location || '' : '',
+        location: 'location' in event && event.location ? event.location : '',
         isRecurring: false, // TODO: Add recurring support
         recurringPattern: 'weekly',
       });
@@ -99,18 +100,14 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       // Populate linked task estimated duration for task-linked events
       (async () => {
         try {
-          // CalendarEvent (DB) with task_id
-          const maybeTaskId = (event as any)?.task_id || (event as any)?.taskId;
-          if (maybeTaskId) {
-            const task = await enhancedAPI.getTaskById(maybeTaskId);
-            const minutes = Number(task?.estimated_duration_minutes);
-            setLinkedTaskDurationMinutes(Number.isFinite(minutes) && minutes > 0 ? minutes : null);
-            return;
-          }
-          // If editing a Task directly
-          if (!('start_time' in event) && !('start' in event)) {
-            const task = event as Task;
-            const minutes = Number(task?.estimated_duration_minutes);
+          if (event instanceof CalendarEvent) {
+            const task = await event.task.fetch();
+            if (task) {
+              const minutes = Number(task.estimatedDurationMinutes);
+              setLinkedTaskDurationMinutes(Number.isFinite(minutes) && minutes > 0 ? minutes : null);
+            }
+          } else if (event instanceof Task) {
+            const minutes = Number(event?.estimatedDurationMinutes);
             setLinkedTaskDurationMinutes(Number.isFinite(minutes) && minutes > 0 ? minutes : null);
           }
         } catch (_e) {
@@ -157,13 +154,72 @@ export const EventFormModal: React.FC<EventFormModalProps> = ({
       return;
     }
 
+    setLoading(true);
     try {
       hapticFeedback.medium();
-      await onSubmit(formData);
+      const user = authService.getCurrentUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      if (isEditing && event) {
+        // Update existing event based on its type
+        if (event instanceof CalendarEvent) {
+          const eventRecord = await database.get<CalendarEvent>('calendar_events').find(event.id);
+          await database.write(async () => {
+            await eventRecord.update(e => {
+              e.title = formData.title;
+              e.description = formData.description;
+              e.startTime = formData.startTime;
+              e.endTime = formData.endTime;
+              e.location = formData.location;
+              e.status = 'pending_update';
+            });
+          });
+        } else if (event instanceof Task) {
+          const taskRecord = await database.get<Task>('tasks').find(event.id);
+          await database.write(async () => {
+            await taskRecord.update(t => {
+              t.title = formData.title;
+              t.description = formData.description;
+              t.dueDate = formData.startTime;
+              // Update duration based on form times
+              const duration = (formData.endTime.getTime() - formData.startTime.getTime()) / 60000;
+              t.estimatedDurationMinutes = duration > 0 ? duration : 0;
+              t.status = 'pending_update';
+            });
+          });
+        } else {
+          // Fallback or error for unknown event types
+          console.warn('Attempted to edit an unknown event type:', event);
+          Alert.alert('Error', 'Cannot edit this item type.');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Create new event
+        await database.write(async () => {
+          const newId = uuidv4();
+          await database.get<CalendarEvent>('calendar_events').create(e => {
+            e._raw.id = newId; // Set the ID explicitly
+            e.userId = user.id;
+            e.title = formData.title;
+            e.description = formData.description;
+            e.startTime = formData.startTime;
+            e.endTime = formData.endTime;
+            e.location = formData.location;
+            e.isAllDay = false; // default
+            e.status = 'pending_create';
+          });
+        });
+      }
       onClose();
     } catch (_error) {
       hapticFeedback.error();
-      Alert.alert('Error', 'Failed to save event');
+      console.error('Failed to save event locally:', _error); // More detailed logging
+      Alert.alert('Error', 'Failed to save event locally.');
+    } finally {
+      setLoading(false);
     }
   };
 

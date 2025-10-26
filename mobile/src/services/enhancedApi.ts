@@ -1,7 +1,7 @@
 import { errorHandlingService, ErrorCategory, ErrorContext, UserFriendlyError } from './errorHandling';
 import { authService } from './auth';
 import { configService } from './config';
-import { secureConfigService } from './secureConfig';
+import secureConfigService from './secureConfig';
 import logger from '../utils/logger';
 
 // Helper function to get secure API base URL
@@ -85,9 +85,13 @@ class EnhancedAPI {
   }
 
   // Calendar API methods
-  async getEvents(maxResults: number = 100): Promise<any> {
+  async getEvents(maxResults: number = 100, since?: string): Promise<any> {
+    let url = `${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`;
+    if (since) {
+      url += `&since=${encodeURIComponent(since)}`;
+    }
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`,
+      url,
       { method: 'GET' },
       ErrorCategory.CALENDAR,
       'getEvents'
@@ -254,6 +258,16 @@ class EnhancedAPI {
       },
       ErrorCategory.SYNC,
       'updateAppPreferences'
+    );
+  }
+
+  // User config
+  async getUserConfig(): Promise<{ supabaseUrl: string; supabaseAnonKey: string; }> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/user/config`,
+      { method: 'GET' },
+      ErrorCategory.SYNC,
+      'getUserConfig'
     );
   }
 

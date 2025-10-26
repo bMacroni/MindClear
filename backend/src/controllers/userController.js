@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import logger from '../utils/logger.js';
 import { 
   retryWithBackoff, 
   enqueueFailedOperation, 
@@ -246,6 +247,27 @@ export async function updateAppPreferences(req, res) {
   }
 }
 
+export async function getClientConfig(req, res) {
+  try {
+    const config = {
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+    };
+
+    if (!config.supabaseUrl || !config.supabaseAnonKey) {
+      // Assuming logger is available globally or imported elsewhere
+      logger.error('getClientConfig: Missing Supabase environment variables on the server.');
+      return res.status(500).json({ error: 'Server configuration error.' });
+    }
+
+    res.json(config);
+  } catch (error) {
+    // Assuming logger is available globally or imported elsewhere
+    logger.error('Error fetching client config:', error);
+    res.status(500).json({ error: 'Failed to fetch client configuration' });
+  }
+}
+
 
 // === Notification Preferences ===
 
@@ -273,8 +295,6 @@ export async function registerDeviceToken(req, res) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    const currentTimestamp = new Date().toISOString();
-    
     const { error } = await supabase
       .from('user_device_tokens')
       .upsert({
@@ -429,8 +449,8 @@ export async function updateSingleNotificationPreference(req, res) {
       return res.status(500).json({ error: 'Failed to update notification preference' });
     }
 
-    res.json(data);  } catch (e) {
-    console.error('Exception in updateSingleNotificationPreference:', e);
+    res.json(data);
+  } catch (e) {    console.error('Exception in updateSingleNotificationPreference:', e);
     res.status(500).json({ error: 'An unexpected error occurred' });
   }
 }

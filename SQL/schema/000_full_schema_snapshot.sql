@@ -1,230 +1,312 @@
--- MindGarden Database Schema
--- Run this in your Supabase SQL Editor
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
--- Create custom types
-CREATE TYPE priority_level AS ENUM ('low', 'medium', 'high');
-CREATE TYPE task_status AS ENUM ('not_started', 'in_progress', 'completed');
-CREATE TYPE goal_category AS ENUM ('career', 'health', 'personal', 'education', 'finance', 'relationships', 'other');
-
--- Users table (extends Supabase auth.users)
-CREATE TABLE public.users (
-    id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    full_name TEXT,
-    avatar_url TEXT,
-    timezone TEXT DEFAULT 'America/Chicago',
-    email_digest_enabled BOOLEAN DEFAULT true,
-    email_digest_time TIME DEFAULT '07:00:00',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE public.analytics_events (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  user_id uuid NOT NULL,
+  event_name text NOT NULL,
+  payload jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT analytics_events_pkey PRIMARY KEY (id),
+  CONSTRAINT analytics_events_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-
--- Goals table
-CREATE TABLE public.goals (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    target_completion_date DATE,
-    progress_percentage INTEGER DEFAULT 0 CHECK (progress_percentage >= 0 AND progress_percentage <= 100),
-    category goal_category DEFAULT 'other',
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE public.archived_user_notifications (
+  id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  notification_type text NOT NULL,
+  title text,
+  message text,
+  details jsonb,
+  created_at timestamp with time zone,
+  archived_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT archived_user_notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT archived_user_notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
--- Tasks table
-CREATE TABLE public.tasks (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-    goal_id UUID REFERENCES public.goals(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    priority priority_level DEFAULT 'medium',
-    estimated_duration_minutes INTEGER,
-    status task_status DEFAULT 'not_started',
-    due_date TIMESTAMP WITH TIME ZONE,
-    category TEXT,
-    tags TEXT[],
-    calendar_event_id TEXT, -- Google Calendar event ID
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+CREATE TABLE public.auth_deletion_queue (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  operation_type character varying NOT NULL DEFAULT 'auth_deletion'::character varying CHECK (operation_type::text = ANY (ARRAY['auth_deletion'::character varying::text, 'compensating_rollback'::character varying::text])),
+  status character varying NOT NULL DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'cancelled'::character varying::text])),
+  context jsonb NOT NULL DEFAULT '{}'::jsonb,
+  last_error text,
+  retry_count integer NOT NULL DEFAULT 0,
+  max_retries integer NOT NULL DEFAULT 3,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  last_retry_at timestamp with time zone,
+  completed_at timestamp with time zone,
+  processing_notes text,
+  resolved_by character varying,
+  CONSTRAINT auth_deletion_queue_pkey PRIMARY KEY (id)
 );
-
--- Calendar events table (for tracking Google Calendar integration)
 CREATE TABLE public.calendar_events (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-    task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
-    google_calendar_id TEXT, -- Made nullable to allow locally created events
-    title TEXT NOT NULL,
-    description TEXT,
-    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    end_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    location TEXT,
-    is_recurring BOOLEAN DEFAULT false,
-    recurrence_rule TEXT, -- RRULE format
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(google_calendar_id, user_id)
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  task_id uuid,
+  google_calendar_id text,
+  title text NOT NULL,
+  description text,
+  start_time timestamp with time zone NOT NULL,
+  end_time timestamp with time zone NOT NULL,
+  location text,
+  is_recurring boolean DEFAULT false,
+  recurrence_rule text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  event_type USER-DEFINED NOT NULL DEFAULT 'event'::calendar_event_type,
+  goal_id uuid,
+  is_all_day boolean NOT NULL DEFAULT false,
+  CONSTRAINT calendar_events_pkey PRIMARY KEY (id),
+  CONSTRAINT calendar_events_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id),
+  CONSTRAINT calendar_events_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.tasks(id),
+  CONSTRAINT calendar_events_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
--- AI chat history table
 CREATE TABLE public.chat_history (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-    message TEXT NOT NULL,
-    response TEXT NOT NULL,
-    intent TEXT, -- e.g., 'create_task', 'update_goal', 'query_schedule'
-    entities JSONB, -- extracted entities from the message
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  message text NOT NULL,
+  response text NOT NULL,
+  intent text,
+  entities jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT chat_history_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
--- Email digest logs table
+CREATE TABLE public.conversation_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  thread_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  role text NOT NULL CHECK (role = ANY (ARRAY['user'::text, 'assistant'::text])),
+  content text NOT NULL,
+  metadata jsonb,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT conversation_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT conversation_messages_thread_id_fkey FOREIGN KEY (thread_id) REFERENCES public.conversation_threads(id),
+  CONSTRAINT conversation_messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.conversation_threads (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  summary text,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT conversation_threads_pkey PRIMARY KEY (id),
+  CONSTRAINT conversation_threads_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
 CREATE TABLE public.email_digest_logs (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
-    sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    digest_date DATE NOT NULL,
-    tasks_count INTEGER DEFAULT 0,
-    events_count INTEGER DEFAULT 0,
-    goals_updated INTEGER DEFAULT 0,
-    email_sent BOOLEAN DEFAULT true,
-    error_message TEXT
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  sent_at timestamp with time zone DEFAULT now(),
+  digest_date date NOT NULL,
+  tasks_count integer DEFAULT 0,
+  events_count integer DEFAULT 0,
+  goals_updated integer DEFAULT 0,
+  email_sent boolean DEFAULT true,
+  error_message text,
+  CONSTRAINT email_digest_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT email_digest_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
-
--- Milestones table: Each milestone belongs to a goal
-CREATE TABLE IF NOT EXISTS milestones (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    goal_id UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
-    title VARCHAR(255) NOT NULL,
-    "order" INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB
+CREATE TABLE public.goals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  title text NOT NULL,
+  description text,
+  target_completion_date date,
+  progress_percentage integer DEFAULT 0 CHECK (progress_percentage >= 0 AND progress_percentage <= 100),
+  category USER-DEFINED DEFAULT 'other'::goal_category,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT goals_pkey PRIMARY KEY (id),
+  CONSTRAINT goals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
--- Steps table: Each step belongs to a milestone
-CREATE TABLE IF NOT EXISTS steps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    milestone_id UUID NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
-    text VARCHAR(255) NOT NULL,
-    "order" INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB
+CREATE TABLE public.google_tokens (
+  user_id uuid NOT NULL,
+  access_token text,
+  refresh_token text,
+  token_type text,
+  scope text,
+  expiry_date bigint,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT google_tokens_pkey PRIMARY KEY (user_id),
+  CONSTRAINT google_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
--- Create indexes for better performance
-CREATE INDEX idx_goals_user_id ON public.goals(user_id);
-CREATE INDEX idx_goals_category ON public.goals(category);
-CREATE INDEX idx_tasks_user_id ON public.tasks(user_id);
-CREATE INDEX idx_tasks_goal_id ON public.tasks(goal_id);
-CREATE INDEX idx_tasks_status ON public.tasks(status);
-CREATE INDEX idx_tasks_due_date ON public.tasks(due_date);
-CREATE INDEX idx_tasks_priority ON public.tasks(priority);
-CREATE INDEX idx_calendar_events_user_id ON public.calendar_events(user_id);
-CREATE INDEX idx_calendar_events_task_id ON public.calendar_events(task_id);
-CREATE INDEX idx_chat_history_user_id ON public.chat_history(user_id);
-CREATE INDEX idx_chat_history_created_at ON public.chat_history(created_at);
-
--- Create updated_at trigger function
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Add updated_at triggers
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_goals_updated_at BEFORE UPDATE ON public.goals FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON public.tasks FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_calendar_events_updated_at BEFORE UPDATE ON public.calendar_events FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Enable Row Level Security
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.chat_history ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.email_digest_logs ENABLE ROW LEVEL SECURITY;
-
--- Create RLS policies
--- Users can only access their own data
-CREATE POLICY "Users can view own profile" ON public.users FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Users can update own profile" ON public.users FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Users can insert own profile" ON public.users FOR INSERT WITH CHECK (auth.uid() = id);
-
--- Goals policies
-CREATE POLICY "Users can view own goals" ON public.goals FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own goals" ON public.goals FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own goals" ON public.goals FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete own goals" ON public.goals FOR DELETE USING (auth.uid() = user_id);
-
--- Tasks policies
-CREATE POLICY "Users can view own tasks" ON public.tasks FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own tasks" ON public.tasks FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own tasks" ON public.tasks FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete own tasks" ON public.tasks FOR DELETE USING (auth.uid() = user_id);
-
--- Calendar events policies
-CREATE POLICY "Users can view own calendar events" ON public.calendar_events FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own calendar events" ON public.calendar_events FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own calendar events" ON public.calendar_events FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete own calendar events" ON public.calendar_events FOR DELETE USING (auth.uid() = user_id);
-
--- Chat history policies
-CREATE POLICY "Users can view own chat history" ON public.chat_history FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own chat history" ON public.chat_history FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- Email digest logs policies
-CREATE POLICY "Users can view own email digest logs" ON public.email_digest_logs FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own email digest logs" ON public.email_digest_logs FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- Create function to handle new user registration
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.users (id, email, full_name, avatar_url)
-    VALUES (
-        NEW.id,
-        NEW.email,
-        NEW.raw_user_meta_data->>'full_name',
-        NEW.raw_user_meta_data->>'avatar_url'
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Create trigger for new user registration
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- Create views for common queries
-CREATE VIEW user_dashboard AS
-SELECT 
-    u.id as user_id,
-    u.email,
-    u.full_name,
-    COUNT(g.id) as total_goals,
-    COUNT(CASE WHEN g.is_active = true THEN 1 END) as active_goals,
-    COUNT(t.id) as total_tasks,
-    COUNT(CASE WHEN t.status = 'completed' THEN 1 END) as completed_tasks,
-    COUNT(CASE WHEN t.status = 'in_progress' THEN 1 END) as in_progress_tasks,
-    COUNT(CASE WHEN t.due_date < NOW() AND t.status != 'completed' THEN 1 END) as overdue_tasks
-FROM public.users u
-LEFT JOIN public.goals g ON u.id = g.user_id
-LEFT JOIN public.tasks t ON u.id = t.user_id
-GROUP BY u.id, u.email, u.full_name;
-
--- Grant necessary permissions
-GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
-GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
-
-
+CREATE TABLE public.milestones (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  goal_id uuid NOT NULL,
+  title character varying NOT NULL,
+  order integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  metadata jsonb,
+  completed boolean NOT NULL DEFAULT false,
+  description text,
+  CONSTRAINT milestones_pkey PRIMARY KEY (id),
+  CONSTRAINT milestones_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id)
+);
+CREATE TABLE public.steps (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  milestone_id uuid NOT NULL,
+  text character varying NOT NULL,
+  order integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  metadata jsonb,
+  completed boolean DEFAULT false,
+  CONSTRAINT steps_pkey PRIMARY KEY (id),
+  CONSTRAINT steps_milestone_id_fkey FOREIGN KEY (milestone_id) REFERENCES public.milestones(id)
+);
+CREATE TABLE public.task_scheduling_history (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  task_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  scheduled_date timestamp with time zone NOT NULL,
+  weather_conditions jsonb,
+  travel_time_minutes integer,
+  calendar_event_id text,
+  scheduling_reason text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT task_scheduling_history_pkey PRIMARY KEY (id),
+  CONSTRAINT task_scheduling_history_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.tasks(id),
+  CONSTRAINT task_scheduling_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.tasks (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  goal_id uuid,
+  title text NOT NULL,
+  description text,
+  priority USER-DEFINED DEFAULT 'medium'::priority_level,
+  estimated_duration_minutes integer,
+  status USER-DEFINED DEFAULT 'not_started'::task_status,
+  due_date timestamp with time zone,
+  category text,
+  tags ARRAY,
+  calendar_event_id text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  is_today_focus boolean DEFAULT false,
+  auto_schedule_enabled boolean DEFAULT false,
+  recurrence_pattern jsonb,
+  scheduling_preferences jsonb,
+  last_scheduled_date timestamp with time zone,
+  weather_dependent boolean DEFAULT false,
+  location text,
+  travel_time_minutes integer,
+  preferred_time_windows jsonb,
+  max_daily_tasks integer DEFAULT 5,
+  buffer_time_minutes integer DEFAULT 15,
+  task_type USER-DEFINED DEFAULT 'other'::task_type,
+  preferred_time_of_day character varying,
+  deadline_type character varying,
+  reminder_sent_at timestamp with time zone,
+  CONSTRAINT tasks_pkey PRIMARY KEY (id),
+  CONSTRAINT tasks_goal_id_fkey FOREIGN KEY (goal_id) REFERENCES public.goals(id),
+  CONSTRAINT tasks_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_app_preferences (
+  user_id uuid NOT NULL,
+  momentum_mode_enabled boolean NOT NULL DEFAULT false,
+  momentum_travel_preference text NOT NULL DEFAULT 'allow_travel'::text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  calendar_first_import_completed boolean NOT NULL DEFAULT false,
+  calendar_import_prompt_dismissed_at timestamp with time zone,
+  CONSTRAINT user_app_preferences_pkey PRIMARY KEY (user_id),
+  CONSTRAINT user_app_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_deletion_audit (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  deleted_user_id uuid NOT NULL,
+  deleted_user_email text,
+  deleted_by uuid NOT NULL,
+  deleted_at timestamp with time zone NOT NULL DEFAULT now(),
+  reason text,
+  ip_address inet,
+  deletion_requested_at timestamp with time zone,
+  deleted_counts jsonb DEFAULT '{}'::jsonb,
+  success boolean DEFAULT false,
+  error_message text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_deletion_audit_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.user_device_tokens (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  device_token text NOT NULL,
+  device_type text,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_device_tokens_pkey PRIMARY KEY (id),
+  CONSTRAINT user_device_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_notification_preferences (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  notification_type text NOT NULL,
+  channel text NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  snooze_duration_minutes integer,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_notification_preferences_pkey PRIMARY KEY (id),
+  CONSTRAINT user_notification_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  notification_type text NOT NULL,
+  title text,
+  message text,
+  details jsonb,
+  read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT user_notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_scheduling_preferences (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE,
+  preferred_start_time time without time zone DEFAULT '09:00:00'::time without time zone,
+  preferred_end_time time without time zone DEFAULT '17:00:00'::time without time zone,
+  work_days ARRAY DEFAULT '{1,2,3,4,5}'::integer[],
+  max_tasks_per_day integer DEFAULT 5,
+  buffer_time_minutes integer DEFAULT 15,
+  weather_check_enabled boolean DEFAULT true,
+  travel_time_enabled boolean DEFAULT true,
+  auto_scheduling_enabled boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_scheduling_preferences_pkey PRIMARY KEY (id),
+  CONSTRAINT user_scheduling_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL,
+  email text NOT NULL UNIQUE,
+  full_name text,
+  avatar_url text,
+  timezone text DEFAULT 'America/Chicago'::text,
+  email_digest_enabled boolean DEFAULT true,
+  email_digest_time time without time zone DEFAULT '07:00:00'::time without time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  join_date timestamp with time zone DEFAULT now(),
+  last_login timestamp with time zone,
+  account_status USER-DEFINED DEFAULT 'active'::account_status_enum,
+  theme_preference USER-DEFINED DEFAULT 'light'::theme_preference_enum,
+  notification_preferences jsonb DEFAULT '{}'::jsonb,
+  geographic_location text,
+  subscription_tier USER-DEFINED DEFAULT 'free'::subscription_tier_enum,
+  is_admin boolean DEFAULT false,
+  deletion_requested_at timestamp with time zone,
+  deletion_status character varying DEFAULT 'active'::character varying,
+  deletion_failed_at timestamp with time zone,
+  deletion_failure_context jsonb,
+  focus_notification_time time without time zone DEFAULT '07:00:00'::time without time zone,
+  last_focus_notification_sent timestamp with time zone,
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);

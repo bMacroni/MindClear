@@ -1,4 +1,5 @@
 import express from 'express';
+import logger from '../utils/logger.js';
 import { requireAuth } from '../middleware/enhancedAuth.js';
 import {
   getUserSettings,
@@ -11,7 +12,8 @@ import {
   getNotificationPreferences,
   updateNotificationPreferences,
   updateSingleNotificationPreference,
-  deleteUserAccount
+  deleteUserAccount,
+  getClientConfig,
 } from '../controllers/userController.js';
 
 const router = express.Router();
@@ -31,6 +33,10 @@ router.put('/me', requireAuth, updateUserProfile);
 // App preferences (Momentum Mode, etc.)
 router.get('/app-preferences', requireAuth, getAppPreferences);
 router.put('/app-preferences', requireAuth, updateAppPreferences);
+
+// This endpoint is now public and does not require authentication,
+// as it only provides publicly available client-side keys.
+router.get('/config', getClientConfig);
 
 // Notification settings
 router.post('/device-token', requireAuth, registerDeviceToken);

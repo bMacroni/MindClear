@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { secureConfigService } from './secureConfig';
+import secureConfigService from './secureConfig';
 
 let cached: ReturnType<typeof createClient> | null = null;
 

@@ -75,9 +75,10 @@ export async function syncGoogleCalendarEvents(userId) {
  * @param {Date} timeMin - start time filter (optional)
  * @param {Date} timeMax - end time filter (optional)
  * @param {string} taskId - filter by task ID (optional)
+ * @param {string} since - filter by updated_at timestamp (optional, for delta sync)
  * @returns {Promise<Array>} events from database
  */
-export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin = null, timeMax = null, taskId = null) {
+export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin = null, timeMax = null, taskId = null, since = null) {
   try {
 
 
@@ -89,10 +90,10 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
       .limit(maxResults);
 
     // Add time filters if provided
-    if (timeMin) {
+    if (timeMin && !since) { // Do not apply timeMin if `since` is used
       query = query.gte('start_time', timeMin.toISOString());
     }
-    if (timeMax) {
+    if (timeMax && !since) { // Do not apply timeMax if `since` is used
       query = query.lte('start_time', timeMax.toISOString());
     }
 
@@ -101,6 +102,14 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
       query = query.eq('task_id', taskId);
     }
 
+    // Add `since` filter for delta sync
+    if (since) {
+      const sinceDate = new Date(since);
+      if (isNaN(sinceDate.getTime())) {
+        throw new Error('Invalid "since" timestamp format. Please use a valid ISO 8601 date string.');
+      }
+      query = query.gt('updated_at', since);
+    }
     const { data, error } = await query;
 
     if (error) {
@@ -109,7 +118,7 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
     }
 
     // Transform database format to match frontend shape and include new fields
-    return data.map(event => ({
+    const changed = data.map(event => ({
       id: event.id,
       summary: event.title,
       description: event.description,
@@ -124,6 +133,25 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
       goal_id: event.goal_id,
       is_all_day: event.is_all_day
     }));
+
+    let deleted = [];
+    if (since) {
+      const { data: deletedData, error: deletedError } = await supabase
+        .from('deleted_records')
+        .select('record_id')
+        .eq('user_id', userId)
+        .eq('table_name', 'calendar_events')
+        .gt('deleted_at', since);
+
+      if (deletedError) {
+        logger.error('Error fetching deleted records:', deletedError);
+        throw new Error('Failed to fetch deleted records for delta sync');
+      } else {
+        deleted = deletedData.map(r => r.record_id);
+      }
+    }
+    return { changed, deleted };
+    
   } catch (error) {
     logger.error('Error getting calendar events from database:', error);
     throw error;
