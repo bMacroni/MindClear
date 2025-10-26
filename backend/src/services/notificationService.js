@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
-import { initializeFirebaseAdmin } from '../utils/firebaseAdmin.js';
+import { initializeFirebaseAdmin, getFirebaseAuth } from '../utils/firebaseAdmin.js';
+import { getSupabaseClient } from '../utils/supabase.js';
 import webSocketManager from '../utils/webSocketManager.js';
 import logger from '../utils/logger.js';
 import { generateFocusNotificationMessage, generateNoFocusTaskMessage, getFocusNotificationTitle } from '../utils/motivationalMessages.js';
@@ -44,19 +45,6 @@ function escapeHtml(text) {
     .replace(/\//g, '&#x2F;');
 }
 
-// Lazy initialization of Supabase client
-let supabase = null;
-function getSupabaseClient() {
-  if (!supabase) {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error('Supabase credentials not configured. Please check your environment variables.');
-    }
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  }
-  return supabase;
-}
-
-// Lazy initialization of Firebase Admin
 let firebaseAdmin = null;
 function getFirebaseAdmin() {
   if (!firebaseAdmin) {
@@ -150,6 +138,75 @@ export async function sendNotification(userId, notification) {
   } catch (error) {
     logger.error(`Failed to send notification to user ${userId}:`, error);
     return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Sends a silent, data-only push notification to trigger a background sync.
+ * @param {string} userId - The ID of the user to notify.
+ */
+export async function sendSilentSyncNotification(userId) {
+  const firebaseAdmin = getFirebaseAdmin();
+  if (!firebaseAdmin) {
+    logger.error('Firebase Admin not initialized, cannot send silent sync notification.');
+    return;
+  }
+
+  try {
+    // 1. Fetch device tokens for the user
+    const supabaseClient = getSupabaseClient();
+    const { data: tokensData, error: tokensError } = await supabaseClient
+      .from('user_device_tokens')
+      .select('device_token')
+      .eq('user_id', userId);
+
+    if (tokensError) {
+      logger.error(`Failed to fetch device tokens for user ${userId}`, tokensError);
+      return;
+    }
+
+    const tokens = tokensData.map(t => t.device_token);
+    if (tokens.length === 0) {
+      logger.info(`No device tokens found for user ${userId}. Skipping silent sync notification.`);
+      return;
+    }
+
+    // 2. Construct the silent, data-only message
+    const message = {
+      data: {
+        type: 'sync',
+        // 'content-available' is used by APNs to launch the app in the background.
+        // For Android, 'priority: high' serves a similar purpose for data-only messages.
+        'content-available': '1'
+      },
+      tokens: tokens,
+      apns: {
+        payload: {
+          aps: {
+            'content-available': 1
+          }
+        },
+        headers: {
+          'apns-push-type': 'background',
+          'apns-priority': '5'
+        }
+      },
+      android: {
+        priority: 'high'
+      }
+    };
+
+    // 3. Send the message
+    const response = await firebaseAdmin.messaging().sendMulticast(message);
+    logger.info(`Sent silent sync notification to ${response.successCount} of ${tokens.length} devices for user ${userId}.`);
+
+    if (response.failureCount > 0) {
+      // Clean up invalid tokens
+      await handleFailedTokens(response.responses, tokens);
+    }
+
+  } catch (error) {
+    logger.error(`Error sending silent sync notification for user ${userId}:`, error);
   }
 }
 

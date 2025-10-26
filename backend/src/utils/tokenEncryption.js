@@ -6,17 +6,17 @@ import logger from './logger.js';
  * Encrypts sensitive tokens before storing in database
  */
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const ALGORITHM = 'aes-256-gcm';
 
 /**
  * Generate a secure encryption key from environment variable
  */
 function getEncryptionKey() {
-  if (!ENCRYPTION_KEY) {
+  const rawKey = process.env.ENCRYPTION_KEY;
+  if (!rawKey) {
     throw new Error('ENCRYPTION_KEY environment variable is required but not set');
   }
-  return crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
+  return crypto.scryptSync(rawKey, 'salt', 32);
 }
 
 /**
@@ -32,7 +32,7 @@ export function encryptToken(token) {
 
     const key = getEncryptionKey();
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipherGCM(ALGORITHM, key, iv);
+    const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
     
     let encrypted = cipher.update(token, 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -78,7 +78,7 @@ export function decryptToken(encryptedToken) {
     const authTag = Buffer.from(parts[1], 'hex');
     const encrypted = parts[2];
     
-    const decipher = crypto.createDecipherGCM(ALGORITHM, key, iv);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
     
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');

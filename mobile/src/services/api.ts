@@ -699,10 +699,14 @@ export const tasksAPI = {
 // Calendar API
 export const calendarAPI = {
   // Get all events from backend database
-  getEvents: async (maxResults: number = 100): Promise<any> => {
+  getEvents: async (maxResults: number = 100, since?: string): Promise<any> => {
     try {
       const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`, {
+      let url = `${getSecureApiBaseUrl()}/calendar/events?maxResults=${maxResults}`;
+      if (since) {
+        url += `&since=${encodeURIComponent(since)}`;
+      }
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

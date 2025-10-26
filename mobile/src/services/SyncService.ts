@@ -44,6 +44,7 @@ class SyncService {
           endTime: record.endTime.toISOString(),
           location: record.location,
           isAllDay: record.isAllDay,
+          client_updated_at: record.updatedAt?.toISOString(), // For conflict resolution
           // TODO: map other fields like taskId, goalId
         };
 
@@ -70,15 +71,40 @@ class SyncService {
           } else {
             await record.update(r => {
               r.status = 'synced';
-              // Optionally update `updated_at` from serverResponse if available
+              if (serverResponse && serverResponse.updated_at) {
+                r.updatedAt = new Date(serverResponse.updated_at);
+              }
             });
           }
         });
 
       } catch (error: any) {
+        // --- CONFLICT HANDLING ---
+        if (error?.response?.status === 409) {
+          console.warn(`Push: Conflict detected for record ${record.id}. Overwriting local with server version.`);
+          const serverRecord = error.response.data?.server_record;
+          if (serverRecord) {
+            await database.write(async () => {
+              await record.update(r => {
+                r.title = serverRecord.title;
+                r.description = serverRecord.description;
+                r.startTime = new Date(serverRecord.start_time);
+                r.endTime = new Date(serverRecord.end_time);
+                r.location = serverRecord.location;
+                r.isAllDay = serverRecord.is_all_day;
+                r.status = 'synced';
+                r.updatedAt = new Date(serverRecord.updated_at);
+              });
+            });
+            // Successfully handled conflict, so we don't add it to pushErrors
+            continue;
+          }
+        }
+        // --- END CONFLICT HANDLING ---
+
         console.error(`Push: Failed to sync record ${record.id}. Status: ${record.status}`, JSON.stringify(error, null, 2));
         pushErrors.push({ recordId: record.id, error });
-        
+
         // In a real app, you would implement more robust error handling,
         // like a failed queue or marking the record as sync_failed.
         // For now, we'll just log the error and continue.
@@ -144,23 +170,32 @@ class SyncService {
 
     try {
       // Fetch changes from the server since the last sync
-      const changedEvents = await enhancedAPI.getEvents(2500, lastSyncedAt || undefined);
+      const syncResponse = await enhancedAPI.getEvents(2500, lastSyncedAt || undefined);
+
+      const { changed: changedEvents, deleted: deletedEventIds } = syncResponse;
       // TODO: Add similar fetches for Tasks and Goals
 
       const allChanges = [...changedEvents]; // Combine all fetched changes
 
-      if (allChanges.length === 0) {
+      if (allChanges.length === 0 && (!deletedEventIds || deletedEventIds.length === 0)) {
         console.log('Pull: No new data from server.');
         await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
         return;
       }
 
-      console.log(`Pull: Received ${allChanges.length} changes from the server.`);
-
-      // TODO: Handle deleted records. The PRD says the API should return a list of deleted IDs.
-      // We will need to implement that on the backend and handle it here.
+      console.log(`Pull: Received ${allChanges.length} changed and ${deletedEventIds?.length || 0} deleted items from the server.`);
 
       await database.write(async () => {
+        // Process deletions first
+        if (deletedEventIds && deletedEventIds.length > 0) {
+          const eventCollection = database.get<CalendarEvent>('calendar_events');
+          const recordsToDelete = await eventCollection.query(Q.where('id', Q.oneOf(deletedEventIds))).fetch();
+          for (const record of recordsToDelete) {
+            await record.destroyPermanently();
+          }
+        }
+
+        // Process changed records
         for (const eventData of allChanges) {
           const eventCollection = database.get<CalendarEvent>('calendar_events');
           const existingEvents = await eventCollection.query(Q.where('id', eventData.id)).fetch();
@@ -204,7 +239,7 @@ class SyncService {
 
       // After a successful pull, save the server's timestamp
       await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
-      console.log(`Pull: Successfully processed ${allChanges.length} changes. New sync time: ${serverTimeBeforePull}`);
+      console.log(`Pull: Successfully processed changes. New sync time: ${serverTimeBeforePull}`);
 
     } catch (error: any) {
       let userMessage = 'An unknown error occurred while syncing.';

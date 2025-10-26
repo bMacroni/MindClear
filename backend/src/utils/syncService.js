@@ -118,7 +118,7 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
     }
 
     // Transform database format to match frontend shape and include new fields
-    return data.map(event => ({
+    const changed = data.map(event => ({
       id: event.id,
       summary: event.title,
       description: event.description,
@@ -133,6 +133,27 @@ export async function getCalendarEventsFromDB(userId, maxResults = 100, timeMin 
       goal_id: event.goal_id,
       is_all_day: event.is_all_day
     }));
+
+    let deleted = [];
+    if (since) {
+      const { data: deletedData, error: deletedError } = await supabase
+        .from('deleted_records')
+        .select('record_id')
+        .eq('user_id', userId)
+        .eq('table_name', 'calendar_events')
+        .gt('deleted_at', since);
+
+      if (deletedError) {
+        logger.error('Error fetching deleted records:', deletedError);
+        // We can choose to fail or continue without deleted records.
+        // For now, let's continue.
+      } else {
+        deleted = deletedData.map(r => r.record_id);
+      }
+    }
+
+    return { changed, deleted };
+    
   } catch (error) {
     logger.error('Error getting calendar events from database:', error);
     throw error;

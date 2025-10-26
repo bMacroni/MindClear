@@ -12,6 +12,8 @@ import {
 import { getCalendarEventsFromDB, syncGoogleCalendarEvents, getUserSubscriptionTier, calculateDateRangeForTier } from '../utils/syncService.js';
 import { scheduleSingleTask } from '../controllers/autoSchedulingController.js';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../utils/supabase.js';
+import { sendNotification, sendSilentSyncNotification } from '../services/notificationService.js';
 
 const router = express.Router();
 
@@ -93,12 +95,12 @@ router.get('/events', requireAuth, async (req, res) => {
     logger.info(`[Calendar API] Time range: ${timeMin.toISOString()} to ${timeMax.toISOString()}`);
     
     // Get events from local database with subscription-based time range
-    const events = await getCalendarEventsFromDB(req.user.id, maxResults, timeMin, timeMax, null, since);
+    const syncData = await getCalendarEventsFromDB(req.user.id, maxResults, timeMin, timeMax, null, since);
     
-    logger.info(`[Calendar API] Returning ${events.length} events for ${subscriptionTier} tier user`);
+    logger.info(`[Calendar API] Returning ${syncData.changed.length} changed and ${syncData.deleted.length} deleted events for ${subscriptionTier} tier user`);
     
-    // Always return 200 with an array (possibly empty)
-    res.json(events);
+    // Always return 200 with an object containing changed and deleted arrays
+    res.json(syncData);
   } catch (error) {
     logger.error('Error getting calendar events from database:', error);
     res.status(500).json({ error: 'Failed to get calendar events' });
@@ -144,6 +146,39 @@ router.get('/events/task/:taskId', requireAuth, async (req, res) => {
   } catch (error) {
     logger.error('Error getting events for task from database:', error);
     res.status(500).json({ error: 'Failed to fetch events for task' });
+  }
+});
+
+// Delete a calendar event
+router.delete('/events/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { user_id } = req.user.id;
+
+  try {
+    const { data, error } = await supabase
+      .from('calendar_events')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id);
+
+    if (error) {
+      logger.error('Error deleting calendar event:', error);
+      return res.status(500).json({ error: 'Failed to delete calendar event' });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Event not found or user not authorized to delete' });
+    }
+
+    // The trigger will automatically log the deletion.
+    
+    // Send a silent push notification to trigger sync on other devices
+    sendSilentSyncNotification(req.user.id);
+
+    res.status(204).send();
+  } catch (error) {
+    logger.error('Exception during event deletion:', error);
+    res.status(500).json({ error: 'Server error while deleting event' });
   }
 });
 
@@ -207,6 +242,9 @@ router.post('/events', requireAuth, async (req, res) => {
         payload: { message: `Event ${data.id} created` },
       });
 
+      // Send a silent push notification to trigger sync on other devices
+      sendSilentSyncNotification(req.user.id);
+
       return res.status(201).json(data);
     } else {
       // Use existing Google Calendar integration
@@ -238,7 +276,7 @@ router.post('/events', requireAuth, async (req, res) => {
 router.put('/events/:eventId', requireAuth, async (req, res) => {
   try {
     const { eventId } = req.params;
-    const { summary, description, startTime, endTime, timeZone, location, useSupabase = false, eventType, taskId, goalId, isAllDay } = req.body;
+    const { summary, description, startTime, endTime, timeZone, location, useSupabase = false, eventType, taskId, goalId, isAllDay, client_updated_at } = req.body;
 
     if (!summary || !startTime || !endTime) {
       return res.status(400).json({ 
@@ -247,6 +285,33 @@ router.put('/events/:eventId', requireAuth, async (req, res) => {
     }
 
     if (useSupabase) {
+      // Last Write Wins Check
+      const { data: existingEvent, error: fetchError } = await supabase
+        .from('calendar_events')
+        .select('updated_at')
+        .eq('id', eventId)
+        .eq('user_id', req.user.id)
+        .single();
+
+      if (fetchError || !existingEvent) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      if (client_updated_at && new Date(client_updated_at) < new Date(existingEvent.updated_at)) {
+        logger.warn(`Conflict detected for event ${eventId}. Server version is newer.`);
+        // Fetch the full current event data to send back to the client
+        const { data: currentEventData, error: currentEventError } = await supabase
+          .from('calendar_events')
+          .select('*')
+          .eq('id', eventId)
+          .single();
+        
+        return res.status(409).json({ 
+          error: 'Conflict: The event has been updated on the server since your last sync.',
+          server_record: currentEventData
+        });
+      }
+
       // Update event directly in Supabase
       const { data, error } = await supabase
         .from('calendar_events')
@@ -279,8 +344,11 @@ router.put('/events/:eventId', requireAuth, async (req, res) => {
         event: 'update',
         payload: { message: `Event ${data.id} updated` },
       });
+      
+      // Send a silent push notification to trigger sync on other devices
+      sendSilentSyncNotification(req.user.id);
 
-      return res.json(data);
+      res.json(data);
     } else {
       // Use existing Google Calendar integration
       const eventData = {
@@ -332,6 +400,9 @@ router.delete('/events/:eventId', requireAuth, async (req, res) => {
         event: 'update',
         payload: { message: `Event ${eventId} deleted` },
       });
+
+      // Send a silent push notification to trigger sync on other devices
+      sendSilentSyncNotification(req.user.id);
 
       return res.json({ message: 'Event deleted successfully' });
     } else {
