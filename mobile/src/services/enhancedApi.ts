@@ -397,6 +397,78 @@ class EnhancedAPI {
     );
   }
 
+  // Milestone API methods
+  async createMilestone(goalId: string, milestoneData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/${goalId}/milestones`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(milestoneData),
+      },
+      ErrorCategory.GOALS,
+      'createMilestone'
+    );
+  }
+
+  async updateMilestone(milestoneId: string, milestoneData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(milestoneData),
+      },
+      ErrorCategory.GOALS,
+      'updateMilestone'
+    );
+  }
+
+  async deleteMilestone(milestoneId: string): Promise<void> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      { method: 'DELETE' },
+      ErrorCategory.GOALS,
+      'deleteMilestone'
+    );
+  }
+
+  // Step API methods
+  async createStep(milestoneId: string, stepData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/milestones/${milestoneId}/steps`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stepData),
+      },
+      ErrorCategory.GOALS,
+      'createStep'
+    );
+  }
+
+  async updateStep(stepId: string, stepData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stepData),
+      },
+      ErrorCategory.GOALS,
+      'updateStep'
+    );
+  }
+
+  async deleteStep(stepId: string): Promise<void> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      { method: 'DELETE' },
+      ErrorCategory.GOALS,
+      'deleteStep'
+    );
+  }
+
   // Auto-scheduling API methods
   async autoScheduleTasks(): Promise<any> {
     return this.makeRequest(

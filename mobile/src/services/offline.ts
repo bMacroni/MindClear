@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { CalendarEvent, Task } from '../types/calendar';
 import { Goal } from '../services/api';
+import { taskRepository } from '../repositories/TaskRepository';
+import { goalRepository } from '../repositories/GoalRepository';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -123,62 +125,32 @@ class OfflineService {
     }
   }
 
-  async cacheTasks(tasks: Task[]) {
-    const cacheData: CacheData<Task[]> = {
-      data: tasks,
-      timestamp: Date.now(),
-      version: '1.0',
-    };
-    await AsyncStorage.setItem(STORAGE_KEYS.TASKS_CACHE, JSON.stringify(cacheData));
-  }
-
-  async getCachedTasks(): Promise<Task[] | null> {
+  async getCachedTasks(): Promise<any[] | null> {
     try {
-      const cached = await AsyncStorage.getItem(STORAGE_KEYS.TASKS_CACHE);
-      if (!cached) {return null;}
-
-      const cacheData: CacheData<Task[]> = JSON.parse(cached);
-      const isExpired = Date.now() - cacheData.timestamp > CACHE_EXPIRATION;
-
-      if (isExpired) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.TASKS_CACHE);
-        return null;
-      }
-
-      return cacheData.data;
+      return await taskRepository.getAllTasks();
     } catch (_error) {
       console.error('Error reading cached tasks:', _error);
       return null;
     }
   }
 
-  async cacheGoals(goals: Goal[]) {
-    const cacheData: CacheData<Goal[]> = {
-      data: goals,
-      timestamp: Date.now(),
-      version: '1.0',
-    };
-    await AsyncStorage.setItem(STORAGE_KEYS.GOALS_CACHE, JSON.stringify(cacheData));
+  async cacheTasks(tasks: Task[]) {
+    // No-op - WatermelonDB handles this automatically
+    console.warn('offlineService.cacheTasks is deprecated - use taskRepository');
   }
 
-  async getCachedGoals(): Promise<Goal[] | null> {
+  async getCachedGoals(): Promise<any[] | null> {
     try {
-      const cached = await AsyncStorage.getItem(STORAGE_KEYS.GOALS_CACHE);
-      if (!cached) {return null;}
-
-      const cacheData: CacheData<Goal[]> = JSON.parse(cached);
-      const isExpired = Date.now() - cacheData.timestamp > CACHE_EXPIRATION;
-
-      if (isExpired) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.GOALS_CACHE);
-        return null;
-      }
-
-      return cacheData.data;
+      return await goalRepository.getAllGoals();
     } catch (_error) {
       console.error('Error reading cached goals:', _error);
       return null;
     }
+  }
+
+  async cacheGoals(goals: Goal[]) {
+    // No-op - WatermelonDB handles this automatically
+    console.warn('offlineService.cacheGoals is deprecated - use goalRepository');
   }
 
   // Offline queue management

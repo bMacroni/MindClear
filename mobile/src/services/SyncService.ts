@@ -148,13 +148,50 @@ class SyncService {
               continue;
           }
         } else if (record instanceof Milestone) {
-          // Skip milestone sync for now - API endpoints not implemented yet
-          console.log(`Push: Skipping milestone ${record.id} - API not implemented yet`);
-          continue;
+          recordData = {
+            title: record.title,
+            description: record.description,
+            completed: record.completed,
+            order: record.order,
+            client_updated_at: record.updatedAt?.toISOString(),
+          };
+
+          switch (record.status) {
+            case 'pending_create':
+              serverResponse = await enhancedAPI.createMilestone(record.goalId, recordData);
+              break;
+            case 'pending_update':
+              serverResponse = await enhancedAPI.updateMilestone(record.id, recordData);
+              break;
+            case 'pending_delete':
+              serverResponse = await enhancedAPI.deleteMilestone(record.id);
+              break;
+            default:
+              console.warn(`Push: Unknown status ${record.status} for milestone ${record.id}`);
+              continue;
+          }
         } else if (record instanceof MilestoneStep) {
-          // Skip milestone step sync for now - API endpoints not implemented yet
-          console.log(`Push: Skipping milestone step ${record.id} - API not implemented yet`);
-          continue;
+          recordData = {
+            text: record.text,
+            completed: record.completed,
+            order: record.order,
+            client_updated_at: record.updatedAt?.toISOString(),
+          };
+
+          switch (record.status) {
+            case 'pending_create':
+              serverResponse = await enhancedAPI.createStep(record.milestoneId, recordData);
+              break;
+            case 'pending_update':
+              serverResponse = await enhancedAPI.updateStep(record.id, recordData);
+              break;
+            case 'pending_delete':
+              serverResponse = await enhancedAPI.deleteStep(record.id);
+              break;
+            default:
+              console.warn(`Push: Unknown status ${record.status} for step ${record.id}`);
+              continue;
+          }
         } else {
           console.warn(`Push: Unknown record type for record ${(record as any).id}`);
           continue;

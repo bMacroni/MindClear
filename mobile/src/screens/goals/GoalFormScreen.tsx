@@ -6,7 +6,9 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, Button } from '../../components/common';
-import { goalsAPI } from '../../services/api';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
+import { authService } from '../../services/auth';
 import analyticsService from '../../services/analyticsService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format } from 'date-fns';
@@ -42,35 +44,27 @@ export default function GoalFormScreen({ navigation, route }: any) {
   const loadExistingGoal = useCallback(async () => {
     try {
       setInitialLoading(true);
-      const goalData = await goalsAPI.getGoalById(goalId);
+      const goalData = await goalRepository.getGoalById(goalId);
       
-      setTitle(goalData.title);
-      setDescription(goalData.description);
-      setCategory(goalData.category || '');
-      try {
-        if (goalData.target_completion_date) {
-          setTargetDate(new Date(goalData.target_completion_date));
+      if (goalData) {
+        setTitle(goalData.title);
+        setDescription(goalData.description);
+        setCategory(goalData.category || '');
+        // Load milestones via database query
+        const milestonesData = await goalRepository.getMilestonesForGoal(goalId);
+        setMilestones(milestonesData);
+        
+        if (goalData.targetCompletionDate) {
+          setTargetDate(goalData.targetCompletionDate);
         }
-      } catch {}
-      
-      // Transform backend milestone format to UI format
-      const uiMilestones: Milestone[] = (goalData.milestones || []).map(milestone => ({
-        id: milestone.id,
-        title: milestone.title,
-        description: (milestone as any).description || '', // Use actual description from backend
-        completed: milestone.completed,
-        steps: milestone.steps,
-      }));
-      
-      setMilestones(uiMilestones);
+      }
     } catch (error) {
-      console.error('Error loading existing goal:', error);
-      Alert.alert('Error', 'Failed to load goal data. Please try again.');
-      navigation.goBack();
+      console.error('Error loading goal:', error);
+      Alert.alert('Error', 'Failed to load goal data');
     } finally {
       setInitialLoading(false);
     }
-  }, [goalId, navigation]);
+  }, [goalId]);
 
   // Load existing goal data when editing
   useEffect(() => {
@@ -101,42 +95,33 @@ export default function GoalFormScreen({ navigation, route }: any) {
       const goalData = {
         title: title.trim(),
         description: description.trim(),
+        targetCompletionDate: targetDate,
         category: category.trim() || undefined,
-        milestones: milestones.map(m => ({
-          id: m.id,
-          title: m.title,
-          description: m.description,
-          completed: m.completed,
-          order: 0, // Will be set by backend
-          steps: (m.steps || []).map((s, idx) => ({ ...s, order: idx + 1 })),
-        })),
-        target_completion_date: targetDate ? targetDate.toISOString() : undefined,
+        userId: authService.getCurrentUser()?.id,
       };
-
+      
       if (isEditing) {
-        // Update existing goal
-        await goalsAPI.updateGoal(goalId, goalData);
-        Alert.alert('Success', 'Goal updated successfully!');
+        await goalRepository.updateGoal(goalId, goalData);
+        
+        // Handle milestone updates
+        for (const milestone of milestones) {
+          if (milestone.id) {
+            await goalRepository.updateMilestone(milestone.id, milestone);
+          }
+        }
       } else {
-        // Create new goal
-        await goalsAPI.createGoal(goalData as any);
-        Alert.alert('Success', 'Goal created successfully!');
-
-        // Track goal creation analytics
-        analyticsService.trackGoalCreated('manual', {
-          category: category.trim() || 'other',
-          hasDescription: !!description.trim(),
-          hasTargetDate: !!targetDate,
-          milestoneCount: milestones.length
-        }).catch(error => {
-          console.warn('Failed to track goal creation analytics:', error);
+        // Create goal with nested milestones
+        await goalRepository.createGoal({
+          ...goalData,
+          milestones: milestones,
         });
       }
-
+      
+      syncService.silentSync();
       navigation.goBack();
     } catch (error) {
       console.error('Error saving goal:', error);
-      Alert.alert('Error', 'Failed to save goal. Please try again.');
+      Alert.alert('Error', 'Failed to save goal');
     } finally {
       setLoading(false);
     }

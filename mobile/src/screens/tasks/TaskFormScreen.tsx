@@ -8,7 +8,10 @@ import {
 } from 'react-native';
 import { colors } from '../../themes/colors';
 import { TaskForm } from '../../components/tasks/TaskForm';
-import { tasksAPI, goalsAPI } from '../../services/api';
+import { taskRepository } from '../../repositories/TaskRepository';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
+import { authService } from '../../services/auth';
 import Icon from 'react-native-vector-icons/Octicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,8 +56,8 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
     try {
       setLoading(true);
       const [goalsData, taskData] = await Promise.all([
-        goalsAPI.getGoals(),
-        taskId ? tasksAPI.getTaskById(taskId) : Promise.resolve(undefined),
+        goalRepository.getAllGoals(),
+        taskId ? taskRepository.getTaskById(taskId) : Promise.resolve(undefined),
       ]);
       setGoals(goalsData);
       setTask(taskData);
@@ -73,13 +76,21 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
   const handleSave = async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
+      
       if (taskId) {
         // Update existing task
-        await tasksAPI.updateTask(taskId, taskData);
+        await taskRepository.updateTask(taskId, taskData);
       } else {
         // Create new task
-        await tasksAPI.createTask(taskData);
+        await taskRepository.createTask({
+          ...taskData,
+          userId: authService.getCurrentUser()?.id,
+        });
       }
+      
+      // Trigger background sync
+      syncService.silentSync();
+      
       navigation.goBack();
     } catch (error) {
       console.error('Error saving task:', error);

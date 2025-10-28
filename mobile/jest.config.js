@@ -6,7 +6,7 @@ module.exports = {
   setupFiles: [
     '<rootDir>/node_modules/react-native-gesture-handler/jestSetup.js'
   ],
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js', '<rootDir>/src/__tests__/setup.ts'],
   moduleNameMapper: {
     '^react-native-draggable-flatlist$': '<rootDir>/test/__mocks__/react-native-draggable-flatlist.js',
     '^react-native-modal-datetime-picker$': '<rootDir>/test/__mocks__/react-native-modal-datetime-picker.js',
