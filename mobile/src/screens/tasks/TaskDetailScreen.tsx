@@ -11,23 +11,11 @@ import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
 import { Button } from '../../components/common/Button';
-import { tasksAPI } from '../../services/api';
-
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'not_started' | 'in_progress' | 'completed';
-  due_date?: string;
-  category?: string;
-  goal_id?: string;
-  estimated_duration_minutes?: number;
-  goal?: {
-    id: string;
-    title: string;
-  };
-}
+import { taskRepository } from '../../repositories/TaskRepository';
+import { syncService } from '../../services/SyncService';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import Task from '../../db/models/Task';
 
 interface TaskDetailScreenProps {
   route: {
@@ -36,33 +24,26 @@ interface TaskDetailScreenProps {
     };
   };
   navigation: any;
+  task: Task;
+  database: any;
 }
 
 const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
   route,
   navigation,
+  task,
 }) => {
   const { taskId } = route.params;
-  const [task, setTask] = useState<Task | null>(null);
-  const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
 
-  const loadTask = useCallback(async () => {
-    try {
-      setLoading(true);
-      const taskData = await tasksAPI.getTaskById(taskId);
-      setTask(taskData);
-    } catch (error) {
-      console.error('Error loading task:', error);
-      Alert.alert('Error', 'Failed to load task details');
-    } finally {
-      setLoading(false);
-    }
-  }, [taskId]);
-
-  useEffect(() => {
-    loadTask();
-  }, [taskId, loadTask]);
+  if (!task) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading task...</Text>
+      </View>
+    );
+  }
 
   const handleToggleStatus = async () => {
     if (!task) {return;}
@@ -70,8 +51,14 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
     try {
       setUpdating(true);
       const newStatus = task.status === 'completed' ? 'not_started' : 'completed';
-      const updatedTask = await tasksAPI.updateTask(taskId, { status: newStatus });
-      setTask(updatedTask);
+      await taskRepository.updateTask(taskId, { status: newStatus });
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
     } catch (error) {
       console.error('Error updating task status:', error);
       Alert.alert('Error', 'Failed to update task status');
@@ -91,7 +78,14 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
           style: 'destructive',
           onPress: async () => {
             try {
-              await tasksAPI.deleteTask(taskId);
+              await taskRepository.deleteTask(taskId);
+              // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
               navigation.goBack();
             } catch (error) {
               console.error('Error deleting task:', error);
@@ -220,7 +214,7 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
           <Text style={styles.sectionTitle}>Details</Text>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Due Date:</Text>
-            <Text style={styles.detailValue}>{formatDueDate(task.due_date)}</Text>
+            <Text style={styles.detailValue}>{formatDueDate(task.dueDate?.toISOString())}</Text>
           </View>
           {task.category && (
             <View style={styles.detailRow}>
@@ -230,7 +224,7 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
           )}
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Duration:</Text>
-            <Text style={styles.detailValue}>{formatDuration(task.estimated_duration_minutes)}</Text>
+            <Text style={styles.detailValue}>{formatDuration(task.estimatedDurationMinutes)}</Text>
           </View>
           {task.goal && (
             <View style={styles.detailRow}>
@@ -365,4 +359,16 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TaskDetailScreen;
+// Create the enhanced component with WatermelonDB observables
+const enhance = withObservables(['taskId'], ({taskId, database}) => ({
+  task: database.collections.get('tasks').findAndObserve(taskId),
+}));
+
+const EnhancedTaskDetailScreen = enhance(TaskDetailScreen);
+
+const TaskDetailScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedTaskDetailScreen {...props} database={database} />;
+};
+
+export default TaskDetailScreenWithDatabase;

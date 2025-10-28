@@ -63,7 +63,12 @@ class EnhancedAPI {
         throw userError;
       }
 
-      return await response.json();
+      // Handle empty responses (common for DELETE operations)
+      const text = await response.text();
+      if (text === '') {
+        return undefined as T;
+      }
+      return JSON.parse(text);
     } catch (error) {
       // If it's already a UserFriendlyError, re-throw it
       if ((error as any).title && (error as any).message) {

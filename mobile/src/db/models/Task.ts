@@ -23,6 +23,7 @@ export default class Task extends Model {
   @date('updated_at') updatedAt!: Date;
   @field('is_today_focus') isTodayFocus?: boolean;
   @text('user_id') userId!: string;
+  @text('goal_id') goalId?: string;
 
   @relation('goals', 'goal_id') goal: any;
 }

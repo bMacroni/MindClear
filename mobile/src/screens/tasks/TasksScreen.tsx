@@ -21,7 +21,9 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { LazyList } from '../../utils/lazyListUtils';
 import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
 import { enhancedAPI } from '../../services/enhancedApi';
-import { offlineService } from '../../services/offline';
+import { taskRepository } from '../../repositories/TaskRepository';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
 import analyticsService from '../../services/analyticsService';
 import Icon from 'react-native-vector-icons/Octicons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -32,6 +34,11 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import { Q } from '@nozbe/watermelondb';
+import Task from '../../db/models/Task';
+import Goal from '../../db/models/Goal';
 
 // Development-only logging for EOD prompt debugging
 const EOD_DEBUG = true; // set false to silence
@@ -77,7 +84,13 @@ interface Goal {
   title: string;
 }
 
-const TasksScreen: React.FC = () => {
+interface TasksScreenProps {
+  tasks: Task[];
+  goals: Goal[];
+  database: any;
+}
+
+const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const _insets = useSafeAreaInsets();
@@ -85,7 +98,7 @@ const TasksScreen: React.FC = () => {
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
   const [tasks, setTasks] = useState<Task[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false since we have observable data
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
@@ -98,6 +111,19 @@ const TasksScreen: React.FC = () => {
   const [toastCalendarEvent, setToastCalendarEvent] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [selectingFocus, setSelectingFocus] = useState(false);
+
+  // Sync observable data with local state
+  useEffect(() => {
+    if (observableTasks) {
+      setTasks(observableTasks);
+    }
+  }, [observableTasks]);
+
+  useEffect(() => {
+    if (observableGoals) {
+      setGoals(observableGoals);
+    }
+  }, [observableGoals]);
   const [showEodPrompt, setShowEodPrompt] = useState(false);
   const [quickMenuVisible, setQuickMenuVisible] = useState(false);
   const [quickAnchor, setQuickAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
@@ -177,56 +203,31 @@ const TasksScreen: React.FC = () => {
   const loadData = async (options?: { silent?: boolean }) => {
     const silent = !!options?.silent;
     try {
-      // Paint from cache immediately if available
-      const [cachedTasks, cachedGoals] = await Promise.all([
-        offlineService.getCachedTasks(),
-        offlineService.getCachedGoals(),
-      ]);
-      let paintedFromCache = false;
-      if (cachedTasks && Array.isArray(cachedTasks)) {
-        setTasks(cachedTasks as any);
-        paintedFromCache = true;
-      }
-      if (cachedGoals && Array.isArray(cachedGoals)) {
-        setGoals(cachedGoals as any);
-        paintedFromCache = true;
-      }
-      if (paintedFromCache) {
-        // Dismiss spinner immediately; we will refresh in background
-        setLoading(false);
-      } else {
-        if (!silent) {setLoading(true);}
+      if (!silent) {
+        setLoading(true);
       }
 
-      // Fetch fresh in parallel
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const [tasksData, goalsData, prefs] = await Promise.all([
-        tasksAPI.getTasks(controller.signal as any),
-        goalsAPI.getGoals(controller.signal as any),
-        appPreferencesAPI.get().catch(() => null),
-      ]).finally(() => clearTimeout(timeout));
-      setTasks(tasksData);
-      setGoals(goalsData);
-      if (prefs && typeof prefs === 'object') {
-        setMomentumEnabled(!!(prefs as any).momentum_mode_enabled);
-        setTravelPreference((prefs as any).momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
-      }
-      // Cache raw responses
+      // Trigger silent sync to get latest data from server
       try {
-        await Promise.all([
-          offlineService.cacheTasks(tasksData as any),
-          offlineService.cacheGoals(goalsData as any),
-        ]);
-      } catch {}
-    } catch (error) {
-      if ((error as any)?.name === 'AbortError') {
-        console.warn('Tasks/Goals fetch aborted due to timeout');
-        // Keep whatever cache we already showed; avoid alert
-        return;
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
       }
+
+      // Load preferences
+      try {
+        const prefs = await appPreferencesAPI.get();
+        if (prefs && typeof prefs === 'object') {
+          setMomentumEnabled(!!(prefs as any).momentum_mode_enabled);
+          setTravelPreference((prefs as any).momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
+        }
+      } catch (error) {
+        console.warn('Failed to load preferences:', error);
+      }
+    } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load tasks and goals');
+      Alert.alert('Error', 'Failed to sync data');
     } finally {
       setLoading(false);
     }
@@ -267,15 +268,20 @@ const TasksScreen: React.FC = () => {
       
       if (editingTask) {
         // Update existing task
-        const updatedTask = await tasksAPI.updateTask(editingTask.id, taskData);
-        setTasks(prev => prev.map(task => 
-          task.id === editingTask.id ? updatedTask : task
-        ));
+        await taskRepository.updateTask(editingTask.id, taskData);
       } else {
         // Create new task
-        const newTask = await tasksAPI.createTask(taskData);
-        setTasks(prev => [newTask, ...prev]);
+        await taskRepository.createTask(taskData);
       }
+      
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
+      
       setShowModal(false);
       setEditingTask(undefined);
     } catch (error) {
@@ -287,41 +293,52 @@ const TasksScreen: React.FC = () => {
   }, [editingTask]);
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
-    const prevTasks = tasks;
-    setTasks(prev => prev.filter(task => task.id !== taskId));
     try {
-      await tasksAPI.deleteTask(taskId);
+      await taskRepository.deleteTask(taskId);
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
     } catch (error) {
       console.error('Error deleting task:', error);
-      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to delete task');
     }
-  }, [tasks]);
+  }, []);
 
   const handleToggleStatus = useCallback(async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
-    const prevTasks = tasks;
-    const prevTask = tasks.find(t => t.id === taskId);
-    setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus } as any : task));
     try {
-      const updatedTask = await tasksAPI.updateTask(taskId, { status: newStatus });
-      setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
+      await taskRepository.updateTask(taskId, { status: newStatus });
+      
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
 
-      if (newStatus === 'completed' && prevTask) {
-        analyticsService.trackTaskCompleted({
-          taskId: prevTask.id,
-          taskTitle: prevTask.title,
-          priority: prevTask.priority,
-          hasLocation: !!prevTask.location,
-          hasEstimatedDuration: !!prevTask.estimated_duration_minutes,
-          autoScheduleEnabled: prevTask.auto_schedule_enabled,
-          isTodayFocus: prevTask.is_today_focus
-        }).catch(error => {
-          console.warn('Failed to track task completion analytics:', error);
-        });
+      // Track analytics for completed tasks
+      if (newStatus === 'completed') {
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+          analyticsService.trackTaskCompleted({
+            taskId: task.id,
+            taskTitle: task.title,
+            priority: task.priority,
+            hasLocation: !!task.location,
+            hasEstimatedDuration: !!task.estimated_duration_minutes,
+            autoScheduleEnabled: task.auto_schedule_enabled,
+            isTodayFocus: task.is_today_focus
+          }).catch(error => {
+            console.warn('Failed to track task completion analytics:', error);
+          });
+        }
       }
     } catch (error) {
       console.error('Error updating task status:', error);
-      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to update task status');
     }
   }, [tasks]);
@@ -2003,4 +2020,21 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TasksScreen;
+// Create the enhanced component with WatermelonDB observables
+const enhance = withObservables(['database'], ({database}) => ({
+  tasks: database.collections.get('tasks').query(
+    Q.where('status', Q.notEq('pending_delete'))
+  ).observe(),
+  goals: database.collections.get('goals').query(
+    Q.where('status', Q.notEq('pending_delete'))
+  ).observe(),
+}));
+
+const EnhancedTasksScreen = enhance(TasksScreen);
+
+const TasksScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedTasksScreen {...props} database={database} />;
+};
+
+export default TasksScreenWithDatabase;

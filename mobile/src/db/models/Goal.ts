@@ -1,8 +1,11 @@
 import {Model} from '@nozbe/watermelondb';
-import {field, date, text} from '@nozbe/watermelondb/decorators';
+import {field, date, text, children} from '@nozbe/watermelondb/decorators';
 
 export default class Goal extends Model {
   static table = 'goals';
+  static associations = {
+    milestones: {type: 'has_many', foreignKey: 'goal_id'},
+  } as const;
 
   @text('title') title!: string;
   @text('description') description?: string;
@@ -14,4 +17,6 @@ export default class Goal extends Model {
   @date('updated_at') updatedAt!: Date;
   @text('status') status!: string;
   @text('user_id') userId!: string;
+
+  @children('milestones') milestones: any;
 }
