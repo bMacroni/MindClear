@@ -11,6 +11,20 @@ import { notificationService } from './notificationService';
 import { authService } from './auth';
 import { safeParseDate } from '../utils/dateUtils';
 
+// Interface for task data received from server during sync
+interface TaskPayload {
+  id: string;
+  title: string;
+  description?: string;
+  priority?: string;
+  estimated_duration_minutes?: number;
+  due_date?: string;
+  goal_id?: string;
+  is_today_focus?: boolean;
+  user_id?: string;
+  status?: string;
+}
+
 const LAST_SYNCED_AT_KEY = 'last_synced_at';
 
 class SyncService {
@@ -283,15 +297,37 @@ class SyncService {
     try {
       // Fetch changes from the server since the last sync
       const syncResponse = await enhancedAPI.getEvents(2500, lastSyncedAt || undefined);
-      const tasksResponse = await enhancedAPI.getTasks();
-      const goalsResponse = await enhancedAPI.getGoals();
+      const tasksResponse = await enhancedAPI.getTasks(lastSyncedAt || undefined);
+      const goalsResponse = await enhancedAPI.getGoals(lastSyncedAt || undefined);
 
       const { changed: changedEvents, deleted: deletedEventIds } = syncResponse;
-      const changedTasks = tasksResponse || [];
-      const changedGoals = goalsResponse || [];
+      
+      // Handle tasks response - could be array (full sync) or object with changed/deleted (incremental sync)
+      let changedTasks = [];
+      let deletedTaskIds = [];
+      if (Array.isArray(tasksResponse)) {
+        // Full sync response
+        changedTasks = tasksResponse;
+      } else if (tasksResponse && typeof tasksResponse === 'object') {
+        // Incremental sync response
+        changedTasks = tasksResponse.changed || [];
+        deletedTaskIds = tasksResponse.deleted || [];
+      }
+      
+      // Handle goals response - could be array (full sync) or object with changed/deleted (incremental sync)
+      let changedGoals = [];
+      let deletedGoalIds = [];
+      if (Array.isArray(goalsResponse)) {
+        // Full sync response
+        changedGoals = goalsResponse;
+      } else if (goalsResponse && typeof goalsResponse === 'object') {
+        // Incremental sync response
+        changedGoals = goalsResponse.changed || [];
+        deletedGoalIds = goalsResponse.deleted || [];
+      }
 
       const allChanges = [...changedEvents, ...changedTasks, ...changedGoals];
-      const allDeletedIds = [...(deletedEventIds || [])];
+      const allDeletedIds = [...(deletedEventIds || []), ...deletedTaskIds, ...deletedGoalIds];
 
       if (allChanges.length === 0 && allDeletedIds.length === 0) {
         console.log('Pull: No new data from server.');
@@ -311,6 +347,27 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
+            console.log(`Pull: Deleted ${recordsToDelete.length} events`);
+          }
+          
+          // Process task deletions
+          if (deletedTaskIds && deletedTaskIds.length > 0) {
+            const taskCollection = database.get<Task>('tasks');
+            const recordsToDelete = await taskCollection.query(Q.where('id', Q.oneOf(deletedTaskIds))).fetch();
+            for (const record of recordsToDelete) {
+              await record.destroyPermanently();
+            }
+            console.log(`Pull: Deleted ${recordsToDelete.length} tasks`);
+          }
+          
+          // Process goal deletions
+          if (deletedGoalIds && deletedGoalIds.length > 0) {
+            const goalCollection = database.get<Goal>('goals');
+            const recordsToDelete = await goalCollection.query(Q.where('id', Q.oneOf(deletedGoalIds))).fetch();
+            for (const record of recordsToDelete) {
+              await record.destroyPermanently();
+            }
+            console.log(`Pull: Deleted ${recordsToDelete.length} goals`);
           }
         }
 
@@ -478,10 +535,16 @@ class SyncService {
     }
   }
 
-  private async processTaskChange(taskData: any, database: Database) {
+  private async processTaskChange(taskData: TaskPayload, database: Database) {
     const taskCollection = database.get<Task>('tasks');
     const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
     const localTask = existingTasks.length > 0 ? existingTasks[0] : null;
+
+    // Parse due_date once and validate
+    const parsedDueDate = taskData.due_date ? safeParseDate(taskData.due_date) : undefined;
+    if (taskData.due_date && !parsedDueDate) {
+      console.error(`Pull: Failed to parse due_date for task ${taskData.id}:`, taskData.due_date);
+    }
 
     if (localTask) {
       // Update existing task
@@ -490,7 +553,13 @@ class SyncService {
         record.description = taskData.description;
         record.priority = taskData.priority;
         record.estimatedDurationMinutes = taskData.estimated_duration_minutes;
-        record.dueDate = taskData.due_date ? safeParseDate(taskData.due_date) : undefined;
+        // Only set dueDate if parsing succeeded, otherwise preserve existing value
+        if (parsedDueDate) {
+          record.dueDate = parsedDueDate;
+        } else if (taskData.due_date) {
+          // Log error but don't overwrite existing dueDate
+          console.error(`Pull: Skipping due_date update for task ${taskData.id} due to parsing failure, preserving existing value`);
+        }
         record.goalId = taskData.goal_id;
         record.isTodayFocus = taskData.is_today_focus;
         record.status = 'synced';
@@ -503,16 +572,27 @@ class SyncService {
         record.description = taskData.description;
         record.priority = taskData.priority;
         record.estimatedDurationMinutes = taskData.estimated_duration_minutes;
-        record.dueDate = taskData.due_date ? safeParseDate(taskData.due_date) : undefined;
+        // Only set dueDate if parsing succeeded, skip if parsing failed
+        if (parsedDueDate) {
+          record.dueDate = parsedDueDate;
+        } else if (taskData.due_date) {
+          // Log error but don't set dueDate for new task
+          console.error(`Pull: Skipping due_date for new task ${taskData.id} due to parsing failure`);
+        }
         record.goalId = taskData.goal_id;
         record.isTodayFocus = taskData.is_today_focus;
-        record.userId = taskData.user_id;
+        record.userId = taskData.user_id || '';
         record.status = 'synced';
       });
     }
   }
 
   private async processGoalChange(goalData: any, database: Database) {
+    const parsedTargetDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
+    if (goalData.target_completion_date && !parsedTargetDate) {
+      console.error(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
+    }
+
     const goalCollection = database.get<Goal>('goals');
     const existingGoals = await goalCollection.query(Q.where('id', goalData.id)).fetch();
     const localGoal = existingGoals.length > 0 ? existingGoals[0] : null;
@@ -522,7 +602,7 @@ class SyncService {
       await localGoal.update((record: Goal) => {
         record.title = goalData.title;
         record.description = goalData.description;
-        record.targetCompletionDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
+        record.targetCompletionDate = parsedTargetDate;
         record.progressPercentage = goalData.progress_percentage;
         record.category = goalData.category;
         record.isActive = goalData.is_active;
@@ -534,7 +614,7 @@ class SyncService {
         record._raw.id = goalData.id;
         record.title = goalData.title;
         record.description = goalData.description;
-        record.targetCompletionDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
+        record.targetCompletionDate = parsedTargetDate;
         record.progressPercentage = goalData.progress_percentage;
         record.category = goalData.category;
         record.isActive = goalData.is_active;
@@ -542,7 +622,6 @@ class SyncService {
         record.status = 'synced';
       });
     }
-  }
-}
+  }}
 
 export const syncService = new SyncService();

@@ -139,19 +139,28 @@ export async function createTask(req, res) {
 
 export async function getTasks(req, res) {
   const user_id = req.user.id;
+  const since = req.query.since; // For delta sync
   
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
+  
+  // Validate since parameter if provided
+  if (since && isNaN(Date.parse(since))) {
+    return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
+  }
   
   // Create cache key for this user's tasks
   const cacheKey = cacheService.generateUserKey(user_id, 'tasks');
   
   try {
-    // Try to get from cache first
-    const cachedTasks = cacheService.get(cacheKey);
-    if (cachedTasks) {
-      logger.debug('Cache hit for user tasks:', user_id);
-      return res.json(cachedTasks);
+    // For incremental sync, don't use cache
+    if (!since) {
+      // Try to get from cache first
+      const cachedTasks = cacheService.get(cacheKey);
+      if (cachedTasks) {
+        logger.debug('Cache hit for user tasks:', user_id);
+        return res.json(cachedTasks);
+      }
     }
 
     logger.debug('Cache miss for user tasks:', user_id);
@@ -165,7 +174,7 @@ export async function getTasks(req, res) {
       }
     });
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('tasks')
       .select(`
         *,
@@ -184,11 +193,39 @@ export async function getTasks(req, res) {
       .eq('user_id', user_id)
       .order('created_at', { ascending: false });
     
+    // Add `since` filter for delta sync
+    if (since) {
+      query = query.gt('updated_at', since);
+    }
+    
+    const { data, error } = await query;
+    
     if (error) {
       return res.status(400).json({ error: error.message });
     }
 
-    // Cache the results
+    // For incremental sync, return in the same format as events
+    if (since) {
+      let deleted = [];
+      const { data: deletedData, error: deletedError } = await supabase
+        .from('deleted_records')
+        .select('record_id')
+        .eq('user_id', user_id)
+        .eq('table_name', 'tasks')
+        .gt('deleted_at', since);
+
+      if (deletedError) {
+        logger.error('Error fetching deleted task records:', deletedError);
+        return res.status(500).json({ error: 'Failed to fetch deleted records for delta sync' });
+      } else {
+        deleted = deletedData.map(r => r.record_id);
+      }
+      
+      logger.info(`[Tasks API] Returning ${data.length} changed and ${deleted.length} deleted tasks for user ${user_id}`);
+      return res.json({ changed: data, deleted });
+    }
+
+    // Cache the results for full sync
     cacheService.cacheUserTasks(user_id, data);
     
     res.json(data);

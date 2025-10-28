@@ -80,13 +80,12 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
             try {
               await taskRepository.deleteTask(taskId);
               // Trigger silent sync to push changes to server
-      try {
-        await syncService.silentSync();
-      } catch (error) {
-        // Silent sync failure - don't show alerts to user
-        console.warn('Silent sync failed:', error);
-      }
-              navigation.goBack();
+              try {
+                await syncService.silentSync();
+              } catch (error) {
+                // Silent sync failure - don't show alerts to user
+                console.warn('Silent sync failed:', error);
+              }              navigation.goBack();
             } catch (error) {
               console.error('Error deleting task:', error);
               Alert.alert('Error', 'Failed to delete task');
@@ -360,8 +359,8 @@ const styles = StyleSheet.create({
 });
 
 // Create the enhanced component with WatermelonDB observables
-const enhance = withObservables(['taskId'], ({taskId, database}) => ({
-  task: database.collections.get('tasks').findAndObserve(taskId),
+const enhance = withObservables(['route'], ({route, database}) => ({
+  task: database.collections.get('tasks').findAndObserve(route.params.taskId),
 }));
 
 const EnhancedTaskDetailScreen = enhance(TaskDetailScreen);

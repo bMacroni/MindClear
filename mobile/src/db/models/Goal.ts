@@ -18,5 +18,7 @@ export default class Goal extends Model {
   @text('status') status!: string;
   @text('user_id') userId!: string;
 
-  @children('milestones') milestones: any;
-}
+import {Query} from '@nozbe/watermelondb';
+import Milestone from './Milestone';
+
+  @children('milestones') milestones!: Query<Milestone>;}

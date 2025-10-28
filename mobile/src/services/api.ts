@@ -249,11 +249,15 @@ export const goalsAPI = {
   },
 
   // Get all goals for the user using real backend
-  getGoals: async (signal?: AbortSignal): Promise<Goal[]> => {
+  getGoals: async (signal?: AbortSignal, since?: string): Promise<Goal[]> => {
     try {
       const token = await getAuthToken();
       
-      const response = await fetch(`${getSecureApiBaseUrl()}/goals`, {
+      const url = since 
+        ? `${getSecureApiBaseUrl()}/goals?since=${encodeURIComponent(since)}`
+        : `${getSecureApiBaseUrl()}/goals`;
+      
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -435,11 +439,15 @@ interface Task {
 
 export const tasksAPI = {
   // Get all tasks for the user
-  getTasks: async (signal?: AbortSignal): Promise<Task[]> => {
+  getTasks: async (signal?: AbortSignal, since?: string): Promise<Task[]> => {
     try {
       const token = await getAuthToken();
       
-      const response = await fetch(`${getSecureApiBaseUrl()}/tasks`, {
+      const url = since 
+        ? `${getSecureApiBaseUrl()}/tasks?since=${encodeURIComponent(since)}`
+        : `${getSecureApiBaseUrl()}/tasks`;
+      
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

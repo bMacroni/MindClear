@@ -1,5 +1,7 @@
-import {Model} from '@nozbe/watermelondb';
+import {Model, Relation, Query} from '@nozbe/watermelondb';
 import {field, date, text, relation, children} from '@nozbe/watermelondb/decorators';
+import Goal from './Goal';
+import MilestoneStep from './MilestoneStep';
 
 export default class Milestone extends Model {
   static table = 'milestones';
@@ -17,6 +19,6 @@ export default class Milestone extends Model {
   @date('updated_at') updatedAt!: Date;
   @text('status') status!: string;
 
-  @relation('goals', 'goal_id') goal: any;
-  @children('milestone_steps') steps: any;
+  @relation('goals', 'goal_id') goal!: Relation<Goal>;
+  @children('milestone_steps') steps!: Query<MilestoneStep>;
 }

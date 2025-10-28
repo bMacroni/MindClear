@@ -2,25 +2,31 @@ import {getDatabase} from '../db';
 import {Q} from '@nozbe/watermelondb';
 import Task from '../db/models/Task';
 import {authService} from '../services/auth';
+import logger from '../utils/logger';
 
 export class TaskRepository {
   private getCurrentUserId(): string {
     const user = authService.getCurrentUser();
-    if (!user?.uid) {
+    if (!user?.id) {
       throw new Error('User not authenticated');
     }
-    return user.uid;
+    return user.id;
   }
 
   async getAllTasks(): Promise<Task[]> {
-    const database = getDatabase();
-    const userId = this.getCurrentUserId();
-    return await database.get<Task>('tasks')
-      .query(
-        Q.where('user_id', userId),
-        Q.where('status', Q.notEq('pending_delete'))
-      )
-      .fetch();
+    try {
+      const database = getDatabase();
+      const userId = this.getCurrentUserId();
+      return await database.get<Task>('tasks')
+        .query(
+          Q.where('user_id', userId),
+          Q.where('status', Q.notEq('pending_delete'))
+        )
+        .fetch();
+    } catch (error) {
+      logger.error('Failed to fetch all tasks', { error: error instanceof Error ? error.message : 'Unknown error' });
+      return [];
+    }
   }
 
   async getTaskById(id: string): Promise<Task | null> {

@@ -49,41 +49,6 @@ const eodLog = (...args: any[]) => {
   }
 };
 
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'not_started' | 'in_progress' | 'completed';
-  due_date?: string;
-  category?: string;
-  goal_id?: string;
-  estimated_duration_minutes?: number;
-  is_today_focus?: boolean;
-  goal?: {
-    id: string;
-    title: string;
-  };
-  // Auto-scheduling fields
-  auto_schedule_enabled?: boolean;
-  weather_dependent?: boolean;
-  location?: string;
-  travel_time_minutes?: number;
-  // Required backend fields
-  preferred_time_of_day?: 'morning' | 'afternoon' | 'evening';
-  deadline_type?: 'soft' | 'hard';
-  recurrence_pattern?: 'none' | 'daily' | 'weekly' | 'monthly';
-  scheduling_preferences?: any;
-  max_daily_tasks?: number;
-  buffer_time_minutes?: number;
-  task_type?: 'indoor' | 'outdoor' | 'travel' | 'virtual' | 'other';
-}
-
-interface Goal {
-  id: string;
-  title: string;
-}
-
 interface TasksScreenProps {
   tasks: Task[];
   goals: Goal[];
@@ -162,7 +127,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
     analyticsService.trackScreenView('tasks', {
       taskCount: tasks.length,
       completedCount: tasks.filter(t => t.status === 'completed').length,
-      focusTaskCount: tasks.filter(t => t.is_today_focus).length
+      focusTaskCount: tasks.filter(t => t.isTodayFocus).length
     }).catch(error => {
       console.warn('Failed to track screen view analytics:', error);
     });
@@ -328,10 +293,10 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
             taskId: task.id,
             taskTitle: task.title,
             priority: task.priority,
-            hasLocation: !!task.location,
-            hasEstimatedDuration: !!task.estimated_duration_minutes,
-            autoScheduleEnabled: task.auto_schedule_enabled,
-            isTodayFocus: task.is_today_focus
+            hasLocation: false, // location field not available in WatermelonDB model
+            hasEstimatedDuration: !!task.estimatedDurationMinutes,
+            autoScheduleEnabled: false, // auto_schedule_enabled field not available in WatermelonDB model
+            isTodayFocus: task.isTodayFocus
           }).catch(error => {
             console.warn('Failed to track task completion analytics:', error);
           });
@@ -371,10 +336,10 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
   }, [tasks]);
 
   // Helper function to format due date for display
-  const formatDueDate = (dueDate: string | undefined): string => {
+  const formatDueDate = (dueDate: Date | string | undefined): string => {
     if (!dueDate) return 'none';
     try {
-      const date = new Date(dueDate);
+      const date = dueDate instanceof Date ? dueDate : new Date(dueDate);
       return date.toLocaleDateString();
     } catch {
       return 'none';
@@ -389,8 +354,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         return;
       }
 
-      const needsDuration = !Number.isFinite((task as any).estimated_duration_minutes) || (task as any).estimated_duration_minutes! <= 0;
-      const needsDueDate = !task.due_date;
+      const needsDuration = !Number.isFinite(task.estimatedDurationMinutes) || task.estimatedDurationMinutes! <= 0;
+      const needsDueDate = !task.dueDate;
 
       if (needsDuration || needsDueDate) {
         const missingParts: string[] = [];
@@ -398,8 +363,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         if (needsDueDate) { missingParts.push('due date'); }
 
         const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-        const duePart = formatDueDate(task.due_date);
-        const durationPart = Number.isFinite((task as any).estimated_duration_minutes) ? String((task as any).estimated_duration_minutes) : 'none';
+        const duePart = formatDueDate(task.dueDate);
+        const durationPart = Number.isFinite(task.estimatedDurationMinutes) ? String(task.estimatedDurationMinutes) : 'none';
 
         const prompt = `Help me schedule this task on my calendar. Ask me conversational clarifying questions to fill any missing values and then summarize the final values. After that, suggest one tiny micro-step to help me begin.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
 
@@ -411,7 +376,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         summary: task.title || 'Task',
         description: task.description || '',
         startTime: new Date().toISOString(),
-        endTime: new Date(Date.now() + (((task as any).estimated_duration_minutes || 60) * 60 * 1000)).toISOString(),
+        endTime: new Date(Date.now() + ((task.estimatedDurationMinutes || 60) * 60 * 1000)).toISOString(),
       });
       
       const startTimeStr = result?.data?.scheduled_time;
@@ -444,9 +409,9 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
   const handleAIHelp = useCallback(async (task: Task) => {
     try {
       const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-      const duePart = formatDueDate(task.due_date);
-      const durationPart = Number.isFinite((task as any).estimated_duration_minutes)
-        ? String((task as any).estimated_duration_minutes)
+      const duePart = formatDueDate(task.dueDate);
+      const durationPart = Number.isFinite(task.estimatedDurationMinutes)
+        ? String(task.estimatedDurationMinutes)
         : 'none';
       const prompt = `Help me think through and schedule this task. Ask conversational clarifying questions if needed, then summarize final values and suggest one tiny micro-step.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}`;
       (navigation as any).navigate('AIChat', { initialMessage: prompt, taskTitle: task.title });
@@ -616,7 +581,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
       }
 
       // Calculate end time (use estimated duration or default to 1 hour)
-      const durationMinutes = task.estimated_duration_minutes || 60;
+      const durationMinutes = task.estimatedDurationMinutes || 60;
       const endTime = new Date(target.getTime() + durationMinutes * 60 * 1000);
 
       // Check if a calendar event already exists for this task
@@ -674,7 +639,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
     try {
       await autoSchedulingAPI.toggleTaskAutoScheduling(taskId, enabled);
       setTasks(prev => prev.map(task => 
-        task.id === taskId ? { ...task, auto_schedule_enabled: enabled } : task
+        task.id === taskId ? { ...task, auto_schedule_enabled: enabled } as any : task
       ));
     } catch (error) {
       console.error('Error toggling auto-schedule:', error);
@@ -690,8 +655,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         return;
       }
 
-      const needsDuration = !Number.isFinite((task as any).estimated_duration_minutes) || (task as any).estimated_duration_minutes! <= 0;
-      const needsDueDate = !task.due_date;
+      const needsDuration = !Number.isFinite(task.estimatedDurationMinutes) || task.estimatedDurationMinutes! <= 0;
+      const needsDueDate = !task.dueDate;
 
       if (needsDuration || needsDueDate) {
         const missingParts: string[] = [];
@@ -699,8 +664,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         if (needsDueDate) { missingParts.push('due date'); }
 
         const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-        const duePart = formatDueDate(task.due_date);
-        const durationPart = Number.isFinite((task as any).estimated_duration_minutes) ? String((task as any).estimated_duration_minutes) : 'none';
+        const duePart = formatDueDate(task.dueDate);
+        const durationPart = Number.isFinite(task.estimatedDurationMinutes) ? String(task.estimatedDurationMinutes) : 'none';
 
         const prompt = `I want to schedule this task now. Please ask me conversationally to confirm or fill in any missing values needed for scheduling, then summarize the final values. Also propose one tiny micro-step to get started.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
 
@@ -712,7 +677,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         summary: task.title || 'Task',
         description: task.description || '',
         startTime: new Date().toISOString(),
-        endTime: new Date(Date.now() + (((task as any).estimated_duration_minutes || 60) * 60 * 1000)).toISOString(),
+        endTime: new Date(Date.now() + ((task.estimatedDurationMinutes || 60) * 60 * 1000)).toISOString(),
       });
       
       const startTimeStr = result?.data?.scheduled_time;
@@ -790,19 +755,19 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
   };
 
   const getFocusTask = useCallback((): Task | undefined => {
-    return tasks.find(task => task.is_today_focus && task.status !== 'completed');
+    return tasks.find(task => task.isTodayFocus && task.status !== 'completed');
   }, [tasks]);
 
   const inboxTasks = useMemo(() => {
-    return tasks.filter(task => !task.is_today_focus && task.status !== 'completed');
+    return tasks.filter(task => !task.isTodayFocus && task.status !== 'completed');
   }, [tasks]);
 
   const getAutoScheduledTasks = () => {
-    return tasks.filter(task => task.auto_schedule_enabled);
+    return tasks.filter(task => (task as any).auto_schedule_enabled);
   };
 
   const getScheduledTasks = () => {
-    return tasks.filter(task => task.due_date && task.auto_schedule_enabled);
+    return tasks.filter(task => task.dueDate && (task as any).auto_schedule_enabled);
   };
 
   const renderEmptyState = () => (
@@ -865,7 +830,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
             const now = new Date();
             const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             const todaysEvents = await enhancedAPI.getEventsForDate(today);
-            const taskDuration = (task as any).estimated_duration_minutes || 60;
+            const taskDuration = task.estimatedDurationMinutes || 60;
 
             availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
@@ -1029,7 +994,7 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
       setToastCalendarEvent(false);
       setShowToast(true);
 
-      if (task.is_today_focus && momentumEnabled) {
+      if (task.isTodayFocus && momentumEnabled) {
         try {
           // Get next focus task
           const next = await tasksAPI.focusNext({
@@ -1457,8 +1422,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
                 <View style={styles.focusCard}>
                   <Text style={styles.focusTaskTitle}>{focus.title}</Text>
                   <View style={styles.focusBadges}>
-                    {!!focus.category && (
-                      <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                    {!!(focus as any).category && (
+                      <View style={styles.badge}><Text style={styles.badgeText}>{(focus as any).category}</Text></View>
                     )}
                     <View style={[styles.badge, styles[focus.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
                   </View>
@@ -1602,8 +1567,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
                 <View style={[styles.focusCard, { marginTop: spacing.sm }]}> 
                   <Text style={styles.focusTaskTitle}>{focus.title}</Text>
                   <View style={styles.focusBadges}>
-                    {!!focus.category && (
-                      <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                    {!!(focus as any).category && (
+                      <View style={styles.badge}><Text style={styles.badgeText}>{(focus as any).category}</Text></View>
                     )}
                     <View style={[styles.badge, styles[focus.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
                   </View>

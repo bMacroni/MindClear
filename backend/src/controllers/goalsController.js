@@ -120,8 +120,15 @@ export async function createGoal(req, res) {
 
 export async function getGoals(req, res) {
   const user_id = req.user.id;
+  const since = req.query.since; // For delta sync
+  
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
+  
+  // Validate since parameter if provided
+  if (since && isNaN(Date.parse(since))) {
+    return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
+  }
   
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -133,7 +140,7 @@ export async function getGoals(req, res) {
   });
   
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('goals')
       .select(`
         *,
@@ -144,9 +151,37 @@ export async function getGoals(req, res) {
       `)
       .eq('user_id', user_id)
       .order('created_at', { ascending: false });
+    
+    // Add `since` filter for delta sync
+    if (since) {
+      query = query.gt('updated_at', since);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return res.status(400).json({ error: error.message });
+    }
+
+    // For incremental sync, return in the same format as events
+    if (since) {
+      let deleted = [];
+      const { data: deletedData, error: deletedError } = await supabase
+        .from('deleted_records')
+        .select('record_id')
+        .eq('user_id', user_id)
+        .eq('table_name', 'goals')
+        .gt('deleted_at', since);
+
+      if (deletedError) {
+        logger.error('Error fetching deleted goal records:', deletedError);
+        return res.status(500).json({ error: 'Failed to fetch deleted records for delta sync' });
+      } else {
+        deleted = deletedData.map(r => r.record_id);
+      }
+      
+      logger.info(`[Goals API] Returning ${data.length} changed and ${deleted.length} deleted goals for user ${user_id}`);
+      return res.json({ changed: data, deleted });
     }
 
     res.json(data);

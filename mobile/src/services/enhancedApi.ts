@@ -65,11 +65,18 @@ class EnhancedAPI {
 
       // Handle empty responses (common for DELETE operations)
       const text = await response.text();
-      if (text === '') {
+      if (text.trim() === '') {
         return undefined as T;
       }
-      return JSON.parse(text);
-    } catch (error) {
+      
+      try {
+        return JSON.parse(text);
+      } catch (parseError) {
+        const error = new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+        (error as any).originalError = parseError;
+        (error as any).responseText = text.substring(0, 200); // Log first 200 chars
+        throw error;
+      }    } catch (error) {
       // If it's already a UserFriendlyError, re-throw it
       if ((error as any).title && (error as any).message) {
         throw error;
@@ -277,9 +284,13 @@ class EnhancedAPI {
   }
 
   // Tasks API methods
-  async getTasks(): Promise<any> {
+  async getTasks(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/tasks?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/tasks`;
+    
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/tasks`,
+      url,
       { method: 'GET' },
       ErrorCategory.TASKS,
       'getTasks'
@@ -331,9 +342,13 @@ class EnhancedAPI {
   }
 
   // Goals API methods
-  async getGoals(): Promise<any> {
+  async getGoals(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/goals?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/goals`;
+    
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/goals`,
+      url,
       { method: 'GET' },
       ErrorCategory.GOALS,
       'getGoals'
