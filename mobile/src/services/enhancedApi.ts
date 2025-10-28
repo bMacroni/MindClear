@@ -24,7 +24,7 @@ class EnhancedAPI {
     category: ErrorCategory,
     operation: string,
     retryCount: number = 0
-  ): Promise<T> {
+  ): Promise<T | undefined> {
     const context: ErrorContext = {
       operation,
       endpoint: url,
@@ -44,11 +44,15 @@ class EnhancedAPI {
 
       // Add timeout to prevent hanging requests
       const timeoutMs = 30000; // 30 second timeout
+      const controller = new AbortController();
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs);
+        setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Request timeout after ${timeoutMs}ms for ${operation} at ${url}`));
+        }, timeoutMs);
       });
 
-      const fetchPromise = fetch(url, options);
+      const fetchPromise = fetch(url, { ...options, signal: controller.signal });
       const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
@@ -73,7 +77,7 @@ class EnhancedAPI {
       // Handle empty responses (common for DELETE operations)
       const text = await response.text();
       if (text.trim() === '') {
-        return undefined as T;
+        return undefined;
       }
       
       try {
@@ -85,7 +89,7 @@ class EnhancedAPI {
         throw error;
       }
 } catch (error) {      // If it's already a UserFriendlyError, re-throw it
-      if ((error as any).title && (error as any).message) {
+      if (error && typeof error === 'object' && 'isUserFriendlyError' in error) {
         throw error;
       }
       
@@ -198,12 +202,14 @@ class EnhancedAPI {
   }
 
   async deleteEvent(eventId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/calendar/events/${eventId}?useSupabase=true`,
       { method: 'DELETE' },
       ErrorCategory.CALENDAR,
       'deleteEvent'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Convenience: schedule a task by creating a linked calendar event
@@ -239,23 +245,35 @@ class EnhancedAPI {
   }
 
   async getCalendarStatus(): Promise<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }>{
-    return this.makeRequest(
+    const result = await this.makeRequest<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }>(
       `${getSecureApiBaseUrl()}/calendar/status`,
       { method: 'GET' },
       ErrorCategory.CALENDAR,
       'getCalendarStatus'
     );
+    
+    if (result === undefined || result === null) {
+      throw new Error('Calendar status not available');
+    }
+    
+    return result;
   }
 
 
 
   async importCalendarFirstRun(): Promise<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }>{
-    return this.makeRequest(
+    const result = await this.makeRequest<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }>(
       `${getSecureApiBaseUrl()}/calendar/import/first-run`,
       { method: 'POST' },
       ErrorCategory.SYNC,
       'importCalendarFirstRun'
     );
+    
+    if (result === undefined || result === null) {
+      throw new Error('Calendar import result not available');
+    }
+    
+    return result;
   }
 
   async getAppPreferences(): Promise<any> {
@@ -282,12 +300,18 @@ class EnhancedAPI {
 
   // User config
   async getUserConfig(): Promise<{ supabaseUrl: string; supabaseAnonKey: string; }> {
-    return this.makeRequest(
+    const result = await this.makeRequest<{ supabaseUrl: string; supabaseAnonKey: string; }>(
       `${getSecureApiBaseUrl()}/user/config`,
       { method: 'GET' },
       ErrorCategory.SYNC,
       'getUserConfig'
     );
+    
+    if (result === undefined || result === null) {
+      throw new Error('User config not available');
+    }
+    
+    return result;
   }
 
   // Tasks API methods
@@ -340,12 +364,14 @@ class EnhancedAPI {
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/tasks/${taskId}`,
       { method: 'DELETE' },
       ErrorCategory.TASKS,
       'deleteTask'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Goals API methods
@@ -389,12 +415,14 @@ class EnhancedAPI {
   }
 
   async deleteGoal(goalId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/goals/${goalId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteGoal'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Milestone API methods
@@ -425,12 +453,14 @@ class EnhancedAPI {
   }
 
   async deleteMilestone(milestoneId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteMilestone'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Step API methods
@@ -461,12 +491,14 @@ class EnhancedAPI {
   }
 
   async deleteStep(stepId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/steps/${stepId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteStep'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Auto-scheduling API methods

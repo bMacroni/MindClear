@@ -14,6 +14,26 @@ const DEBUG = process.env.DEBUG_LOGS === 'true';
  */
 
 /**
+ * Helper function to normalize priority to category for goals
+ * @param {Object} args - Arguments object containing priority and category
+ * @param {string} functionName - Name of the calling function for logging
+ * @returns {string|null} - The computed category filter or null if none
+ */
+function normalizePriorityToCategory(args, functionName) {
+  let categoryFilter = args.category;
+  
+  if (args.priority && !args.category) {
+    // If priority is provided but not category, use priority as the category filter
+    categoryFilter = args.priority;
+  } else if (args.priority && args.category) {
+    // If both are provided, category takes precedence (log a warning for debugging)
+    logger.warn(`[${functionName}] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
+  }
+  
+  return categoryFilter;
+}
+
+/**
  * Helper function to create a goal with milestones and steps
  * @param {Object} supabase - Supabase client instance
  * @param {string} userId - User ID
@@ -387,36 +407,63 @@ export async function updateGoal(req, res) {
 }
 
 export async function deleteGoal(req, res) {
-  // Goal deletion initiated
-  
-  // Get the JWT from the request
-  const token = req.headers.authorization?.split(' ')[1];
-  
-  // Create Supabase client with the JWT
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+  try {
+    // Get the JWT from the request
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    // Create Supabase client with the JWT
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
       }
+    });
+    
+    const user_id = req.user.id;
+    const { id } = req.params;
+    
+    // Validate input
+    if (!id) {
+      return res.status(400).json({ error: 'Goal ID is required' });
     }
-  });
-  
-  const user_id = req.user.id;
-  const { id } = req.params;
-  
-  // Attempting to delete goal
-  
-  const { error } = await supabase
-    .from('goals')
-    const { data: match, error: fetchError } = await supabase
+    
+    // First, verify the goal exists and belongs to the user
+    const { data: goal, error: fetchError } = await supabase
       .from('goals')
-      .select('id, title')
-      .eq('user_id', userId)
-      .ilike('title', title.trim())
-      .maybeSingle();
-    if (fetchError) return { error: fetchError.message };
-    if (!match) return { error: `No goal found with title '${title}'` };
-    goalId = match.id;  res.status(204).send();
+      .select('id')
+      .eq('id', id)
+      .eq('user_id', user_id)
+      .single();
+    
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Goal not found' });
+      }
+      return res.status(500).json({ error: 'Failed to fetch goal' });
+    }
+    
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+    
+    // Delete the goal
+    const { error: deleteError } = await supabase
+      .from('goals')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user_id);
+    
+    if (deleteError) {
+      return res.status(500).json({ error: 'Failed to delete goal' });
+    }
+    
+    // Return success response
+    res.status(204).send();
+  } catch (error) {
+    logger.error('Error deleting goal:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 } 
 
 export async function deleteGoalFromAI(args, userId, userContext) {
@@ -484,16 +531,8 @@ export async function getGoalsForUser(userId, token, args = {}) {
     query = query.eq('target_completion_date', args.due_date);
   }
   
-  // Normalize priority to category: Goals only have a 'category' field, not a separate 'priority' field
-  // Priority values (low/medium/high) are treated as category values for goals
-  let categoryFilter = args.category;
-  if (args.priority && !args.category) {
-    // If priority is provided but not category, use priority as the category filter
-    categoryFilter = args.priority;
-  } else if (args.priority && args.category) {
-    // If both are provided, category takes precedence (log a warning for debugging)
-    console.warn(`[getGoalsForUser] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
-  }
+  // Normalize priority to category using helper function
+  const categoryFilter = normalizePriorityToCategory(args, 'getGoalsForUser');
   
   if (categoryFilter) {
     query = query.eq('category', categoryFilter);
@@ -531,16 +570,8 @@ export async function getGoalTitlesForUser(userId, token, args = {}) {
   // Apply filters
   if (args.search) query = query.ilike('title', `%${args.search}%`);
   
-  // Normalize priority to category: Goals only have a 'category' field, not a separate 'priority' field
-  // Priority values (low/medium/high) are treated as category values for goals
-  let categoryFilter = args.category;
-  if (args.priority && !args.category) {
-    // If priority is provided but not category, use priority as the category filter
-    categoryFilter = args.priority;
-  } else if (args.priority && args.category) {
-    // If both are provided, category takes precedence (log a warning for debugging)
-    console.warn(`[getGoalTitlesForUser] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
-  }
+  // Normalize priority to category using helper function
+  const categoryFilter = normalizePriorityToCategory(args, 'getGoalTitlesForUser');
   
   if (categoryFilter) {
     query = query.eq('category', categoryFilter);
@@ -638,67 +669,6 @@ export async function createTaskFromNextGoalStep(userId, token, args = {}) {
     goal: { id: goal.id, title: goal.title },
     used_step: { id: selectedStep.id, text: selectedStep.text },
   };
-}
-
-export async function lookupGoalbyTitle(userId, token, args = {}) {
-  if (!token) {
-    return { error: 'No authentication token provided' };
-  }
-
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: { Authorization: `Bearer ${token}` }
-    }
-  });
-
-  let query = supabase
-    .from('goals')
-    .select('id, title')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (args.search) {
-    query = query.ilike('title', `%${args.search}%`);
-  }
-  
-  // Normalize priority to category: Goals only have a 'category' field, not a separate 'priority' field
-  // Priority values (low/medium/high) are treated as category values for goals
-  let categoryFilter = args.category;
-  if (args.priority && !args.category) {
-    // If priority is provided but not category, use priority as the category filter
-    categoryFilter = args.priority;
-  } else if (args.priority && args.category) {
-    // If both are provided, category takes precedence (log a warning for debugging)
-    console.warn(`[lookupGoalbyTitle] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
-  }
-  
-  if (categoryFilter) {
-    query = query.eq('category', categoryFilter);
-  }
-  
-  if (args.status) {
-    query = query.eq('status', args.status);
-  }
-  if (args.due_date) {
-    query = query.eq('target_completion_date', args.due_date);
-  }
-  if (args.limit && Number.isInteger(args.limit) && args.limit > 0) {
-    query = query.limit(args.limit);
-  } else if (args.search) {
-    // default to 1 when doing a targeted lookup
-    query = query.limit(1);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  if (data && data.length > 0) {
-    return data;
-  }
-  return { error: 'No goals matched your query' };
 }
 
 export async function createGoalFromAI(args, userId, userContext) {

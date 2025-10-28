@@ -335,28 +335,23 @@ describe('WatermelonDB Integration Tests', () => {
       
       (enhancedAPI.getTasks as jest.Mock).mockResolvedValue(incrementalResponse);
       
-      // Create a task that will be "deleted" by server
-      const taskToDelete = await taskRepository.createTask({
-        title: 'Task to be Deleted',
-        userId: 'test-user-id',
+      // Create a task with specific ID that server will mark as deleted
+      await database.write(async () => {
+        await database.collections.get('tasks').create((task: any) => {
+          task._raw.id = 'task-2';
+          task.title = 'Task to be Deleted';
+          task.userId = 'test-user-id';
+          task.status = 'synced';
+        });
       });
       
-      // Mock successful sync to mark as synced
-      (enhancedAPI.createTask as jest.Mock).mockResolvedValue({
-        id: taskToDelete.id,
-        updated_at: new Date().toISOString(),
-      });
-      
-      await syncService.sync();
-      
-      // Now trigger incremental sync
+      // Trigger incremental sync with deletion
       await syncService.sync();
       
       // Verify task was deleted
       const deletedTask = await taskRepository.getTaskById('task-2');
       expect(deletedTask).toBeNull();
-    });
-  });
+    });  });
 
   describe('Conflict Resolution', () => {
     test('Handles 409 conflict responses', async () => {

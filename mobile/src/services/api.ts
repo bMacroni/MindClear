@@ -1198,7 +1198,6 @@ export const usersAPI = {
       const token = await getAuthToken();
       const url = `${getSecureApiBaseUrl()}/tasks/notifications?status=${status}`;
       logger.debug('🔔 API: Making request to:', url);
-      logger.debug('🔔 API: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
       
       const response = await fetch(url, {
           method: 'GET',
@@ -1216,12 +1215,10 @@ export const usersAPI = {
       return response.json();
     } catch (error) {
       logger.error('Error getting notifications:', error);
-      if (error instanceof Error) {
-        throw new Error(`Failed to fetch notifications: ${error.message}`);
-      }
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to fetch notifications: ${message}`);
     }
-  },
+  }  },
 
   markAsRead: async (notificationId: string): Promise<void> => {
     try {

@@ -2,6 +2,21 @@ import {Model, Query} from '@nozbe/watermelondb';
 import {field, date, text, children} from '@nozbe/watermelondb/decorators';
 import Milestone from './Milestone';
 
+// TypeScript interface for Goal
+export interface GoalType {
+  id: string;
+  title: string;
+  description?: string;
+  targetCompletionDate?: Date;
+  progressPercentage?: number;
+  category?: string;
+  isActive?: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  status: string;
+  userId: string;
+}
+
 export default class Goal extends Model {
   static table = 'goals';
   static associations = {

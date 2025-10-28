@@ -975,14 +975,14 @@ export async function toggleAutoSchedule(req, res) {
     .single();
 
   if (taskError) {
-    logger.error('Supabase error in bulkCreateTasks:', taskError);
-    return res.status(400).json({ error: taskError.message });
-  if (taskError) {
     logger.error('Supabase error in toggleAutoSchedule:', taskError);
     return res.status(400).json({ error: taskError.message });
-  }    return res.status(400).json({ error: 'Cannot modify auto-scheduling for completed tasks' });
   }
 
+  // Prevent toggling auto-schedule on completed tasks
+  if (task && task.status === 'completed') {
+    return res.status(400).json({ error: 'Cannot modify auto-scheduling for completed tasks' });
+  }
   const { data, error } = await supabase
     .from('tasks')
     .update({ auto_schedule_enabled })

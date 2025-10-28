@@ -184,7 +184,7 @@ class ErrorRecoveryService {
   // Check if error is retryable
   private isRetryableError(error: any, _category: ErrorCategory): boolean {
     // Don't retry authentication errors
-    if (error && typeof error === 'object' && 'title' in error) {
+    if (error && typeof error === 'object' && 'isUserFriendlyError' in error) {
       const userError = error as UserFriendlyError;
       return userError.retryable;
     }

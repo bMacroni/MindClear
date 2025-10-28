@@ -266,83 +266,110 @@ jest.mock('../services/offline', () => ({
   },
 }));
 
+// Mock enhanced API
+jest.mock('../services/enhancedApi', () => ({
+  enhancedAPI: {
+    createTask: jest.fn(() => Promise.resolve({})),
+    updateTask: jest.fn(() => Promise.resolve({})),
+    deleteTask: jest.fn(() => Promise.resolve()),
+    createGoal: jest.fn(() => Promise.resolve({})),
+    updateGoal: jest.fn(() => Promise.resolve({})),
+    deleteGoal: jest.fn(() => Promise.resolve()),
+  },
+}));
+
 // Mock sync service
 jest.mock('../services/SyncService', () => ({
   syncService: {
     sync: jest.fn(async (silent = false) => {
-      // Simulate actual sync behavior by calling API methods
-      const { taskRepository } = require('../repositories/TaskRepository');
-      const { goalRepository } = require('../repositories/GoalRepository');
-      const { enhancedAPI } = require('../services/enhancedApi');
-      
-      // Get all pending tasks and sync them
-      const allTasks = await taskRepository.getAllTasks();
-      for (const task of allTasks) {
-        if (task.status === 'pending_create') {
-          // Simulate API call
-          await enhancedAPI.createTask({
-            title: task.title,
-            description: task.description,
-            priority: task.priority,
-            due_date: task.dueDate,
-            estimated_duration_minutes: task.estimatedDurationMinutes,
-            goal_id: task.goalId,
-            is_today_focus: task.isTodayFocus,
-            user_id: task.userId,
-            client_updated_at: task.updatedAt?.toISOString(),
-          });
-          await taskRepository.updateTask(task.id, { status: 'synced' });
-        } else if (task.status === 'pending_update') {
-          await enhancedAPI.updateTask(task.id, {
-            title: task.title,
-            description: task.description,
-            priority: task.priority,
-            due_date: task.dueDate,
-            estimated_duration_minutes: task.estimatedDurationMinutes,
-            goal_id: task.goalId,
-            is_today_focus: task.isTodayFocus,
-            user_id: task.userId,
-            client_updated_at: task.updatedAt?.toISOString(),
-          });
-          await taskRepository.updateTask(task.id, { status: 'synced' });
-        } else if (task.status === 'pending_delete') {
-          await enhancedAPI.deleteTask(task.id);
-          // Remove from mock storage by updating to null status
-          await taskRepository.updateTask(task.id, { status: 'deleted' });
+      try {
+        // Simulate actual sync behavior by calling API methods
+        const { taskRepository } = require('../repositories/TaskRepository');
+        const { goalRepository } = require('../repositories/GoalRepository');
+        const { enhancedAPI } = require('../services/enhancedApi');
+        
+        // Get all pending tasks and sync them
+        const allTasks = await taskRepository.getAllTasks();
+        for (const task of allTasks) {
+          try {
+            if (task.status === 'pending_create') {
+              // Simulate API call
+              await enhancedAPI.createTask({
+                title: task.title,
+                description: task.description,
+                priority: task.priority,
+                due_date: task.dueDate,
+                estimated_duration_minutes: task.estimatedDurationMinutes,
+                goal_id: task.goalId,
+                is_today_focus: task.isTodayFocus,
+                user_id: task.userId,
+                client_updated_at: task.updatedAt?.toISOString(),
+              });
+              await taskRepository.updateTask(task.id, { status: 'synced' });
+            } else if (task.status === 'pending_update') {
+              await enhancedAPI.updateTask(task.id, {
+                title: task.title,
+                description: task.description,
+                priority: task.priority,
+                due_date: task.dueDate,
+                estimated_duration_minutes: task.estimatedDurationMinutes,
+                goal_id: task.goalId,
+                is_today_focus: task.isTodayFocus,
+                user_id: task.userId,
+                client_updated_at: task.updatedAt?.toISOString(),
+              });
+              await taskRepository.updateTask(task.id, { status: 'synced' });
+            } else if (task.status === 'pending_delete') {
+              await enhancedAPI.deleteTask(task.id);
+              // Remove from mock storage by updating to null status
+              await taskRepository.updateTask(task.id, { status: 'deleted' });
+            }
+          } catch (error) {
+            console.error(`Failed to sync task ${task.id}:`, error);
+            // Continue with other tasks even if one fails
+          }
         }
-      }
-      
-      // Get all pending goals and sync them
-      const allGoals = await goalRepository.getAllGoals();
-      for (const goal of allGoals) {
-        if (goal.status === 'pending_create') {
-          await enhancedAPI.createGoal({
-            title: goal.title,
-            description: goal.description,
-            target_completion_date: goal.targetCompletionDate,
-            category: goal.category,
-            user_id: goal.userId,
-            client_updated_at: goal.updatedAt?.toISOString(),
-          });
-          await goalRepository.updateGoal(goal.id, { status: 'synced' });
-        } else if (goal.status === 'pending_update') {
-          await enhancedAPI.updateGoal(goal.id, {
-            title: goal.title,
-            description: goal.description,
-            target_completion_date: goal.targetCompletionDate,
-            category: goal.category,
-            user_id: goal.userId,
-            client_updated_at: goal.updatedAt?.toISOString(),
-          });
-          await goalRepository.updateGoal(goal.id, { status: 'synced' });
-        } else if (goal.status === 'pending_delete') {
-          await enhancedAPI.deleteGoal(goal.id);
-          // Remove from mock storage by updating to null status
-          await goalRepository.updateGoal(goal.id, { status: 'deleted' });
+        
+        // Get all pending goals and sync them
+        const allGoals = await goalRepository.getAllGoals();
+        for (const goal of allGoals) {
+          try {
+            if (goal.status === 'pending_create') {
+              await enhancedAPI.createGoal({
+                title: goal.title,
+                description: goal.description,
+                target_completion_date: goal.targetCompletionDate,
+                category: goal.category,
+                user_id: goal.userId,
+                client_updated_at: goal.updatedAt?.toISOString(),
+              });
+              await goalRepository.updateGoal(goal.id, { status: 'synced' });
+            } else if (goal.status === 'pending_update') {
+              await enhancedAPI.updateGoal(goal.id, {
+                title: goal.title,
+                description: goal.description,
+                target_completion_date: goal.targetCompletionDate,
+                category: goal.category,
+                user_id: goal.userId,
+                client_updated_at: goal.updatedAt?.toISOString(),
+              });
+              await goalRepository.updateGoal(goal.id, { status: 'synced' });
+            } else if (goal.status === 'pending_delete') {
+              await enhancedAPI.deleteGoal(goal.id);
+              // Remove from mock storage by updating to null status
+              await goalRepository.updateGoal(goal.id, { status: 'deleted' });
+            }
+          } catch (error) {
+            console.error(`Failed to sync goal ${goal.id}:`, error);
+            // Continue with other goals even if one fails
+          }
         }
+        
+        return Promise.resolve();
+      } catch (error) {
+        console.error('Sync service failed:', error);
+        throw error;
       }
-      
-      return Promise.resolve();
     }),
     silentSync: jest.fn(async () => {
       return require('../services/SyncService').syncService.sync(true);
@@ -397,13 +424,17 @@ jest.mock('../repositories/TaskRepository', () => {
       updateTask: jest.fn(async (id, updates) => {
         const task = mockTasks.get(id);
         if (task) {
-          const updatedTask = { ...task, ...updates, status: 'pending_update', updatedAt: new Date() };
+          const updatedTask = { 
+            ...task, 
+            ...updates, 
+            status: updates.status !== undefined ? updates.status : 'pending_update', 
+            updatedAt: new Date() 
+          };
           mockTasks.set(id, updatedTask);
           return updatedTask;
         }
         return null;
-      }),
-      deleteTask: jest.fn(async (id) => {
+      }),      deleteTask: jest.fn(async (id) => {
         const task = mockTasks.get(id);
         if (task) {
           const deletedTask = { ...task, status: 'pending_delete', updatedAt: new Date() };
@@ -417,7 +448,7 @@ jest.mock('../repositories/TaskRepository', () => {
         return task && task.status !== 'deleted' ? task : null;
       }),
       getAllTasks: jest.fn(async () => {
-        return Array.from(mockTasks.values()).filter(task => task.status !== 'pending_delete' && task.status !== 'deleted');
+        return Array.from(mockTasks.values()).filter(task => task.status !== 'deleted');
       }),
       getTasksByStatus: jest.fn(async (status) => {
         return Array.from(mockTasks.values()).filter(task => task.status === status);
@@ -512,13 +543,17 @@ jest.mock('../repositories/GoalRepository', () => {
       updateGoal: jest.fn(async (id, updates) => {
         const goal = mockGoals.get(id);
         if (goal) {
-          const updatedGoal = { ...goal, ...updates, status: 'pending_update', updatedAt: new Date() };
+          const updatedGoal = { 
+            ...goal, 
+            ...updates, 
+            status: updates.status !== undefined ? updates.status : 'pending_update', 
+            updatedAt: new Date() 
+          };
           mockGoals.set(id, updatedGoal);
           return updatedGoal;
         }
         return null;
-      }),
-      deleteGoal: jest.fn(async (id) => {
+      }),      deleteGoal: jest.fn(async (id) => {
         const goal = mockGoals.get(id);
         if (goal) {
           const deletedGoal = { ...goal, status: 'pending_delete', updatedAt: new Date() };
@@ -532,7 +567,7 @@ jest.mock('../repositories/GoalRepository', () => {
         return goal && goal.status !== 'deleted' ? goal : null;
       }),
       getAllGoals: jest.fn(async () => {
-        return Array.from(mockGoals.values()).filter(goal => goal.status !== 'pending_delete' && goal.status !== 'deleted');
+        return Array.from(mockGoals.values()).filter(goal => goal.status !== 'deleted');
       }),
       getGoalsByStatus: jest.fn(async (status) => {
         return Array.from(mockGoals.values()).filter(goal => goal.status === status);
@@ -678,10 +713,6 @@ jest.mock('@nozbe/watermelondb', () => ({
   Database: jest.fn(),
 }));
 
-// Global test setup
-beforeEach(() => {
-  jest.clearAllMocks();
-});
 
 // Global test teardown
 afterEach(() => {

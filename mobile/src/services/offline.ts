@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { CalendarEvent, Task } from '../types/calendar';
-import { Goal } from '../services/api';
+import Goal from '../db/models/Goal';
+import { Goal as ApiGoal } from './api';
 import { taskRepository } from '../repositories/TaskRepository';
 import { goalRepository } from '../repositories/GoalRepository';
 
@@ -125,7 +126,7 @@ class OfflineService {
     }
   }
 
-  async getCachedTasks(): Promise<any[] | null> {
+  async getCachedTasks(): Promise<Task[] | null> {
     try {
       return await taskRepository.getAllTasks();
     } catch (_error) {
@@ -139,11 +140,34 @@ class OfflineService {
     console.warn('offlineService.cacheTasks is deprecated - use taskRepository');
   }
 
-  async getCachedGoals(): Promise<any[] | null> {
+  // Convert WatermelonDB Goal model to API Goal type
+  private convertGoalToApiType(watermelonGoal: Goal): ApiGoal {
+    return {
+      id: watermelonGoal.id,
+      title: watermelonGoal.title,
+      description: watermelonGoal.description || '',
+      target_completion_date: watermelonGoal.targetCompletionDate?.toISOString(),
+      category: watermelonGoal.category,
+      completed: watermelonGoal.progressPercentage === 100,
+      created_at: watermelonGoal.createdAt?.toISOString(),
+      milestones: [], // Will be populated separately if needed
+    };
+  }
+
+  async getCachedGoals(): Promise<ApiGoal[] | null> {
     try {
-      return await goalRepository.getAllGoals();
-    } catch (_error) {
-      console.error('Error reading cached goals:', _error);
+      const watermelonGoals = await goalRepository.getAllGoals();
+      return watermelonGoals.map(goal => this.convertGoalToApiType(goal));
+    } catch (error) {
+      console.error('Error reading cached goals:', error);
+      
+      // Show user-facing error notification
+      const { notificationService } = await import('./notificationService');
+      notificationService.showInAppNotification(
+        'Error Loading Goals',
+        'Unable to load your goals from local storage. Please try refreshing the app.'
+      );
+      
       return null;
     }
   }

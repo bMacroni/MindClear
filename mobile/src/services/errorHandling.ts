@@ -43,6 +43,7 @@ export interface ErrorContext {
 
 // User-friendly error message interface
 export interface UserFriendlyError {
+  readonly isUserFriendlyError: true;
   title: string;
   message: string;
   action?: string;
@@ -499,6 +500,7 @@ class ErrorHandlingService {
     };
 
     return {
+      isUserFriendlyError: true,
       ...errorInfo,
       severity: this.determineSeverity(type, category),
       category,

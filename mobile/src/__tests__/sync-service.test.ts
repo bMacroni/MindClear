@@ -555,7 +555,7 @@ describe('SyncService Tests', () => {
       expect(pendingTask?.status).toBe('pending_create');
     });
 
-    test('handles JSON parse errors gracefully', async () => {
+    test('handles empty DELETE responses', async () => {
       // Mock empty response (common for DELETE operations)
       (enhancedAPI.deleteTask as jest.Mock).mockResolvedValue(undefined);
 
@@ -603,13 +603,9 @@ describe('SyncService Tests', () => {
 
   describe('Silent Sync', () => {
     test('silentSync does not show notifications', async () => {
-      // Mock notification service
-      const mockShowNotification = jest.fn();
-      jest.doMock('../services/notificationService', () => ({
-        notificationService: {
-          showInAppNotification: mockShowNotification,
-        },
-      }));
+      // Spy on notification service
+      const notificationService = require('../services/notificationService').notificationService;
+      const mockShowNotification = jest.spyOn(notificationService, 'showInAppNotification');
 
       // Create task
       await taskRepository.createTask({
@@ -629,5 +625,4 @@ describe('SyncService Tests', () => {
       // Verify no notifications were shown
       expect(mockShowNotification).not.toHaveBeenCalled();
     });
-  });
-});
+  });});

@@ -12,7 +12,7 @@ import { goalRepository } from '../../repositories/GoalRepository';
 import { syncService } from '../../services/SyncService';
 import { authService, AuthState } from '../../services/auth';
 import { Q } from '@nozbe/watermelondb';
-import Goal from '../../db/models/Goal';
+import GoalModel from '../../db/models/Goal';
 import analyticsService from '../../services/analyticsService';
 import GoalsListModal from '../../components/goals/GoalsListModal';
 import AddGoalOptionsModal from '../../components/goals/AddGoalOptionsModal';
@@ -232,19 +232,46 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     }
   }, [authState.isAuthenticated, authState.isLoading]);
 
-  // Transform WatermelonDB goals to the expected format
+  // Transform WatermelonDB goals to the expected format with optimized batch queries
   const transformGoals = useCallback(async (watermelonGoals: Goal[]) => {
-    const transformedGoals = await Promise.all(watermelonGoals.map(async (goal: any) => {
-      // Fetch milestones for this goal
-      const milestones = await goal.milestones.fetch();
-      
-      // Fetch steps for each milestone
-      const milestonesWithSteps = await Promise.all(milestones.map(async (milestone: any) => {
-        const steps = await milestone.steps.fetch();
-        return {
-          ...milestone,
-          steps: steps
-        };
+    if (watermelonGoals.length === 0) return [];
+    
+    const database = useDatabase();
+    const goalIds = watermelonGoals.map(g => g.id);
+    
+    // Batch fetch all milestones for all goals (eliminates N+1 query)
+    const allMilestones = await database.collections.get('milestones')
+      .query(Q.where('goal_id', Q.oneOf(goalIds)))
+      .fetch();
+    
+    // Batch fetch all steps for all milestones (eliminates N*M+1 query)
+    const milestoneIds = allMilestones.map(m => m.id);
+    const allSteps = milestoneIds.length > 0 
+      ? await database.collections.get('milestone_steps')
+          .query(Q.where('milestone_id', Q.oneOf(milestoneIds)))
+          .fetch()
+      : [];
+    
+    // Group milestones by goal_id for efficient lookup
+    const milestonesByGoal = allMilestones.reduce((acc, milestone: any) => {
+      if (!acc[milestone.goalId]) acc[milestone.goalId] = [];
+      acc[milestone.goalId].push(milestone);
+      return acc;
+    }, {} as Record<string, any[]>);
+    
+    // Group steps by milestone_id for efficient lookup
+    const stepsByMilestone = allSteps.reduce((acc, step: any) => {
+      if (!acc[step.milestoneId]) acc[step.milestoneId] = [];
+      acc[step.milestoneId].push(step);
+      return acc;
+    }, {} as Record<string, any[]>);
+    
+    // Transform goals using pre-fetched data
+    const transformedGoals = watermelonGoals.map((goal: any) => {
+      const milestones = milestonesByGoal[goal.id] || [];
+      const milestonesWithSteps = milestones.map((milestone: any) => ({
+        ...milestone,
+        steps: stepsByMilestone[milestone.id] || []
       }));
       
       const totalMilestones = milestonesWithSteps.length;
@@ -276,14 +303,14 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
           order: milestone.order,
           steps: (milestone.steps || []).map((step: any) => ({
             id: step.id,
-            title: step.text || step.title,
+            title: step.text, // Fixed: MilestoneStep model uses 'text' property, not 'title'
             description: step.description || '',
             completed: step.completed || false,
             order: step.order,
           })),
         })),
       } as Goal;
-    }));
+    });
     
     return transformedGoals;
   }, []);
@@ -448,7 +475,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
           for (const draftStep of draftMilestone.steps) {
             const origStep = origMilestone.steps.find((s) => s.id === draftStep.id);
             if (origStep && (origStep.title !== draftStep.title)) {
-              await goalRepository.updateStep(draftStep.id, { text: draftStep.title });
+              await goalRepository.updateMilestoneStep(draftStep.id, { text: draftStep.title });
             }
           }
         }
@@ -537,7 +564,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     }));
 
     try {
-      await goalRepository.updateStep(stepId, { completed: newCompleted });
+      await goalRepository.updateMilestoneStep(stepId, { completed: newCompleted });
       // Trigger background sync
       syncService.silentSync();
     } catch (error) {
@@ -847,7 +874,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                           onPress={async () => {
                             try {
                               setLoading(true);
-                              await goalRepository.deleteStep(sDraft.id);
+                              await goalRepository.deleteMilestoneStep(sDraft.id);
                               setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                                 ...g,
                                 milestones: g.milestones.map((mm) => mm.id === mDraft.id ? { ...mm, steps: mm.steps.filter((s) => s.id !== sDraft.id) } : mm),
@@ -873,7 +900,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                             try {
                               setLoading(true);
                               const order = (mDraft.steps?.length || 0) + 1;
-                              const created = await goalRepository.createStep(mDraft.id, { text: 'New step', order });
+                              const created = await goalRepository.createMilestoneStep(mDraft.id, { text: 'New step', order });
                               setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                                 ...g,
                                 milestones: g.milestones.map((mm) => mm.id === mDraft.id ? { ...mm, steps: [...mm.steps, { id: created.id, title: created.text, description: '', completed: false, order }] } : mm),
@@ -934,7 +961,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                         try {
                           setLoading(true);
                           const order = 1;
-                          const created = await goalRepository.createStep(mDraft.id, { text: 'New step', order });
+                          const created = await goalRepository.createMilestoneStep(mDraft.id, { text: 'New step', order });
                           setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                             ...g,
                             milestones: g.milestones.map((mm) => mm.id === mDraft.id ? { ...mm, steps: [...mm.steps, { id: created.id, title: created.text, description: '', completed: false, order }] } : mm),

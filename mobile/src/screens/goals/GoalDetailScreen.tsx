@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -530,16 +530,28 @@ const styles = StyleSheet.create({
   },
 });
 
-const enhance = withObservables(['goalId'], ({goalId, database}) => ({
-  goal: database.collections.get('goals').findAndObserve(goalId),
-  milestones: database.collections.get('milestones')
-    .query(
-      Q.where('goal_id', goalId),
-      Q.where('status', Q.notEq('pending_delete')),
-      Q.sortBy('order', Q.asc)
-    )
-    .observe(),
-}));
+const enhance = withObservables(['route', 'database'], ({route, database}) => {
+  const goalId = route?.params?.goalId;
+  
+  // Guard against missing goalId
+  if (!goalId) {
+    return {
+      goal: null,
+      milestones: [],
+    };
+  }
+  
+  return {
+    goal: database.collections.get('goals').findAndObserve(goalId),
+    milestones: database.collections.get('milestones')
+      .query(
+        Q.where('goal_id', goalId),
+        Q.where('status', Q.notEq('pending_delete')),
+        Q.sortBy('order', Q.asc)
+      )
+      .observe(),
+  };
+});
 
 const EnhancedGoalDetailScreen = enhance(GoalDetailScreen);
 

@@ -5,6 +5,7 @@ import {
   text,
   relation,
 } from '@nozbe/watermelondb/decorators';
+import {GoalType} from './Goal';
 
 // TypeScript interface for Task
 export interface TaskType {
@@ -24,7 +25,7 @@ export interface TaskType {
   location?: string;
   autoScheduleEnabled?: boolean;
   category?: string;
-  goal?: any;
+  goal?: GoalType;
 }
 
 export default class Task extends Model {
@@ -49,7 +50,7 @@ export default class Task extends Model {
   @field('auto_schedule_enabled') autoScheduleEnabled?: boolean;
   @text('category') category?: string;
 
-  @relation('goals', 'goal_id') goal: any;
+  @relation('goals', 'goal_id') goal?: GoalType;
 
   // Getter for camelCase compatibility
   get auto_schedule_enabled(): boolean {

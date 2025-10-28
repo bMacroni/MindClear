@@ -10,6 +10,7 @@ try {
   execSync('npx jest src/__tests__/watermelondb-integration.test.ts --verbose', {
     stdio: 'inherit',
     cwd: path.join(__dirname, '..'),
+    timeout: 300000,
   });
 
   console.log('\n✅ Integration tests completed successfully!');
@@ -20,6 +21,7 @@ try {
   execSync('npx jest src/__tests__/repository-unit.test.ts --verbose', {
     stdio: 'inherit',
     cwd: path.join(__dirname, '..'),
+    timeout: 300000,
   });
 
   console.log('\n✅ Repository unit tests completed successfully!');
@@ -30,6 +32,7 @@ try {
   execSync('npx jest src/__tests__/sync-service.test.ts --verbose', {
     stdio: 'inherit',
     cwd: path.join(__dirname, '..'),
+    timeout: 300000,
   });
 
   console.log('\n✅ Sync service tests completed successfully!');
