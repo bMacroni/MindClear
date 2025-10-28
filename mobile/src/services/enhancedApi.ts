@@ -42,7 +42,14 @@ class EnhancedAPI {
         };
       }
 
-      const response = await fetch(url, options);
+      // Add timeout to prevent hanging requests
+      const timeoutMs = 30000; // 30 second timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs);
+      });
+
+      const fetchPromise = fetch(url, options);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -76,8 +83,8 @@ class EnhancedAPI {
         (error as any).originalError = parseError;
         (error as any).responseText = text.substring(0, 200); // Log first 200 chars
         throw error;
-      }    } catch (error) {
-      // If it's already a UserFriendlyError, re-throw it
+      }
+} catch (error) {      // If it's already a UserFriendlyError, re-throw it
       if ((error as any).title && (error as any).message) {
         throw error;
       }

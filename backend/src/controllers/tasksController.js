@@ -17,6 +17,23 @@ function normalizeSearchText(input) {
   return q;
 }
 
+// Normalize year rollover for dates in the past
+function normalizeRolloverYear(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  const [_, year, month, day] = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const currentYear = new Date().getFullYear();
+  
+  if (parseInt(year, 10) < currentYear) {
+    const rolloverCandidate = new Date(`${currentYear}-${month}-${day}T12:00:00Z`);
+    return Number.isNaN(rolloverCandidate.getTime()) ? dateStr : `${currentYear}-${month}-${day}`;
+  }
+  
+  return dateStr;
+}
+
 export async function createTask(req, res) {
   const { 
     title, 
@@ -47,29 +64,6 @@ export async function createTask(req, res) {
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
 
-  // Track analytics event
-  try {
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
-    await supabase
-      .from('analytics_events')
-      .insert({
-        user_id,
-        event_name: 'task_created',
-        payload: {
-          source: 'manual',
-          priority: priority || 'medium',
-          has_due_date: !!due_date,
-          has_goal_id: !!goal_id,
-          has_category: !!category,
-          estimated_duration: buffer_time_minutes || null,
-          is_today_focus: !!is_today_focus,
-          timestamp: new Date().toISOString()
-        }
-      });
-  } catch (analyticsError) {
-    // Don't fail the request if analytics fails
-    logger.warn('Failed to track task creation analytics:', analyticsError);
-  }
   
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -129,6 +123,32 @@ export async function createTask(req, res) {
     }
     
     return res.status(400).json({ error: error.message });
+  }
+  
+  // Track analytics event after successful task creation
+  try {
+    const analyticsSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await analyticsSupabase
+      .from('analytics_events')
+      .insert({
+        user_id,
+        event_name: 'task_created',
+        payload: {
+          task_id: data.id,
+          source: 'manual',
+          priority: data.priority || 'medium',
+          has_due_date: !!data.due_date,
+          has_goal_id: !!data.goal_id,
+          has_category: !!data.category,
+          estimated_duration: data.buffer_time_minutes || null,
+          is_today_focus: !!data.is_today_focus,
+          task_type: data.task_type,
+          timestamp: new Date().toISOString()
+        }
+      });
+  } catch (analyticsError) {
+    // Don't fail the request if analytics fails
+    logger.warn('Failed to track task creation analytics:', analyticsError);
   }
   
   // Invalidate user's task cache since we added a new task
@@ -454,12 +474,9 @@ export async function getNextFocusTask(req, res) {
     });
     
     if (validExcludeIds.length > 0) {
-      // Use Supabase's parameterized not method with in operator for security
-      // Pass the array directly to avoid string interpolation
-      const exclusionList = `(${validExcludeIds
-        .map((id) => (typeof id === 'number' ? id : `"${id}"`))
-        .join(',')})`;
-      query = query.not('id', 'in', exclusionList);
+      // Use Supabase's native parameter handling to prevent SQL injection
+      // Pass the array directly to the 'in' operator
+      query = query.not('id', 'in', validExcludeIds);
     }
     // Apply travel preference filter in SQL
     if (travel_preference === 'home_only') {
@@ -616,28 +633,6 @@ export async function createTaskFromAI(args, userId, userContext) {
   const defaultStatus = status || 'not_started';
   const defaultDeadlineType = deadline_type || 'soft';
 
-  // Track analytics event for AI-created tasks
-  try {
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
-    await supabase
-      .from('analytics_events')
-      .insert({
-        user_id: userId,
-        event_name: 'task_created',
-        payload: {
-          source: 'ai',
-          priority: defaultPriority,
-          has_due_date: !!due_date,
-          has_related_goal: !!related_goal,
-          has_category: !!defaultCategory,
-          preferred_time_of_day: preferred_time_of_day || null,
-          timestamp: new Date().toISOString()
-        }
-      });
-  } catch (analyticsError) {
-    // Don't fail the request if analytics fails
-    logger.warn('Failed to track AI task creation analytics:', analyticsError);
-  }
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
       headers: {
@@ -666,31 +661,13 @@ export async function createTaskFromAI(args, userId, userContext) {
   if (due_date && typeof due_date === 'string') {
     // If it's already in YYYY-MM-DD format, normalize past years
     if (/^\d{4}-\d{2}-\d{2}$/.test(due_date)) {
-      const [_, year, month, day] = due_date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      const currentYear = new Date().getFullYear();
-      
-      if (parseInt(year, 10) < currentYear) {
-        const rolloverCandidate = new Date(`${currentYear}-${month}-${day}T12:00:00Z`);
-        parsedDueDate = Number.isNaN(rolloverCandidate.getTime())
-          ? due_date
-          : `${currentYear}-${month}-${day}`;
-      } else {
-        parsedDueDate = due_date;
-      }
+      parsedDueDate = normalizeRolloverYear(due_date);
     } else {
       parsedDueDate = dateParser.parse(due_date);
       
       // Also normalize DateParser results if they're in the past
       if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
-        const [_, year, month, day] = parsedDueDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        const currentYear = new Date().getFullYear();
-        
-        if (parseInt(year, 10) < currentYear) {
-          const rolloverCandidate = new Date(`${currentYear}-${month}-${day}T12:00:00Z`);
-          if (!Number.isNaN(rolloverCandidate.getTime())) {
-            parsedDueDate = `${currentYear}-${month}-${day}`;
-          }
-        }
+        parsedDueDate = normalizeRolloverYear(parsedDueDate);
       }
     }
   }
@@ -698,7 +675,7 @@ export async function createTaskFromAI(args, userId, userContext) {
   // Ensure due_date is stored as a proper date string to avoid timezone conversion
   let finalDueDate = parsedDueDate;
   if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
-    // Add time component to ensure it's treated as local date, not UTC
+    // Add T12:00:00 for consistent midday representation
     finalDueDate = `${parsedDueDate}T12:00:00`;
   }
 
@@ -723,6 +700,34 @@ export async function createTaskFromAI(args, userId, userContext) {
   if (error) {
     return { error: error.message };
   }
+
+  // Track analytics event for AI-created tasks (after successful insertion)
+  try {
+    const analyticsSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    await analyticsSupabase
+      .from('analytics_events')
+      .insert({
+        user_id: userId,
+        event_name: 'task_created',
+        payload: {
+          source: 'ai',
+          task_id: data.id,
+          priority: defaultPriority,
+          has_due_date: !!due_date,
+          has_related_goal: !!related_goal,
+          has_category: !!defaultCategory,
+          preferred_time_of_day: preferred_time_of_day || null,
+          category: defaultCategory,
+          status: defaultStatus,
+          deadline_type: defaultDeadlineType,
+          timestamp: new Date().toISOString()
+        }
+      });
+  } catch (analyticsError) {
+    // Don't fail the request if analytics fails
+    logger.warn('Failed to track AI task creation analytics:', analyticsError);
+  }
+
   return data;
 }
 
@@ -775,14 +780,14 @@ export async function updateTaskFromAI(args, userId, userContext) {
   if (due_date !== undefined) {
     updateData.due_date = typeof due_date === 'string' ? dateParser.parse(due_date) : due_date;
   }
-  if (priority !== undefined) updateData.priority = priority;
-  if (related_goal !== undefined) updateData.goal_id = goalId;
-  // Prefer status as source of truth; DB trigger keeps completed mirrored while it exists
   if (status !== undefined) {
     updateData.status = status;
   } else if (completed !== undefined) {
-    // Back-compat: translate completed to status if provided by older clients
-    updateData.status = completed ? 'completed' : 'not_started';
+    // Back-compat: only handle completed=true; let completed=false preserve existing status
+    if (completed === true) {
+      updateData.status = 'completed';
+    }
+    // If completed=false, don't modify status (could be in_progress or not_started)
   }
   if (preferred_time_of_day !== undefined) updateData.preferred_time_of_day = preferred_time_of_day;
   if (deadline_type !== undefined) updateData.deadline_type = deadline_type;
@@ -972,11 +977,10 @@ export async function toggleAutoSchedule(req, res) {
   if (taskError) {
     logger.error('Supabase error in bulkCreateTasks:', taskError);
     return res.status(400).json({ error: taskError.message });
-  }
-
-  // Prevent toggling auto-scheduling for completed tasks
-  if (task.status === 'completed') {
-    return res.status(400).json({ error: 'Cannot modify auto-scheduling for completed tasks' });
+  if (taskError) {
+    logger.error('Supabase error in toggleAutoSchedule:', taskError);
+    return res.status(400).json({ error: taskError.message });
+  }    return res.status(400).json({ error: 'Cannot modify auto-scheduling for completed tasks' });
   }
 
   const { data, error } = await supabase

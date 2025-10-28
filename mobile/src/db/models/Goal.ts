@@ -1,5 +1,6 @@
-import {Model} from '@nozbe/watermelondb';
+import {Model, Query} from '@nozbe/watermelondb';
 import {field, date, text, children} from '@nozbe/watermelondb/decorators';
+import Milestone from './Milestone';
 
 export default class Goal extends Model {
   static table = 'goals';
@@ -18,7 +19,5 @@ export default class Goal extends Model {
   @text('status') status!: string;
   @text('user_id') userId!: string;
 
-import {Query} from '@nozbe/watermelondb';
-import Milestone from './Milestone';
-
-  @children('milestones') milestones!: Query<Milestone>;}
+  @children('milestones') milestones!: Query<Milestone>;
+}

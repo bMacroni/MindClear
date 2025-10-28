@@ -43,8 +43,14 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // First, initialize secure config
-        await secureConfigService.initialize();
+        // First, initialize secure config with timeout protection
+        console.log('Initializing secure config...');
+        await Promise.race([
+          secureConfigService.initialize(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Secure config initialization timeout')), 15000)
+          )
+        ]);
 
         // Now, set up other services that depend on this config
         configService.setGoogleClientIds({
@@ -54,18 +60,30 @@ function App() {
         });
 
         // Then, set up the database
+        console.log('Initializing database...');
         const db = await initializeDatabase();
         setDatabase(db);
+        console.log('App initialization complete');
 
       } catch (error) {
         console.error('Failed to initialize app:', error);
-        Alert.alert('Initialization Error', 'Could not start the application correctly. Please restart.');
+        // Don't show alert for timeout errors - just log and continue
+        if (error instanceof Error && error.message.includes('timeout')) {
+          console.warn('App initialization timed out, but continuing with fallback configuration');
+        } else {
+          Alert.alert('Initialization Error', 'Could not start the application correctly. Please restart.');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     initializeApp().then(() => {
+      // Try to load remote config now that app is initialized
+      secureConfigService.loadRemoteConfigIfNeeded().catch(error => {
+        console.warn('Failed to load remote config after initialization:', error);
+      });
+
       // Set up sync triggers only after successful initialization
       const appStateSubscription = AppState.addEventListener(
         'change',

@@ -55,7 +55,10 @@ class SecureConfigService {
   async initialize(): Promise<void> {
     if (!this.isLoaded) {
       await this.loadSecureConfig();
-      await this.loadRemoteConfig(); // Load remote config after initial load
+      // Load remote config in background - don't block app startup
+      this.loadRemoteConfig().catch(error => {
+        logger.warn('Background remote config loading failed:', error);
+      });
     }
   }
 
@@ -64,7 +67,15 @@ class SecureConfigService {
       if (!this.config) {
         throw new Error('Secure config is not initialized; cannot load remote config.');
       }
-      const remoteConfig = await enhancedAPI.getUserConfig();
+      
+      // Add timeout to prevent hanging during app startup
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Remote config request timeout')), 10000); // 10 second timeout
+      });
+      
+      const remoteConfigPromise = enhancedAPI.getUserConfig();
+      const remoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
+      
       if (remoteConfig.supabaseUrl && remoteConfig.supabaseAnonKey) {
         this.config.remoteConfig = remoteConfig;
         logger.info('Secure remote config loaded from server');
@@ -73,8 +84,9 @@ class SecureConfigService {
       }
     } catch (error) {
       logger.error('Failed to load secure remote config:', error);
-      // Re-throw to allow callers to handle the failure, enabling UI feedback.
-      throw new Error(`Failed to load remote configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Don't re-throw - allow app to continue with default config
+      // This prevents the app from hanging on startup if the server is unreachable
+      logger.warn('Continuing with default config due to remote config failure');
     }
   }
 
@@ -295,6 +307,13 @@ class SecureConfigService {
       throw new Error('Failed to reset configuration');
     }
   }
+  // Manually trigger remote config loading (useful after app is ready)
+  async loadRemoteConfigIfNeeded(): Promise<void> {
+    if (this.isLoaded && this.config && !this.config.remoteConfig) {
+      await this.loadRemoteConfig();
+    }
+  }
+
   // Health check method
   async healthCheck(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; details: any }> {
     try {

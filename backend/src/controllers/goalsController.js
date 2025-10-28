@@ -3,6 +3,101 @@ import logger from '../utils/logger.js';
 import { sendNotification } from '../services/notificationService.js';
 const DEBUG = process.env.DEBUG_LOGS === 'true';
 
+/**
+ * Goals Controller
+ * 
+ * IMPORTANT: Goals vs Tasks Field Mapping
+ * - Goals table has a 'category' field (USER-DEFINED type goal_category) but NO separate 'priority' field
+ * - Tasks table has both 'priority' (USER-DEFINED type priority_level) and 'category' fields
+ * - For goals, priority parameters are normalized to category filters to maintain API compatibility
+ * - When both priority and category are provided, category takes precedence
+ */
+
+/**
+ * Helper function to create a goal with milestones and steps
+ * @param {Object} supabase - Supabase client instance
+ * @param {string} userId - User ID
+ * @param {Object} goalData - Goal data (title, description, target_completion_date, category)
+ * @param {Array} milestones - Array of milestone objects with steps
+ * @returns {Promise<Object>} Complete goal with milestones and steps
+ * @throws {Error} If any database operation fails
+ */
+async function createGoalWithMilestones(supabase, userId, goalData, milestones) {
+  const { title, description, target_completion_date, category } = goalData;
+  
+  // Create the goal first
+  const { data: goal, error: goalError } = await supabase
+    .from('goals')
+    .insert([{ user_id: userId, title, description, target_completion_date, category }])
+    .select()
+    .single();
+  
+  if (goalError) {
+    throw new Error(goalError.message);
+  }
+
+  // If milestones are provided, create them along with their steps
+  if (milestones && Array.isArray(milestones) && milestones.length > 0) {
+    for (let i = 0; i < milestones.length; i++) {
+      const milestone = milestones[i];
+      const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
+      
+      // Create the milestone
+      const { data: createdMilestone, error: milestoneError } = await supabase
+        .from('milestones')
+        .insert([{ 
+          goal_id: goal.id, 
+          title: milestoneTitle, 
+          description: milestoneDescription,
+          order: milestoneOrder 
+        }])
+        .select()
+        .single();
+      
+      if (milestoneError) {
+        throw new Error(`Failed to create milestone: ${milestoneError.message}`);
+      }
+
+      // If steps are provided for this milestone, create them
+      if (milestoneSteps && Array.isArray(milestoneSteps) && milestoneSteps.length > 0) {
+        const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
+          milestone_id: createdMilestone.id,
+          text: step.text || step,
+          order: step.order || stepIndex + 1,
+          completed: step.completed || false
+        }));
+
+        const { error: stepsError } = await supabase
+          .from('steps')
+          .insert(stepsToInsert);
+
+        if (stepsError) {
+          throw new Error(`Failed to create steps: ${stepsError.message}`);
+        }
+      }
+    }
+  }
+
+  // Fetch the complete goal with milestones and steps
+  const { data: completeGoal, error: fetchError } = await supabase
+    .from('goals')
+    .select(`
+      *,
+      milestones (
+        *,
+        steps (*)
+      )
+    `)
+    .eq('id', goal.id)
+    .single();
+
+  if (fetchError) {
+    throw new Error(fetchError.message);
+  }
+
+  return completeGoal;
+}
+
 export async function createGoal(req, res) {
   const { title, description, target_completion_date, category, milestones } = req.body;
   const user_id = req.user.id;
@@ -39,82 +134,12 @@ export async function createGoal(req, res) {
     }
   });
   
-  // Goal creation initiated
-  
   try {
-    // Start a transaction by creating the goal first
-    const { data: goal, error: goalError } = await supabase
-      .from('goals')
-      .insert([{ user_id, title, description, target_completion_date, category }])
-      .select()
-      .single();
-    
-    if (goalError) {
-      return res.status(400).json({ error: goalError.message });
-    }
-
-    // If milestones are provided, create them along with their steps
-    if (milestones && Array.isArray(milestones) && milestones.length > 0) {
-      for (let i = 0; i < milestones.length; i++) {
-        const milestone = milestones[i];
-        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
-        
-        // Create the milestone
-        const { data: createdMilestone, error: milestoneError } = await supabase
-          .from('milestones')
-          .insert([{ 
-            goal_id: goal.id, 
-            title: milestoneTitle, 
-            description: milestoneDescription,
-            order: milestoneOrder 
-          }])
-          .select()
-          .single();
-        
-        if (milestoneError) {
-          return res.status(400).json({ error: `Failed to create milestone: ${milestoneError.message}` });
-        }
-
-        // If steps are provided for this milestone, create them
-        if (milestoneSteps && Array.isArray(milestoneSteps) && milestoneSteps.length > 0) {
-          const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
-            milestone_id: createdMilestone.id,
-            text: step.text || step,
-            order: step.order || stepIndex + 1,
-            completed: step.completed || false
-          }));
-
-          const { error: stepsError } = await supabase
-            .from('steps')
-            .insert(stepsToInsert);
-
-          if (stepsError) {
-            return res.status(400).json({ error: `Failed to create steps: ${stepsError.message}` });
-          }
-        }
-      }
-    }
-
-    // Fetch the complete goal with milestones and steps
-    const { data: completeGoal, error: fetchError } = await supabase
-      .from('goals')
-      .select(`
-        *,
-        milestones (
-          *,
-          steps (*)
-        )
-      `)
-      .eq('id', goal.id)
-      .single();
-
-    if (fetchError) {
-      return res.status(400).json({ error: fetchError.message });
-    }
-
+    const goalData = { title, description, target_completion_date, category };
+    const completeGoal = await createGoalWithMilestones(supabase, user_id, goalData, milestones);
     res.status(201).json(completeGoal);
   } catch (error) {
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(400).json({ error: error.message });
   }
 }
 
@@ -383,15 +408,15 @@ export async function deleteGoal(req, res) {
   
   const { error } = await supabase
     .from('goals')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user_id);
-    
-  if (error) {
-    return res.status(400).json({ error: error.message });
-  }
-  
-  res.status(204).send();
+    const { data: match, error: fetchError } = await supabase
+      .from('goals')
+      .select('id, title')
+      .eq('user_id', userId)
+      .ilike('title', title.trim())
+      .maybeSingle();
+    if (fetchError) return { error: fetchError.message };
+    if (!match) return { error: `No goal found with title '${title}'` };
+    goalId = match.id;  res.status(204).send();
 } 
 
 export async function deleteGoalFromAI(args, userId, userContext) {
@@ -458,12 +483,22 @@ export async function getGoalsForUser(userId, token, args = {}) {
   if (args.due_date) {
     query = query.eq('target_completion_date', args.due_date);
   }
-  if (args.priority) {
-    query = query.eq('category', args.priority); // Assuming priority maps to category
+  
+  // Normalize priority to category: Goals only have a 'category' field, not a separate 'priority' field
+  // Priority values (low/medium/high) are treated as category values for goals
+  let categoryFilter = args.category;
+  if (args.priority && !args.category) {
+    // If priority is provided but not category, use priority as the category filter
+    categoryFilter = args.priority;
+  } else if (args.priority && args.category) {
+    // If both are provided, category takes precedence (log a warning for debugging)
+    console.warn(`[getGoalsForUser] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
   }
-  if (args.category) {
-    query = query.eq('category', args.category);
+  
+  if (categoryFilter) {
+    query = query.eq('category', categoryFilter);
   }
+  
   if (args.status) {
     query = query.eq('status', args.status);
   }
@@ -495,8 +530,22 @@ export async function getGoalTitlesForUser(userId, token, args = {}) {
 
   // Apply filters
   if (args.search) query = query.ilike('title', `%${args.search}%`);
-  if (args.category) query = query.eq('category', args.category);
-  if (args.priority) query = query.eq('category', args.priority);
+  
+  // Normalize priority to category: Goals only have a 'category' field, not a separate 'priority' field
+  // Priority values (low/medium/high) are treated as category values for goals
+  let categoryFilter = args.category;
+  if (args.priority && !args.category) {
+    // If priority is provided but not category, use priority as the category filter
+    categoryFilter = args.priority;
+  } else if (args.priority && args.category) {
+    // If both are provided, category takes precedence (log a warning for debugging)
+    console.warn(`[getGoalTitlesForUser] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
+  }
+  
+  if (categoryFilter) {
+    query = query.eq('category', categoryFilter);
+  }
+  
   if (args.status) query = query.eq('status', args.status);
   if (args.due_date) query = query.eq('target_completion_date', args.due_date);
 
@@ -611,12 +660,22 @@ export async function lookupGoalbyTitle(userId, token, args = {}) {
   if (args.search) {
     query = query.ilike('title', `%${args.search}%`);
   }
-  if (args.category) {
-    query = query.eq('category', args.category);
+  
+  // Normalize priority to category: Goals only have a 'category' field, not a separate 'priority' field
+  // Priority values (low/medium/high) are treated as category values for goals
+  let categoryFilter = args.category;
+  if (args.priority && !args.category) {
+    // If priority is provided but not category, use priority as the category filter
+    categoryFilter = args.priority;
+  } else if (args.priority && args.category) {
+    // If both are provided, category takes precedence (log a warning for debugging)
+    console.warn(`[lookupGoalbyTitle] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
   }
-  if (args.priority) {
-    query = query.eq('category', args.priority);
+  
+  if (categoryFilter) {
+    query = query.eq('category', categoryFilter);
   }
+  
   if (args.status) {
     query = query.eq('status', args.status);
   }
@@ -665,6 +724,7 @@ export async function createGoalFromAI(args, userId, userContext) {
     // Don't fail the request if analytics fails
     logger.warn('Failed to track AI goal creation analytics:', analyticsError);
   }
+  
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
       headers: {
@@ -674,85 +734,18 @@ export async function createGoalFromAI(args, userId, userContext) {
   });
 
   try {
-    // Create the goal first
-    const { data: goal, error: goalError } = await supabase
-      .from('goals')
-      .insert([{ 
-        user_id: userId, 
-        title, 
-        description, 
-        target_completion_date: due_date,
-        category: priority // Map priority to category field
-      }])
-      .select()
-      .single();
-
-    if (goalError) {
-      return { error: goalError.message };
-    }
-
-    // If milestones are provided, create them along with their steps
-    if (milestones && Array.isArray(milestones) && milestones.length > 0) {
-      for (let i = 0; i < milestones.length; i++) {
-        const milestone = milestones[i];
-        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
-        
-        // Create the milestone
-        const { data: createdMilestone, error: milestoneError } = await supabase
-          .from('milestones')
-          .insert([{ 
-            goal_id: goal.id, 
-            title: milestoneTitle, 
-            description: milestoneDescription,
-            order: milestoneOrder 
-          }])
-          .select()
-          .single();
-        
-        if (milestoneError) {
-          return { error: `Failed to create milestone: ${milestoneError.message}` };
-        }
-
-        // If steps are provided for this milestone, create them
-        if (milestoneSteps && Array.isArray(milestoneSteps) && milestoneSteps.length > 0) {
-          const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
-            milestone_id: createdMilestone.id,
-            text: step.text || step,
-            order: step.order || stepIndex + 1,
-            completed: step.completed || false
-          }));
-
-          const { error: stepsError } = await supabase
-            .from('steps')
-            .insert(stepsToInsert);
-
-          if (stepsError) {
-            return { error: `Failed to create steps: ${stepsError.message}` };
-          }
-        }
-      }
-    }
-
-    // Fetch the complete goal with milestones and steps
-    const { data: completeGoal, error: fetchError } = await supabase
-      .from('goals')
-      .select(`
-        *,
-        milestones (
-          *,
-          steps (*)
-        )
-      `)
-      .eq('id', goal.id)
-      .single();
-
-    if (fetchError) {
-      return { error: fetchError.message };
-    }
-
+    // Map AI-specific fields to goal data format
+    const goalData = { 
+      title, 
+      description, 
+      target_completion_date: due_date,
+      category: priority // Map priority to category field
+    };
+    
+    const completeGoal = await createGoalWithMilestones(supabase, userId, goalData, milestones);
     return completeGoal;
   } catch (error) {
-    return { error: 'Internal server error' };
+    return { error: error.message };
   }
 }
 
@@ -820,6 +813,8 @@ export async function updateGoalFromAI(args, userId, userContext) {
     if (milestones && Array.isArray(milestones) && milestones.length > 0) {
       // If behavior is 'replace', delete existing milestones and their steps first
       if (milestone_behavior === 'replace') {
+        // WARNING: This deletes data before creating new. If creation fails, data is lost.
+        // Consider implementing transaction support.
         // Get existing milestones to delete their steps
         const { data: existingMilestones } = await supabase
           .from('milestones')
@@ -891,7 +886,6 @@ export async function updateGoalFromAI(args, userId, userContext) {
         }
       }
     }
-
     // Fetch the complete goal with milestones and steps
     const { data: completeGoal, error: fetchError } = await supabase
       .from('goals')

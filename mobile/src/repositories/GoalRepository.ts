@@ -1,6 +1,7 @@
 import {getDatabase} from '../db';
 import {Q} from '@nozbe/watermelondb';
-import {of} from 'rxjs';
+import {of, combineLatest, Observable} from 'rxjs';
+import {map} from 'rxjs/operators';
 import Goal from '../db/models/Goal';
 import Milestone from '../db/models/Milestone';
 import MilestoneStep from '../db/models/MilestoneStep';
@@ -353,12 +354,11 @@ export class GoalRepository {
       .observe();
   }
 
-  observeMilestonesByGoal(goalId: string) {
+  observeMilestonesByGoal(goalId: string): Observable<Milestone[]> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     
-    // Create a custom observable that ensures security
-    // We'll use a combination approach: observe goals first, then milestones
+    // Create observables for goals and milestones
     const goalObservable = database.get<Goal>('goals')
       .query(
         Q.where('id', goalId),
@@ -367,7 +367,6 @@ export class GoalRepository {
       )
       .observe();
     
-    // Create milestones observable
     const milestonesObservable = database.get<Milestone>('milestones')
       .query(
         Q.where('goal_id', goalId),
@@ -375,40 +374,12 @@ export class GoalRepository {
       )
       .observe();
     
-    // Return a custom observable that combines both
-    // This ensures milestones are only returned if the goal exists and belongs to the user
-    return {
-      subscribe: (observer: any) => {
-        let goalExists = false;
-        
-        const goalSubscription = goalObservable.subscribe({
-          next: (goals) => {
-            goalExists = goals.length > 0;
-            if (!goalExists) {
-              // Goal doesn't exist or doesn't belong to user, emit empty array
-              observer.next([]);
-            }
-          },
-          error: observer.error,
-          complete: observer.complete
-        });
-        
-        const milestonesSubscription = milestonesObservable.subscribe({
-          next: (milestones) => {
-            if (goalExists) {
-              observer.next(milestones);
-            }
-          },
-          error: observer.error,
-          complete: observer.complete
-        });
-        
-        return () => {
-          goalSubscription.unsubscribe();
-          milestonesSubscription.unsubscribe();
-        };
-      }
-    };
+    // Use RxJS combineLatest to ensure both observables emit before processing
+    // This eliminates the race condition and ensures milestones are only returned
+    // if the goal exists and belongs to the user
+    return combineLatest([goalObservable, milestonesObservable]).pipe(
+      map(([goals, milestones]) => goals.length > 0 ? milestones : [])
+    );
   }
 
   observeMilestoneStepsByMilestone(milestoneId: string) {

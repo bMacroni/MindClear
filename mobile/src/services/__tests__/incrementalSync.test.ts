@@ -88,37 +88,45 @@ describe('Incremental Sync API Methods', () => {
   });
 
   describe('Data processing logic', () => {
-    it('should correctly process mixed response types', () => {
-      // Simulate the logic from SyncService.ts
-      const processResponses = (eventsResponse: any, tasksResponse: any, goalsResponse: any) => {
-        const { changed: changedEvents, deleted: deletedEventIds } = eventsResponse;
-        
-        // Handle tasks response
-        let changedTasks = [];
-        let deletedTaskIds = [];
-        if (Array.isArray(tasksResponse)) {
-          changedTasks = tasksResponse;
-        } else if (tasksResponse && typeof tasksResponse === 'object') {
-          changedTasks = tasksResponse.changed || [];
-          deletedTaskIds = tasksResponse.deleted || [];
-        }
-        
-        // Handle goals response
-        let changedGoals = [];
-        let deletedGoalIds = [];
-        if (Array.isArray(goalsResponse)) {
-          changedGoals = goalsResponse;
-        } else if (goalsResponse && typeof goalsResponse === 'object') {
-          changedGoals = goalsResponse.changed || [];
-          deletedGoalIds = goalsResponse.deleted || [];
-        }
+    // Helper function that safely processes responses with proper shape checking
+    const processResponses = (eventsResponse: any, tasksResponse: any, goalsResponse: any) => {
+      // Handle events response with shape checking
+      let changedEvents: any[] = [];
+      let deletedEventIds: string[] = [];
+      if (Array.isArray(eventsResponse)) {
+        changedEvents = eventsResponse;
+      } else if (eventsResponse && typeof eventsResponse === 'object') {
+        changedEvents = eventsResponse.changed || [];
+        deletedEventIds = eventsResponse.deleted || [];
+      }
+      
+      // Handle tasks response
+      let changedTasks: any[] = [];
+      let deletedTaskIds: string[] = [];
+      if (Array.isArray(tasksResponse)) {
+        changedTasks = tasksResponse;
+      } else if (tasksResponse && typeof tasksResponse === 'object') {
+        changedTasks = tasksResponse.changed || [];
+        deletedTaskIds = tasksResponse.deleted || [];
+      }
+      
+      // Handle goals response
+      let changedGoals: any[] = [];
+      let deletedGoalIds: string[] = [];
+      if (Array.isArray(goalsResponse)) {
+        changedGoals = goalsResponse;
+      } else if (goalsResponse && typeof goalsResponse === 'object') {
+        changedGoals = goalsResponse.changed || [];
+        deletedGoalIds = goalsResponse.deleted || [];
+      }
 
-        return {
-          allChanges: [...changedEvents, ...changedTasks, ...changedGoals],
-          allDeletedIds: [...(deletedEventIds || []), ...deletedTaskIds, ...deletedGoalIds]
-        };
+      return {
+        allChanges: [...changedEvents, ...changedTasks, ...changedGoals],
+        allDeletedIds: [...deletedEventIds, ...deletedTaskIds, ...deletedGoalIds]
       };
+    };
 
+    it('should correctly process mixed response types', () => {
       // Test with mixed response types
       const eventsResponse = { changed: [{ id: 'event1' }], deleted: ['event2'] };
       const tasksResponse = [{ id: 'task1' }]; // Full sync format
@@ -133,6 +141,99 @@ describe('Incremental Sync API Methods', () => {
       expect(result.allChanges).toContainEqual({ id: 'goal1' });
       expect(result.allDeletedIds).toContain('event2');
       expect(result.allDeletedIds).toContain('goal2');
+    });
+
+    it('should handle all responses as full-sync arrays', () => {
+      const eventsResponse = [{ id: 'event1' }, { id: 'event2' }];
+      const tasksResponse = [{ id: 'task1' }, { id: 'task2' }];
+      const goalsResponse = [{ id: 'goal1' }, { id: 'goal2' }];
+
+      const result = processResponses(eventsResponse, tasksResponse, goalsResponse);
+
+      expect(result.allChanges).toHaveLength(6);
+      expect(result.allDeletedIds).toHaveLength(0);
+      expect(result.allChanges).toContainEqual({ id: 'event1' });
+      expect(result.allChanges).toContainEqual({ id: 'event2' });
+      expect(result.allChanges).toContainEqual({ id: 'task1' });
+      expect(result.allChanges).toContainEqual({ id: 'task2' });
+      expect(result.allChanges).toContainEqual({ id: 'goal1' });
+      expect(result.allChanges).toContainEqual({ id: 'goal2' });
+    });
+
+    it('should handle all responses as incremental objects', () => {
+      const eventsResponse = { 
+        changed: [{ id: 'event1' }], 
+        deleted: ['event2'] 
+      };
+      const tasksResponse = { 
+        changed: [{ id: 'task1' }], 
+        deleted: ['task2'] 
+      };
+      const goalsResponse = { 
+        changed: [{ id: 'goal1' }], 
+        deleted: ['goal2'] 
+      };
+
+      const result = processResponses(eventsResponse, tasksResponse, goalsResponse);
+
+      expect(result.allChanges).toHaveLength(3);
+      expect(result.allDeletedIds).toHaveLength(3);
+      expect(result.allChanges).toContainEqual({ id: 'event1' });
+      expect(result.allChanges).toContainEqual({ id: 'task1' });
+      expect(result.allChanges).toContainEqual({ id: 'goal1' });
+      expect(result.allDeletedIds).toContain('event2');
+      expect(result.allDeletedIds).toContain('task2');
+      expect(result.allDeletedIds).toContain('goal2');
+    });
+
+    it('should handle responses as null/undefined without errors', () => {
+      const eventsResponse = null;
+      const tasksResponse = undefined;
+      const goalsResponse = null;
+
+      expect(() => {
+        const result = processResponses(eventsResponse, tasksResponse, goalsResponse);
+        expect(result.allChanges).toHaveLength(0);
+        expect(result.allDeletedIds).toHaveLength(0);
+      }).not.toThrow();
+    });
+
+    it('should handle responses with empty arrays', () => {
+      const eventsResponse = { changed: [], deleted: [] };
+      const tasksResponse = [];
+      const goalsResponse = { changed: [], deleted: [] };
+
+      const result = processResponses(eventsResponse, tasksResponse, goalsResponse);
+
+      expect(result.allChanges).toHaveLength(0);
+      expect(result.allDeletedIds).toHaveLength(0);
+    });
+
+    it('should handle mixed null/undefined and valid responses', () => {
+      const eventsResponse = null;
+      const tasksResponse = [{ id: 'task1' }];
+      const goalsResponse = { changed: [{ id: 'goal1' }], deleted: ['goal2'] };
+
+      const result = processResponses(eventsResponse, tasksResponse, goalsResponse);
+
+      expect(result.allChanges).toHaveLength(2);
+      expect(result.allDeletedIds).toHaveLength(1);
+      expect(result.allChanges).toContainEqual({ id: 'task1' });
+      expect(result.allChanges).toContainEqual({ id: 'goal1' });
+      expect(result.allDeletedIds).toContain('goal2');
+    });
+
+    it('should handle partial incremental responses (missing changed or deleted)', () => {
+      const eventsResponse = { changed: [{ id: 'event1' }] }; // missing deleted
+      const tasksResponse = { deleted: ['task1'] }; // missing changed
+      const goalsResponse = {}; // empty object
+
+      const result = processResponses(eventsResponse, tasksResponse, goalsResponse);
+
+      expect(result.allChanges).toHaveLength(1);
+      expect(result.allDeletedIds).toHaveLength(1);
+      expect(result.allChanges).toContainEqual({ id: 'event1' });
+      expect(result.allDeletedIds).toContain('task1');
     });
   });
 });

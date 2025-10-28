@@ -93,19 +93,35 @@ export interface Goal {
 // Brain Dump API
 export const brainDumpAPI = {
   submit: async (text: string): Promise<{ threadId: string; items: Array<{ text: string; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' }>}> => {
-    const response = await fetch(`${getSecureApiBaseUrl()}/ai/braindump`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${await getAuthToken()}`,
-      },
-      body: JSON.stringify({ text }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(()=>({}));
-      throw new Error(body?.message || 'Failed to process brain dump');
+    try {
+      const authToken = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/ai/braindump`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ text }),
+      });
+      
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.message || 'Failed to process brain dump');
+      }
+      
+      const result = await response.json().catch(() => {
+        throw new Error('Invalid response format from server');
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Brain dump submission failed:', error);
+      // Re-throw with user-friendly message for network/runtime errors
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network error occurred while processing brain dump');
     }
-    return response.json();
   },
 };
 
@@ -418,7 +434,7 @@ export const goalsAPI = {
   },
 };
 
-interface Task {
+export interface Task {
   id: string;
   title: string;
   description?: string;
@@ -430,6 +446,9 @@ interface Task {
   estimated_duration_minutes?: number;
   created_at?: string;
   updated_at?: string;
+  is_today_focus?: boolean;
+  auto_schedule_enabled?: boolean;
+  location?: string;
   goal?: {
     id: string;
     title: string;
@@ -682,27 +701,33 @@ export const tasksAPI = {
   
   // Momentum Mode: Get next focus task
   focusNext: async (payload: { current_task_id?: string|null; travel_preference?: 'allow_travel'|'home_only'; exclude_ids?: string[] }): Promise<Task> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/focus/next`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload || {}),
-    });
-    if (response.status === 404) {
-      const text = await response.text().catch(()=> '');
-      const err = new Error(text || 'No other tasks match your criteria.');
-      (err as any).code = 404;
-      throw err;
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/focus/next`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload || {}),
+      });
+      if (response.status === 404) {
+        const text = await response.text().catch(()=> '');
+        const err = new Error(text || 'No other tasks match your criteria.');
+        (err as any).code = 404;
+        throw err;
+      }
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('🔍 API: Error fetching next focus task:', error);
+      throw error;
     }
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
-    }
-    return response.json();
-  },};
+  },
+};
 
 // Calendar API
 export const calendarAPI = {
@@ -1145,91 +1170,143 @@ export const usersAPI = {
     }
   },
   registerDeviceToken: async (token: string, deviceType: string): Promise<void> => {
-    const authToken = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/user/device-token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ token, device_type: deviceType }),
-    });
-    if (!response.ok) {
-      throw new Error('Failed to register device token');
+    try {
+      const authToken = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/user/device-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ token, device_type: deviceType }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to register device token: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      logger.error('Error registering device token:', error);
+      if (error instanceof Error) {
+        throw new Error(`Device token registration failed: ${error.message}`);
+      }
+      throw error;
     }
   },
 
   getNotifications: async (status: 'all' | 'read' | 'unread' = 'unread'): Promise<any[]> => {
-    const token = await getAuthToken();
-    const url = `${getSecureApiBaseUrl()}/tasks/notifications?status=${status}`;
-    logger.debug('🔔 API: Making request to:', url);
-    logger.debug('🔔 API: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
-    
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    logger.debug('🔔 API: Response status:', response.status);
-    logger.debug('🔔 API: Response ok:', response.ok);
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error('🔔 API: Error response body:', errorText);
-        throw new Error(`Failed to get notifications: ${response.status} - ${errorText}`);
+    try {
+      const token = await getAuthToken();
+      const url = `${getSecureApiBaseUrl()}/tasks/notifications?status=${status}`;
+      logger.debug('🔔 API: Making request to:', url);
+      logger.debug('🔔 API: Using token:', token ? `${token.substring(0, 20)}...` : 'null');
+      
+      const response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      logger.debug('🔔 API: Response status:', response.status);
+      logger.debug('🔔 API: Response ok:', response.ok);
+      
+      if (!response.ok) {
+          const errorText = await response.text();
+          console.error('🔔 API: Error response body:', errorText);
+          throw new Error(`Failed to get notifications: ${response.status} - ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      logger.error('Error getting notifications:', error);
+      if (error instanceof Error) {
+        throw new Error(`Failed to fetch notifications: ${error.message}`);
+      }
+      throw error;
     }
-    return response.json();
   },
 
   markAsRead: async (notificationId: string): Promise<void> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/${notificationId}/read`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) {
-        if (response.status === 401) {
-          const err = new Error('Authentication failed - user not logged in');
-          (err as any).code = 'AUTH_REQUIRED';
-          throw err;
-        }
-        throw new Error('Failed to mark notification as read');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/${notificationId}/read`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+          if (response.status === 401) {
+            const err = new Error('Authentication failed - user not logged in');
+            (err as any).code = 'AUTH_REQUIRED';
+            throw err;
+          }
+          const errorText = await response.text();
+          throw new Error(`Failed to mark notification as read: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      logger.error('Error marking notification as read:', error);
+      if (error instanceof Error && (error as any).code === 'AUTH_REQUIRED') {
+        throw error; // Preserve special auth error
+      }
+      if (error instanceof Error) {
+        throw new Error(`Failed to mark notification as read: ${error.message}`);
+      }
+      throw error;
     }
   },
 
   markAllAsRead: async (): Promise<void> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/read-all`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) {
-        if (response.status === 401) {
-          const err = new Error('Authentication failed - user not logged in');
-          (err as any).code = 'AUTH_REQUIRED';
-          throw err;
-        }
-        throw new Error('Failed to mark all notifications as read');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/read-all`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+          if (response.status === 401) {
+            const err = new Error('Authentication failed - user not logged in');
+            (err as any).code = 'AUTH_REQUIRED';
+            throw err;
+          }
+          const errorText = await response.text();
+          throw new Error(`Failed to mark all notifications as read: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      logger.error('Error marking all notifications as read:', error);
+      if (error instanceof Error && (error as any).code === 'AUTH_REQUIRED') {
+        throw error; // Preserve special auth error
+      }
+      if (error instanceof Error) {
+        throw new Error(`Failed to mark all notifications as read: ${error.message}`);
+      }
+      throw error;
     }
   },
 
   getUnreadCount: async (): Promise<number> => {
-    const token = await getAuthToken();
-    const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/unread-count`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!response.ok) {
-        if (response.status === 401) {
-          const err = new Error('Authentication failed - user not logged in');
-          (err as any).code = 'AUTH_REQUIRED';
-          throw err;
-        }
-        const errorText = await response.text();
-        throw new Error(`Failed to get unread notification count: ${response.status} - ${errorText}`);
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/unread-count`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+          if (response.status === 401) {
+            const err = new Error('Authentication failed - user not logged in');
+            (err as any).code = 'AUTH_REQUIRED';
+            throw err;
+          }
+          const errorText = await response.text();
+          throw new Error(`Failed to get unread notification count: ${response.status} - ${errorText}`);
+      }
+      const data = await response.json();
+      return data.count || 0;
+    } catch (error) {
+      logger.error('Error getting unread notification count:', error);
+      if (error instanceof Error && (error as any).code === 'AUTH_REQUIRED') {
+        throw error; // Preserve special auth error
+      }
+      if (error instanceof Error) {
+        throw new Error(`Failed to get unread notification count: ${error.message}`);
+      }
+      throw error;
     }
-    const data = await response.json();
-    return data.count || 0;
   },
 
   deleteAccount: async (): Promise<{ status: number; payload: any }> => {
