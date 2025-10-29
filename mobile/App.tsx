@@ -75,6 +75,13 @@ const performCoreInitialization = async (): Promise<Database> => {
   return db;
 };
 
+/**
+ * Root React component that initializes core services, manages auth-dependent realtime and messaging setup, and renders the loading, error/retry, or main application UI.
+ *
+ * Initializes secure configuration (with timeout), database, and error handling, then performs non-blocking post-startup steps such as loading remote config, configuring Google Sign-In, subscribing to auth state, establishing a Supabase realtime channel for authenticated users, registering notification token refresh handlers, and connecting a WebSocket. All listeners and connections are cleaned up on unmount or when authentication state changes.
+ *
+ * @returns The app's root UI: a loading indicator while initialization is in progress, an error view with an accessible Retry button if initialization failed, or the main application wrapped in database, safe-area, and help providers with navigation and overlays.
+ */
 function App() {
   const [database, setDatabase] = useState<Database | null>(null);
   const [isLoading, setIsLoading] = useState(true);
