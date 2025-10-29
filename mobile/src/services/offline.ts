@@ -162,11 +162,16 @@ class OfflineService {
       console.error('Error reading cached goals:', error);
       
       // Show user-facing error notification
-      const { notificationService } = await import('./notificationService');
-      notificationService.showInAppNotification(
-        'Error Loading Goals',
-        'Unable to load your goals from local storage. Please try refreshing the app.'
-      );
+      try {
+        const { notificationService } = await import('./notificationService');
+        notificationService.showInAppNotification(
+          'Error Loading Goals',
+          'Unable to load your goals from local storage. Please try refreshing the app.'
+        );
+      } catch (importError) {
+        console.error('Failed to import notificationService:', importError);
+        // Continue execution without showing notification
+      }
       
       return null;
     }

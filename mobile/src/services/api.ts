@@ -1218,7 +1218,7 @@ export const usersAPI = {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to fetch notifications: ${message}`);
     }
-  }  },
+  },
 
   markAsRead: async (notificationId: string): Promise<void> => {
     try {

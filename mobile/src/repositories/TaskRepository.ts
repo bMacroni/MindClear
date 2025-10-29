@@ -4,6 +4,15 @@ import Task from '../db/models/Task';
 import {authService} from '../services/auth';
 import logger from '../utils/logger';
 
+/**
+ * TaskRepository handles all task-related database operations.
+ * 
+ * Behavioral Contract:
+ * - All operations that modify tasks (updateTask, deleteTask, completeTask) will throw
+ *   "Task not found" error if the specified task ID doesn't exist
+ * - This ensures consistent error handling across all modification operations
+ * - Read operations (getTaskById) return null for non-existent tasks
+ */
 export class TaskRepository {
   private getCurrentUserId(): string {
     const user = authService.getCurrentUser();
@@ -47,6 +56,11 @@ export class TaskRepository {
     goalId?: string;
     isTodayFocus?: boolean;
   }): Promise<Task> {
+    // Validate date if provided
+    if (data.dueDate && isNaN(data.dueDate.getTime())) {
+      throw new Error('Invalid due date provided. Date must be a valid Date object.');
+    }
+
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     
@@ -67,6 +81,13 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Updates an existing task with the provided data.
+   * @param id - The ID of the task to update
+   * @param data - The data to update the task with
+   * @returns Promise<Task> - The updated task
+   * @throws Error - Throws "Task not found" if the task doesn't exist
+   */
   async updateTask(id: string, data: {
     title?: string;
     description?: string;
@@ -76,6 +97,11 @@ export class TaskRepository {
     goalId?: string;
     isTodayFocus?: boolean;
   }): Promise<Task> {
+    // Validate date if provided
+    if (data.dueDate && isNaN(data.dueDate.getTime())) {
+      throw new Error('Invalid due date provided. Date must be a valid Date object.');
+    }
+
     const database = getDatabase();
     const task = await this.getTaskById(id);
     if (!task) throw new Error('Task not found');
@@ -95,10 +121,15 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Deletes a task by marking it as pending deletion.
+   * @param id - The ID of the task to delete
+   * @returns Promise<void>
+   */
   async deleteTask(id: string): Promise<void> {
     const database = getDatabase();
     const task = await this.getTaskById(id);
-    if (!task) return;
+    if (!task) return; // No-op for non-existent tasks (idempotent)
     
     await database.write(async () => {
       await task.update(t => {
@@ -108,6 +139,12 @@ export class TaskRepository {
     });
   }
 
+  /**
+   * Completes a task by updating its status.
+   * @param id - The ID of the task to complete
+   * @returns Promise<Task> - The completed task
+   * @throws Error - Throws "Task not found" if the task doesn't exist
+   */
   async completeTask(id: string): Promise<Task> {
     const database = getDatabase();
     const task = await this.getTaskById(id);

@@ -145,7 +145,7 @@ interface GoalsScreenProps {
   database: any;
 }
 
-const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observableGoals }) => {
+const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observableGoals, database }) => {
   const insets = useSafeAreaInsets();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -233,10 +233,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   }, [authState.isAuthenticated, authState.isLoading]);
 
   // Transform WatermelonDB goals to the expected format with optimized batch queries
-  const transformGoals = useCallback(async (watermelonGoals: Goal[]) => {
+  const transformGoals = useCallback(async (watermelonGoals: Goal[], database: any) => {
     if (watermelonGoals.length === 0) return [];
     
-    const database = useDatabase();
     const goalIds = watermelonGoals.map(g => g.id);
     
     // Batch fetch all milestones for all goals (eliminates N+1 query)
@@ -245,7 +244,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
       .fetch();
     
     // Batch fetch all steps for all milestones (eliminates N*M+1 query)
-    const milestoneIds = allMilestones.map(m => m.id);
+    const milestoneIds = allMilestones.map((m: any) => m.id);
     const allSteps = milestoneIds.length > 0 
       ? await database.collections.get('milestone_steps')
           .query(Q.where('milestone_id', Q.oneOf(milestoneIds)))
@@ -253,14 +252,14 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
       : [];
     
     // Group milestones by goal_id for efficient lookup
-    const milestonesByGoal = allMilestones.reduce((acc, milestone: any) => {
+    const milestonesByGoal = allMilestones.reduce((acc: Record<string, any[]>, milestone: any) => {
       if (!acc[milestone.goalId]) acc[milestone.goalId] = [];
       acc[milestone.goalId].push(milestone);
       return acc;
     }, {} as Record<string, any[]>);
     
     // Group steps by milestone_id for efficient lookup
-    const stepsByMilestone = allSteps.reduce((acc, step: any) => {
+    const stepsByMilestone = allSteps.reduce((acc: Record<string, any[]>, step: any) => {
       if (!acc[step.milestoneId]) acc[step.milestoneId] = [];
       acc[step.milestoneId].push(step);
       return acc;
@@ -318,7 +317,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Update local goals when observable goals change
   useEffect(() => {
     if (observableGoals) {
-      transformGoals(observableGoals).then((transformedGoals) => {
+      transformGoals(observableGoals, database).then((transformedGoals) => {
         setGoals(transformedGoals);
         setGoalsLoading(false);
       }).catch((error) => {
@@ -326,7 +325,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         setGoalsLoading(false);
       });
     }
-  }, [observableGoals, transformGoals]);
+  }, [observableGoals, transformGoals, database]);
 
   // Reset help overlay when this screen gains focus
   useFocusEffect(

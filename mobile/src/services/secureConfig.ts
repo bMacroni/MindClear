@@ -70,7 +70,7 @@ class SecureConfigService {
       
       // Add timeout to prevent hanging during app startup
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Remote config request timeout')), 10000); // 10 second timeout
+        setTimeout(() => reject(new Error('Remote config request timeout')), 5000); // Reduced to 5 second timeout
       });
       
       const remoteConfigPromise = enhancedAPI.getUserConfig();
@@ -84,9 +84,9 @@ class SecureConfigService {
       }
     } catch (error) {
       logger.error('Failed to load secure remote config:', error);
-      // Don't re-throw - allow app to continue with default config
+      // Don't re-throw - allow app to continue with fallback config
       // This prevents the app from hanging on startup if the server is unreachable
-      logger.warn('Continuing with default config due to remote config failure');
+      logger.warn('Continuing with fallback config due to remote config failure');
     }
   }
 
@@ -129,16 +129,18 @@ class SecureConfigService {
 
   getSupabaseUrl(): string {
     if (!this.config?.remoteConfig?.supabaseUrl) {
-      logger.warn('Supabase URL not available from remote config.');
-      return ''; // Return empty or a default, but warn.
+      logger.warn('Supabase URL not available from remote config, using fallback.');
+      // Return a fallback URL - using actual Supabase URL from backend
+      return 'https://kwxbyovbvigvcdkzzpbk.supabase.co';
     }
     return this.config.remoteConfig.supabaseUrl;
   }
 
   getSupabaseAnonKey(): string {
     if (!this.config?.remoteConfig?.supabaseAnonKey) {
-      logger.warn('Supabase Anon Key not available from remote config.');
-      return ''; // Return empty or a default, but warn.
+      logger.warn('Supabase Anon Key not available from remote config, using fallback.');
+      // Return a fallback key - using actual Supabase anon key from backend
+      return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3eGJ5b3ZidmlndmNka3p6cGJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3MTQ0MDUsImV4cCI6MjA3MTI5MDQwNX0.cTmSlkt6CFXXFMNUjNuDtWRIY938tnCYO1xlBqhtJjw';
     }
     return this.config.remoteConfig.supabaseAnonKey;
   }

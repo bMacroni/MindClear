@@ -72,14 +72,61 @@ export interface ErrorLog {
   resolved: boolean;
 }
 
+/**
+ * ErrorHandlingService - Centralized error handling and classification
+ * 
+ * This service provides:
+ * - Error classification and user-friendly messages
+ * - Error logging and tracking
+ * - Retry configuration and helper methods
+ * 
+ * IMPORTANT: This service does NOT automatically retry failed operations.
+ * Callers are responsible for implementing retry logic using the provided
+ * helper methods:
+ * 
+ * 1. Use `executeWithRetry()` for automatic retry with exponential backoff
+ * 2. Use `shouldRetryOperation()` and `calculateRetryDelay()` for manual retry logic
+ * 3. Check the `retryable` flag in UserFriendlyError to determine if retry is appropriate
+ * 
+ * Example usage:
+ * ```typescript
+ * // Automatic retry
+ * const result = await errorHandlingService.executeWithRetry(
+ *   () => apiCall(),
+ *   ErrorCategory.TASKS,
+ *   { operation: 'fetchTasks', timestamp: Date.now(), retryCount: 0 }
+ * );
+ * 
+ * // Manual retry
+ * let retryCount = 0;
+ * while (retryCount < maxRetries) {
+ *   try {
+ *     return await apiCall();
+ *   } catch (error) {
+ *     const userError = await errorHandlingService.handleError(error, category, context);
+ *     if (!userError.retryable || !errorHandlingService.shouldRetryOperation(errorType, retryCount, category)) {
+ *       throw error;
+ *     }
+ *     await new Promise(resolve => setTimeout(resolve, errorHandlingService.calculateRetryDelay(retryCount, category)));
+ *     retryCount++;
+ *   }
+ * }
+ * ```
+ */
 class ErrorHandlingService {
   private errorLogs: ErrorLog[] = [];
   private retryConfigs: Map<ErrorCategory, RetryConfig> = new Map();
   private listeners: Set<(error: UserFriendlyError) => void> = new Set();
+  private ready: Promise<void>;
 
   constructor() {
     this.initializeRetryConfigs();
-    this.loadErrorLogs();
+    this.ready = this.loadErrorLogs();
+  }
+
+  // Initialize the service asynchronously
+  async init(): Promise<void> {
+    await this.ready;
   }
 
   // Initialize retry configurations for different error categories
@@ -514,8 +561,8 @@ class ErrorHandlingService {
     return Math.min(delay, config.maxDelay);
   }
 
-  // Check if operation should be retried
-  private shouldRetry(type: ErrorType, retryCount: number, category: ErrorCategory): boolean {
+  // Check if operation should be retried (helper for callers)
+  shouldRetryOperation(type: ErrorType, retryCount: number, category: ErrorCategory): boolean {
     if (type === ErrorType.AUTHENTICATION || type === ErrorType.AUTHORIZATION) {
       return false; // Don't retry auth errors
     }
@@ -527,55 +574,56 @@ class ErrorHandlingService {
     return retryCount < config.maxRetries;
   }
 
-  // Main error handling method with retry logic
   async handleError(
     error: any,
     category: ErrorCategory,
     context: ErrorContext
   ): Promise<UserFriendlyError> {
-    // Log detailed error information for debugging
-    await this.logErrorDetails(error, category, context);
-    
-    // Extract error information
-    const status = error.status || error.response?.status || 0;
-    const message = error.message || error.toString();
-    const type = await this.classifyError(status, message);
-
-    // Create error log
-    const errorLog: ErrorLog = {
-      id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      category,
-      severity: this.determineSeverity(type, category),
-      message,
-      context,
-      timestamp: Date.now(),
-      resolved: false,
-    };
-
-    // Add to error logs
-    this.errorLogs.push(errorLog);
-    await this.saveErrorLogs();
-
-    // Generate user-friendly error
-    const userError = this.generateUserFriendlyError(type, category, context);
-
-    // Check if we should retry
-    if (userError.retryable && this.shouldRetry(type, context.retryCount, category)) {
-      const delay = this.calculateRetryDelay(context.retryCount, category);
+    try {
+      // Log detailed error information for debugging
+      await this.logErrorDetails(error, category, context);
       
-      // Schedule retry
-      setTimeout(() => {
-        context.retryCount++;
-        // The retry logic should be handled by the calling function
-        this.notifyListeners(userError);
-      }, delay);
-    } else {
+      // Extract error information
+      const status = error.status || error.response?.status || 0;
+      const message = error.message || error.toString();
+      const type = await this.classifyError(status, message);
+
+      // Create error log
+      const errorLog: ErrorLog = {
+        id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type,
+        category,
+        severity: this.determineSeverity(type, category),
+        message,
+        context,
+        timestamp: Date.now(),
+        resolved: false,
+      };
+
+      // Add to error logs
+      this.errorLogs.push(errorLog);
+      await this.saveErrorLogs();
+
+      // Generate user-friendly error
+      const userError = this.generateUserFriendlyError(type, category, context);
+
       // Notify listeners immediately
       this.notifyListeners(userError);
-    }
 
-    return userError;
+      return userError;
+    } catch (handlerError) {
+      console.error('Error in error handler:', handlerError);
+      // Return a basic error to prevent cascading failures
+      return {
+        isUserFriendlyError: true,
+        title: 'Something went wrong',
+        message: 'An unexpected error occurred. Please try again.',
+        action: 'Retry',
+        retryable: true,
+        severity: ErrorSeverity.MEDIUM,
+        category: ErrorCategory.GENERAL,
+      };
+    }
   }
 
   // Subscribe to error events
@@ -591,11 +639,13 @@ class ErrorHandlingService {
 
   // Get error logs
   async getErrorLogs(): Promise<ErrorLog[]> {
+    await this.ready;
     return this.errorLogs.filter(log => !log.resolved);
   }
 
   // Mark error as resolved
   async resolveError(errorId: string): Promise<void> {
+    await this.ready;
     const error = this.errorLogs.find(log => log.id === errorId);
     if (error) {
       error.resolved = true;
@@ -605,6 +655,7 @@ class ErrorHandlingService {
 
   // Clear resolved errors
   async clearResolvedErrors(): Promise<void> {
+    await this.ready;
     this.errorLogs = this.errorLogs.filter(log => !log.resolved);
     await this.saveErrorLogs();
   }
@@ -677,7 +728,56 @@ class ErrorHandlingService {
   getRetryConfig(category: ErrorCategory): RetryConfig {
     return this.retryConfigs.get(category) || this.retryConfigs.get(ErrorCategory.GENERAL)!;
   }
+
+  // Helper method for callers to implement retry logic with exponential backoff
+  async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    category: ErrorCategory,
+    context: ErrorContext
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt <= this.getRetryConfig(category).maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        // Handle the error to get classification and user-friendly message
+        const userError = await this.handleError(error, category, {
+          ...context,
+          retryCount: attempt,
+        });
+        
+        // Classify the error to get the type for retry decision
+        const status = (error as any).status || (error as any).response?.status || 0;
+        const message = (error as any).message || String(error);
+        const errorType = await this.classifyError(status, message);
+        
+        // Check if we should retry
+        if (!userError.retryable || !this.shouldRetryOperation(errorType, attempt, category)) {
+          throw error; // Don't retry, throw the original error
+        }
+        
+        // If this is the last attempt, throw the error
+        if (attempt === this.getRetryConfig(category).maxRetries) {
+          throw error;
+        }
+        
+        // Calculate delay and wait before retrying
+        const delay = this.calculateRetryDelay(attempt, category);
+        await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
+      }
+    }
+    
+    throw lastError; // This should never be reached, but TypeScript requires it
+  }
 }
 
 // Export singleton instance
-export const errorHandlingService = new ErrorHandlingService(); 
+export const errorHandlingService = new ErrorHandlingService();
+
+// Export initialization function for callers to await
+export const initializeErrorHandling = async (): Promise<void> => {
+  await errorHandlingService.init();
+}; 

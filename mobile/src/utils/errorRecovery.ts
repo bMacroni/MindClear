@@ -39,6 +39,9 @@ class ErrorRecoveryService {
   private failureCounts: Map<string, number> = new Map();
   private lastFailureTimes: Map<string, number> = new Map();
   
+  // Per-endpoint locks for atomic operations
+  private endpointLocks: Map<string, Promise<void>> = new Map();
+  
   // Default configurations
   private defaultCircuitBreakerConfig: CircuitBreakerConfig = {
     failureThreshold: 5,
@@ -59,6 +62,26 @@ class ErrorRecoveryService {
     return `circuit_breaker_${endpoint}`;
   }
 
+  // Acquire lock for an endpoint
+  private async acquireLock(endpoint: string): Promise<() => void> {
+    const existingLock = this.endpointLocks.get(endpoint);
+    if (existingLock) {
+      await existingLock;
+    }
+
+    let releaseLock: () => void;
+    const lockPromise = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    this.endpointLocks.set(endpoint, lockPromise);
+
+    return () => {
+      releaseLock();
+      this.endpointLocks.delete(endpoint);
+    };
+  }
+
   // Get current circuit breaker state
   private getCircuitBreakerState(endpoint: string): CircuitBreakerState {
     return this.circuitBreakers.get(endpoint) || CircuitBreakerState.CLOSED;
@@ -70,16 +93,23 @@ class ErrorRecoveryService {
   }
 
   // Record a failure
-  private recordFailure(endpoint: string): void {
-    const currentCount = this.failureCounts.get(endpoint) || 0;
-    const newCount = currentCount + 1;
-    this.failureCounts.set(endpoint, newCount);
-    this.lastFailureTimes.set(endpoint, Date.now());
+  private async recordFailure(endpoint: string): Promise<void> {
+    const releaseLock = await this.acquireLock(endpoint);
+    
+    try {
+      // Atomic read-modify-write operation
+      const currentCount = this.failureCounts.get(endpoint) || 0;
+      const newCount = currentCount + 1;
+      this.failureCounts.set(endpoint, newCount);
+      this.lastFailureTimes.set(endpoint, Date.now());
 
-    const config = this.defaultCircuitBreakerConfig;
-    if (newCount >= config.failureThreshold) {
-      this.updateCircuitBreakerState(endpoint, CircuitBreakerState.OPEN);
-      console.warn(`Circuit breaker opened for ${endpoint} after ${newCount} failures`);
+      const config = this.defaultCircuitBreakerConfig;
+      if (newCount >= config.failureThreshold) {
+        this.updateCircuitBreakerState(endpoint, CircuitBreakerState.OPEN);
+        console.warn(`Circuit breaker opened for ${endpoint} after ${newCount} failures`);
+      }
+    } finally {
+      releaseLock();
     }
   }
 
@@ -153,7 +183,7 @@ class ErrorRecoveryService {
         
         // Check if this is the last attempt
         if (attempt === retryStrategy.maxRetries) {
-          this.recordFailure(circuitBreakerKey);
+          await this.recordFailure(circuitBreakerKey);
           break;
         }
 

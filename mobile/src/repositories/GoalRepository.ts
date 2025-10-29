@@ -169,6 +169,49 @@ export class GoalRepository {
     });
   }
 
+  async getMilestoneById(id: string): Promise<Milestone | null> {
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+    
+    try {
+      const milestone = await database.get<Milestone>('milestones').find(id);
+      
+      // Verify ownership by loading the milestone's goal
+      const goal = await milestone.goal.fetch();
+      
+      // Check if the authenticated user owns the goal
+      if (goal.userId !== userId) {
+        return null;
+      }
+      
+      return milestone;
+    } catch {
+      return null;
+    }
+  }
+
+  async getMilestoneStepById(id: string): Promise<MilestoneStep | null> {
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+    
+    try {
+      const step = await database.get<MilestoneStep>('milestone_steps').find(id);
+      
+      // Verify ownership by loading the step's milestone and its goal
+      const milestone = await step.milestone.fetch();
+      const goal = await milestone.goal.fetch();
+      
+      // Check if the authenticated user owns the goal
+      if (goal.userId !== userId) {
+        return null;
+      }
+      
+      return step;
+    } catch {
+      return null;
+    }
+  }
+
   async deleteMilestone(id: string): Promise<void> {
     const database = getDatabase();
     
@@ -193,9 +236,9 @@ export class GoalRepository {
         });
       });
     } catch (error) {
-      // Handle WatermelonDB "not found" errors
+      // Handle WatermelonDB "not found" errors - return gracefully (idempotent)
       if (error instanceof Error && error.message.includes('not found')) {
-        throw new NotFoundError(`Milestone with id ${id} not found`);
+        return; // No-op for non-existent milestones
       }
       
       // Re-throw custom domain errors

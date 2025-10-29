@@ -45,8 +45,9 @@ class EnhancedAPI {
       // Add timeout to prevent hanging requests
       const timeoutMs = 30000; // 30 second timeout
       const controller = new AbortController();
+      let timeoutId: NodeJS.Timeout;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           controller.abort();
           reject(new Error(`Request timeout after ${timeoutMs}ms for ${operation} at ${url}`));
         }, timeoutMs);
@@ -54,6 +55,7 @@ class EnhancedAPI {
 
       const fetchPromise = fetch(url, { ...options, signal: controller.signal });
       const response = await Promise.race([fetchPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();

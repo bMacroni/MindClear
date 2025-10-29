@@ -26,15 +26,43 @@ import { DatabaseProvider } from './src/contexts/DatabaseContext';
 import { syncService } from './src/services/SyncService';
 import secureConfigService from './src/services/secureConfig';
 import getSupabaseClient from './src/services/supabaseClient';
+import { initializeErrorHandling } from './src/services/errorHandling';
+import { colors } from './src/themes/colors';
 // import { initializeScreenPreloading } from './src/utils/screenPreloader';
 
-// Set Google client IDs immediately when the module loads
-// This is now delayed until after secure config is loaded
-// configService.setGoogleClientIds({
-//   web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
-//   android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
-//   ios: '', // iOS client ID not needed for Android development
-// });
+// Constants for initialization
+const SECURE_CONFIG_TIMEOUT = 15000; // 15 seconds
+const GOOGLE_CLIENT_CONFIG = {
+  web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
+  android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
+  ios: '', // iOS client ID not needed for Android development
+};
+
+// Shared core initialization logic
+const performCoreInitialization = async (): Promise<Database> => {
+  // First, initialize secure config with timeout protection
+  console.log('Initializing secure config...');
+  await Promise.race([
+    secureConfigService.initialize(),
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Secure config initialization timeout')), SECURE_CONFIG_TIMEOUT)
+    )
+  ]);
+
+  // Now, set up other services that depend on this config
+  configService.setGoogleClientIds(GOOGLE_CLIENT_CONFIG);
+
+  // Then, set up the database
+  console.log('Initializing database...');
+  const db = await initializeDatabase();
+  
+  // Initialize error handling service
+  console.log('Initializing error handling service...');
+  await initializeErrorHandling();
+  
+  console.log('Core initialization complete');
+  return db;
+};
 
 function App() {
   const [database, setDatabase] = useState<Database | null>(null);
@@ -46,26 +74,12 @@ function App() {
     setDatabase(null);
     
     try {
-      // First, initialize secure config with timeout protection
-      console.log('Retrying secure config initialization...');
-      await Promise.race([
-        secureConfigService.initialize(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Secure config initialization timeout')), 15000)
-        )
-      ]);
-
-      // Now, set up other services that depend on this config
-      configService.setGoogleClientIds({
-        web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
-        android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
-        ios: '', // iOS client ID not needed for Android development
-      });
-
-      // Then, set up the database
-      console.log('Retrying database initialization...');
-      const db = await initializeDatabase();
+      console.log('Retrying app initialization...');
+      const db = await performCoreInitialization();
       setDatabase(db);
+      
+      // Show success feedback
+      Alert.alert('Success', 'Application has been successfully restarted!');
       console.log('App retry initialization complete');
 
     } catch (error) {
@@ -84,26 +98,10 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // First, initialize secure config with timeout protection
-        console.log('Initializing secure config...');
-        await Promise.race([
-          secureConfigService.initialize(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Secure config initialization timeout')), 15000)
-          )
-        ]);
-
-        // Now, set up other services that depend on this config
-        configService.setGoogleClientIds({
-          web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
-          android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
-          ios: '', // iOS client ID not needed for Android development
-        });
-
-        // Then, set up the database
-        console.log('Initializing database...');
-        const db = await initializeDatabase();
+        console.log('Initializing app...');
+        const db = await performCoreInitialization();
         setDatabase(db);
+        
         console.log('App initialization complete');
 
       } catch (error) {
@@ -145,8 +143,14 @@ function App() {
           'change',
           nextAppState => {
             if (nextAppState === 'active') {
-              console.log('App has come to the foreground, triggering sync.');
-              syncService.sync();
+              console.log('App has come to the foreground, checking auth before sync.');
+              // Only trigger sync if user is authenticated
+              if (authService.isAuthenticated()) {
+                console.log('User is authenticated, triggering sync.');
+                syncService.sync();
+              } else {
+                console.log('User not authenticated, skipping sync.');
+              }
             }
           },
         );
@@ -275,16 +279,6 @@ function App() {
     };
   }, []);
 
-  // Focus retry button when error UI is shown
-  useEffect(() => {
-    if (!database && !isLoading && retryButtonRef.current) {
-      // Small delay to ensure the component is rendered
-      const timer = setTimeout(() => {
-        retryButtonRef.current?.focus();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [database, isLoading]);
 
   if (isLoading) {
     return (
@@ -317,7 +311,7 @@ function App() {
         importantForAccessibility="yes"
       >
         <Text 
-          style={{fontSize: 18, textAlign: 'center', marginBottom: 20, color: '#333'}}
+          style={{fontSize: 18, textAlign: 'center', marginBottom: 20, color: colors.text.primary}}
           accessible={true}
           accessibilityRole="text"
           accessibilityLabel="An error occurred while loading the application"
@@ -327,7 +321,7 @@ function App() {
         <TouchableOpacity
           ref={retryButtonRef}
           style={{
-            backgroundColor: '#007AFF',
+            backgroundColor: colors.primary,
             paddingHorizontal: 24,
             paddingVertical: 12,
             borderRadius: 8,
@@ -344,7 +338,7 @@ function App() {
           importantForAccessibility="yes"
         >
           <Text 
-            style={{color: 'white', fontSize: 16, fontWeight: '600'}}
+            style={{color: colors.secondary, fontSize: 16, fontWeight: '600'}}
             accessible={false}
           >
             Retry

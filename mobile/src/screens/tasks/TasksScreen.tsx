@@ -49,13 +49,20 @@ const eodLog = (...args: any[]) => {
   }
 };
 
-interface TasksScreenProps {
+// Internal props interface - what the component actually uses
+interface InternalTasksScreenProps {
+  tasks: Task[];
+  goals: Goal[];
+}
+
+// External props interface - what the HOC/wrapper provides
+interface ExternalTasksScreenProps {
   tasks: Task[];
   goals: Goal[];
   database: Database;
 }
 
-const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
+const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const _insets = useSafeAreaInsets();
@@ -290,13 +297,9 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
       if (editingTask) {
         // Update existing task
         const updatedTask = await tasksAPI.updateTask(editingTask.id, convertTaskDataToApiFormat(taskData));
-        // Don't update state directly - let sync service handle it
-        // setTasks(prev => prev.map(task => task.id === editingTask.id ? updatedTask : task));
       } else {
         // Create new task
         const newTask = await tasksAPI.createTask(convertTaskDataToApiFormat(taskData));
-        // Don't update state directly - let sync service handle it
-        // setTasks(prev => [...prev, newTask]);
       }
       
       // Trigger silent sync to push changes to server
@@ -337,9 +340,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
     try {
       await tasksAPI.updateTask(taskId, { status: newStatus });
       
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus } : task));
-      
       // Trigger silent sync to push changes to server
       try {
         await syncService.silentSync();
@@ -373,12 +373,8 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
 
   const handleResetCompletedTask = useCallback(async (taskId: string) => {
     const prevTasks = tasks;
-    // Don't update state directly - let sync service handle it
-    // setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: 'not_started' } : task));
     try {
       const updatedTask = await tasksAPI.updateTask(taskId, { status: 'not_started' });
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
       
       // Handle calendar event - remove any associated calendar events since task is no longer completed
       try {
@@ -703,8 +699,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
   const handleToggleAutoSchedule = async (taskId: string, enabled: boolean) => {
     try {
       await autoSchedulingAPI.toggleTaskAutoScheduling(taskId, enabled);
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(task => task.id === taskId ? { ...task, autoScheduleEnabled: enabled } : task));
     } catch (error) {
       console.error('Error toggling auto-schedule:', error);
       Alert.alert('Error', 'Failed to update auto-schedule setting');
@@ -864,10 +858,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
     try {
       // Set the task as today's focus (immediate UI feedback)
       const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true });
-
-      // Update state optimistically for immediate UI feedback
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, isTodayFocus: false }));
 
       // Show immediate feedback
       setToastMessage("Setting as Today's Focus...");
@@ -1063,8 +1053,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
     try {
       // Update task status immediately for responsive UI
       const updated = await tasksAPI.updateTask(task.id, { status: 'completed' });
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(t => t.id === task.id ? updated : t));
       setToastMessage('Great job! Focus task completed.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1077,20 +1065,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
             travel_preference: travelPreference,
             exclude_ids: [],
           });
-
-          // Update state optimistically
-          // Don't update state directly - let sync service handle it
-          // setTasks(prev => {
-          //   const mapped = prev.map(t => {
-          //     if (t.id === task.id) { return { ...t, isTodayFocus: false }; }
-          //     if (t.id === next.id) { return next; }
-          //     return t;
-          //   });
-          //   if (!mapped.find(t => t.id === next.id)) {
-          //     return [next, ...mapped];
-          //   }
-          //   return mapped;
-          // });
 
           // Handle calendar operations asynchronously (non-blocking)
           const handleMomentumCalendarOperations = async () => {
@@ -1220,8 +1194,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
     try {
       eodLog('updating task dueDate -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
       const updated = await tasksAPI.updateTask(focus.id, { due_date: `${yyyy}-${mm}-${dd}` });
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(t => t.id === focus.id ? updated : t));
       eodLog('update success, task updated', { updatedDue: updated?.due_date });
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
@@ -1263,8 +1235,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
       const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
       const dd = String(tomorrow.getDate()).padStart(2, '0');
       const updated = await tasksAPI.updateTask(task.id, { due_date: `${yyyy}-${mm}-${dd}` });
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => prev.map(t => t.id === task.id ? updated : t));
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1311,20 +1281,6 @@ const TasksScreen: React.FC<TasksScreenProps> = ({ tasks: observableTasks, goals
         travel_preference: travelPreference,
         exclude_ids: [focus.id],
       });
-
-      // Update state optimistically
-      // Don't update state directly - let sync service handle it
-      // setTasks(prev => {
-      //   const mapped = prev.map(t => {
-      //     if (t.id === focus.id) { return { ...t, isTodayFocus: false }; }
-      //     if (t.id === next.id) { return next; }
-      //     return t;
-      //   });
-      //   if (!mapped.find(t => t.id === next.id)) {
-      //     return [next, ...mapped];
-      //   }
-      //   return mapped;
-      // });
 
       // Handle calendar operations asynchronously (non-blocking)
       const handleSkipCalendarOperations = async () => {
@@ -2065,13 +2021,13 @@ const styles = StyleSheet.create({
 });
 
 // Create the enhanced component with WatermelonDB observables
-const enhance = withObservables(['database'], ({database}) => ({
+const enhance = withObservables(['database'], ({database}: {database: Database}) => ({
   tasks: database.collections.get('tasks').query(
     Q.where('status', Q.notEq('pending_delete'))
-  ).observe(),
+  ).observe() as any, // Cast to Task[] for type compatibility
   goals: database.collections.get('goals').query(
     Q.where('status', Q.notEq('pending_delete'))
-  ).observe(),
+  ).observe() as any, // Cast to Goal[] for type compatibility
 }));
 
 const EnhancedTasksScreen = enhance(TasksScreen);

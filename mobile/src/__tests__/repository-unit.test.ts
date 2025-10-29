@@ -91,11 +91,8 @@ describe('Repository Unit Tests', () => {
       }).rejects.toThrow();
     });
 
-    test('deleteTask handles non-existent task gracefully', async () => {
-      // Should not throw error for non-existent task
-      await expect(async () => {
-        await taskRepository.deleteTask('non-existent-id');
-      }).resolves.not.toThrow();
+    test('deleteTask handles non-existent task', async () => {
+      await expect(taskRepository.deleteTask('non-existent-id')).resolves.not.toThrow();
     });
 
     test('completeTask handles non-existent task', async () => {
@@ -281,10 +278,11 @@ describe('Repository Unit Tests', () => {
         completed: true,
       });
 
-      const updatedMilestone = await database.get<Milestone>('milestones').find(milestone.id);
-      expect(updatedMilestone.status).toBe('pending_update');
-      expect(updatedMilestone.title).toBe('Updated Milestone');
-      expect(updatedMilestone.completed).toBe(true);
+      const updatedMilestone = await goalRepository.getMilestoneById(milestone.id);
+      expect(updatedMilestone).not.toBeNull();
+      expect(updatedMilestone!.status).toBe('pending_update');
+      expect(updatedMilestone!.title).toBe('Updated Milestone');
+      expect(updatedMilestone!.completed).toBe(true);
     });
 
     test('deleteMilestone changes status to pending_delete', async () => {
@@ -299,8 +297,9 @@ describe('Repository Unit Tests', () => {
 
       await goalRepository.deleteMilestone(milestone.id);
 
-      const deletedMilestone = await database.get<Milestone>('milestones').find(milestone.id);
-      expect(deletedMilestone.status).toBe('pending_delete');
+      const deletedMilestone = await goalRepository.getMilestoneById(milestone.id);
+      expect(deletedMilestone).not.toBeNull();
+      expect(deletedMilestone!.status).toBe('pending_delete');
     });
 
     test('createMilestone handles missing required fields', async () => {
@@ -317,9 +316,7 @@ describe('Repository Unit Tests', () => {
     });
 
     test('deleteMilestone handles non-existent milestone', async () => {
-      await expect(async () => {
-        await goalRepository.deleteMilestone('non-existent-id');
-      }).rejects.toThrow();
+      await expect(goalRepository.deleteMilestone('non-existent-id')).resolves.not.toThrow();
     });
   });
 
@@ -366,10 +363,11 @@ describe('Repository Unit Tests', () => {
         completed: true,
       });
 
-      const updatedStep = await database.get<MilestoneStep>('milestone_steps').find(step.id);
-      expect(updatedStep.status).toBe('pending_update');
-      expect(updatedStep.text).toBe('Updated Step');
-      expect(updatedStep.completed).toBe(true);
+      const updatedStep = await goalRepository.getMilestoneStepById(step.id);
+      expect(updatedStep).not.toBeNull();
+      expect(updatedStep!.status).toBe('pending_update');
+      expect(updatedStep!.text).toBe('Updated Step');
+      expect(updatedStep!.completed).toBe(true);
     });
 
     test('deleteMilestoneStep changes status to pending_delete', async () => {
@@ -389,8 +387,9 @@ describe('Repository Unit Tests', () => {
 
       await goalRepository.deleteMilestoneStep(step.id);
 
-      const deletedStep = await database.get<MilestoneStep>('milestone_steps').find(step.id);
-      expect(deletedStep.status).toBe('pending_delete');
+      const deletedStep = await goalRepository.getMilestoneStepById(step.id);
+      expect(deletedStep).not.toBeNull();
+      expect(deletedStep!.status).toBe('pending_delete');
     });
 
     test('createMilestoneStep handles missing required fields', async () => {
@@ -463,17 +462,14 @@ describe('Repository Unit Tests', () => {
       expect(goal.targetCompletionDate?.getTime()).toBe(targetDate.getTime());
     });
 
-    test('handles invalid date gracefully', async () => {
+    test('throws error for invalid date', async () => {
       const invalidDate = new Date('invalid');
       
-      // Should not throw error when creating task with invalid date
-      const task = await taskRepository.createTask({
+      // Should throw error when creating task with invalid date
+      await expect(taskRepository.createTask({
         title: 'Task with Invalid Date',
         dueDate: invalidDate,
-      });
-
-      expect(task.dueDate).toBeDefined();
-      expect(isNaN(task.dueDate?.getTime() || 0)).toBe(true);
+      })).rejects.toThrow('Invalid due date provided. Date must be a valid Date object.');
     });
 
     test('handles null date gracefully', async () => {

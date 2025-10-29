@@ -410,6 +410,11 @@ jest.mock('../repositories/TaskRepository', () => {
       // Add reset method for testing
       __resetMocks: resetMocks,
       createTask: jest.fn(async (taskData) => {
+        // Validate date if provided (same validation as real repository)
+        if (taskData.dueDate && isNaN(taskData.dueDate.getTime())) {
+          throw new Error('Invalid due date provided. Date must be a valid Date object.');
+        }
+
         const id = `task_${taskIdCounter++}`;
         const task = {
           id,
@@ -422,6 +427,11 @@ jest.mock('../repositories/TaskRepository', () => {
         return task;
       }),
       updateTask: jest.fn(async (id, updates) => {
+        // Validate date if provided (same validation as real repository)
+        if (updates.dueDate && isNaN(updates.dueDate.getTime())) {
+          throw new Error('Invalid due date provided. Date must be a valid Date object.');
+        }
+
         const task = mockTasks.get(id);
         if (task) {
           const updatedTask = { 
@@ -433,7 +443,7 @@ jest.mock('../repositories/TaskRepository', () => {
           mockTasks.set(id, updatedTask);
           return updatedTask;
         }
-        return null;
+        throw new Error('Task not found');
       }),      deleteTask: jest.fn(async (id) => {
         const task = mockTasks.get(id);
         if (task) {
@@ -441,7 +451,8 @@ jest.mock('../repositories/TaskRepository', () => {
           mockTasks.set(id, deletedTask);
           return deletedTask;
         }
-        return null;
+        // No-op for non-existent tasks (idempotent)
+        return;
       }),
       getTaskById: jest.fn(async (id) => {
         const task = mockTasks.get(id);
@@ -660,6 +671,9 @@ jest.mock('../repositories/GoalRepository', () => {
         return null;
       }),
       getStepById: jest.fn(async (id) => {
+        return mockSteps.get(id) || null;
+      }),
+      getMilestoneStepById: jest.fn(async (id) => {
         return mockSteps.get(id) || null;
       }),
       getStepsForMilestone: jest.fn(async (milestoneId) => {
