@@ -10,7 +10,6 @@ import MilestoneStep from '../db/models/MilestoneStep';
 import { notificationService } from './notificationService';
 import { authService } from './auth';
 import { safeParseDate } from '../utils/dateUtils';
-import { ErrorCategory } from './errorHandling';
 
 // Interface for task data received from server during sync
 interface TaskPayload {
@@ -154,8 +153,7 @@ class SyncService {
             description: record.description,
             completed: record.completed,
             order: record.order,
-            // Note: client_updated_at is reserved for future conflict resolution
-            // Backend currently sets updated_at automatically
+            client_updated_at: record.updatedAt?.toISOString(),
           };
 
           switch (record.status) {
@@ -326,79 +324,18 @@ class SyncService {
     console.log('Push: Finished pushing local changes.');
   }
 
-  async pullData(forceFullSync = false) {
+  async pullData() {
     const database = getDatabase();
     const lastSyncedAt = await AsyncStorage.getItem(LAST_SYNCED_AT_KEY);
-    
-    // Check if this is the first sync or if we should force a full sync
-    const isFirstSync = !lastSyncedAt;
-    let shouldDoFullSync = forceFullSync || isFirstSync;
-    
-    // If not forcing full sync, check if we have goals but no milestones - suggests incomplete sync
-    if (!shouldDoFullSync && lastSyncedAt) {
-      try {
-        const localGoals = await database.get<Goal>('goals').query().fetch();
-        const localMilestones = await database.get<Milestone>('milestones').query().fetch();
-        
-        // If we have goals but no milestones, it's likely an incomplete sync
-        if (localGoals.length > 0 && localMilestones.length === 0) {
-          if (__DEV__) {
-            console.log('Pull: Detected goals without milestones - performing full sync to get complete data');
-          }
-          shouldDoFullSync = true;
-        }
-      } catch (error) {
-        // If check fails, continue with delta sync
-        if (__DEV__) {
-          console.warn('Pull: Could not check for incomplete sync, proceeding with delta sync:', error);
-        }
-      }
-    }
-    
-    const syncSince = shouldDoFullSync ? undefined : lastSyncedAt || undefined;
-    console.log(`Pull: ${shouldDoFullSync ? 'Full sync' : 'Delta sync'}${lastSyncedAt ? ` (last synced: ${lastSyncedAt})` : ' (first sync)'}`);
+    console.log(`Pull: Last synced at: ${lastSyncedAt}`);
 
     const serverTimeBeforePull = new Date().toISOString();
 
     try {
-      // Fetch changes from the server since the last sync (or all if full sync)
-      const syncResponse = await enhancedAPI.getEvents(2500, syncSince);
-      const tasksResponse = await enhancedAPI.getTasks(syncSince);
-      
-      // Fetch goals with error handling - if API returns validation error, log but continue
-      let goalsResponse: any = null;
-      try {
-        goalsResponse = await enhancedAPI.getGoals(syncSince);
-      } catch (goalsError: any) {
-        // Check if it's a validation error that should be handled gracefully
-        const isGoalsValidationError = 
-          (goalsError && typeof goalsError === 'object' && 'isUserFriendlyError' in goalsError &&
-           (goalsError as any).category === ErrorCategory.GOALS && 
-           (goalsError as any).severity === 'LOW') ||
-          goalsError?.response?.status === 400 ||
-          (goalsError instanceof Error && (
-            goalsError.message.includes('missing required field') ||
-            goalsError.message.includes('Invalid') ||
-            goalsError.message.includes('validation')
-          ));
-        
-        if (isGoalsValidationError) {
-          // Validation error - log but continue with empty goals array
-          if (__DEV__) {
-            const errorMsg = goalsError?.message || (goalsError && typeof goalsError === 'object' && 'isUserFriendlyError' in goalsError 
-              ? (goalsError as any).message : String(goalsError));
-            console.warn('Pull: Goals API returned validation error, but continuing sync with empty goals array:', errorMsg);
-          }
-          goalsResponse = null; // Use null to trigger empty array handling below
-        } else {
-          // Re-throw other errors (network, auth, etc.)
-          throw goalsError;
-        }
-      }
-      
-      // Note: Milestones and steps come nested within goals, not from separate endpoints
-      // The backend returns goals with nested milestones and steps via Supabase joins
-      // We'll extract them when processing goals below
+      // Fetch changes from the server since the last sync
+      const syncResponse = await enhancedAPI.getEvents(2500, lastSyncedAt || undefined);
+      const tasksResponse = await enhancedAPI.getTasks(lastSyncedAt || undefined);
+      const goalsResponse = await enhancedAPI.getGoals(lastSyncedAt || undefined);
 
       const { changed: changedEvents, deleted: deletedEventIds } = syncResponse;
       
@@ -417,135 +354,17 @@ class SyncService {
       // Handle goals response - could be array (full sync) or object with changed/deleted (incremental sync)
       let changedGoals = [];
       let deletedGoalIds = [];
-      if (goalsResponse === null || goalsResponse === undefined) {
-        // API error or no response - use empty arrays
-        if (__DEV__) {
-          console.warn('Pull: Goals response is null/undefined - no goals to process');
-        }
-        changedGoals = [];
-        deletedGoalIds = [];
-      } else if (Array.isArray(goalsResponse)) {
-        // Full sync response - filter out null/undefined values
-        changedGoals = goalsResponse.filter((goal: any) => goal != null && typeof goal === 'object');
-        if (__DEV__) {
-          console.log(`Pull: Full sync - received ${goalsResponse.length} goals, filtered to ${changedGoals.length}`);
-        }
+      if (Array.isArray(goalsResponse)) {
+        // Full sync response
+        changedGoals = goalsResponse;
       } else if (goalsResponse && typeof goalsResponse === 'object') {
-        // Incremental sync response - filter out null/undefined values
-        const originalChanged = goalsResponse.changed || [];
-        changedGoals = originalChanged.filter((goal: any) => goal != null && typeof goal === 'object');
+        // Incremental sync response
+        changedGoals = goalsResponse.changed || [];
         deletedGoalIds = goalsResponse.deleted || [];
-        if (__DEV__) {
-          console.log(`Pull: Incremental sync - received ${originalChanged.length} changed goals, filtered to ${changedGoals.length}, ${deletedGoalIds.length} deleted`);
-          if (originalChanged.length === 0 && lastSyncedAt) {
-            console.warn(`Pull: No goals changed since ${lastSyncedAt} - this might mean goals with milestones aren't being synced if the goal itself hasn't been updated`);
-          }
-        }
-      }
-      
-      // Log filtered goals for debugging
-      if (goalsResponse && __DEV__) {
-        const originalCount = Array.isArray(goalsResponse) ? goalsResponse.length : (goalsResponse.changed?.length || 0);
-        if (originalCount !== changedGoals.length) {
-          console.warn(`Pull: Filtered out ${originalCount - changedGoals.length} null/undefined/invalid goal(s) from response`);
-        }
       }
 
-      // Extract milestones and steps from nested goal data
-      // Goals come with nested milestones, and milestones come with nested steps
-      let changedMilestones: any[] = [];
-      let changedSteps: any[] = [];
-      let deletedMilestoneIds: string[] = [];
-      let deletedStepIds: string[] = [];
-      
-      // Log goals structure for debugging
-      if (__DEV__ && changedGoals.length > 0) {
-        console.log(`Pull: Processing ${changedGoals.length} goals`);
-        const firstGoal = changedGoals[0];
-        console.log(`Pull: Sample goal structure:`, {
-          id: firstGoal?.id,
-          title: firstGoal?.title,
-          hasMilestones: !!firstGoal?.milestones,
-          milestonesType: typeof firstGoal?.milestones,
-          milestonesIsArray: Array.isArray(firstGoal?.milestones),
-          milestonesLength: Array.isArray(firstGoal?.milestones) ? firstGoal.milestones.length : 'N/A',
-        });
-        if (firstGoal?.milestones && Array.isArray(firstGoal.milestones) && firstGoal.milestones.length > 0) {
-          const firstMilestone = firstGoal.milestones[0];
-          console.log(`Pull: Sample milestone structure:`, {
-            id: firstMilestone?.id,
-            title: firstMilestone?.title,
-            goal_id: firstMilestone?.goal_id,
-            hasSteps: !!firstMilestone?.steps,
-            stepsType: typeof firstMilestone?.steps,
-            stepsIsArray: Array.isArray(firstMilestone?.steps),
-            stepsLength: Array.isArray(firstMilestone?.steps) ? firstMilestone.steps.length : 'N/A',
-          });
-        }
-      }
-      
-      // Extract milestones and steps from goals, and clean goal data
-      for (const goal of changedGoals) {
-        if (goal && goal.milestones && Array.isArray(goal.milestones)) {
-          if (__DEV__) {
-            console.log(`Pull: Goal ${goal.id} has ${goal.milestones.length} milestones`);
-          }
-          for (const milestone of goal.milestones) {
-            if (milestone && typeof milestone === 'object') {
-              // Ensure milestone has goal_id set
-              milestone.goal_id = milestone.goal_id || goal.id;
-              changedMilestones.push(milestone);
-              
-              if (__DEV__) {
-                console.log(`Pull: Extracted milestone ${milestone.id} (${milestone.title}) from goal ${goal.id}`);
-              }
-              
-              // Extract steps from milestone
-              if (milestone.steps && Array.isArray(milestone.steps)) {
-                if (__DEV__) {
-                  console.log(`Pull: Milestone ${milestone.id} has ${milestone.steps.length} steps`);
-                }
-                for (const step of milestone.steps) {
-                  if (step && typeof step === 'object') {
-                    // Ensure step has milestone_id set
-                    step.milestone_id = step.milestone_id || milestone.id;
-                    changedSteps.push(step);
-                    if (__DEV__) {
-                      console.log(`Pull: Extracted step ${step.id} (${step.text?.substring(0, 30)}...) from milestone ${milestone.id}`);
-                    }
-                  }
-                }
-              }
-              // Remove nested steps from milestone to keep milestone data clean
-              delete milestone.steps;
-            }
-          }
-        } else if (__DEV__ && goal) {
-          console.log(`Pull: Goal ${goal.id} has no milestones or milestones is not an array`);
-        }
-        // Remove nested milestones from goal to keep goal data clean
-        if (goal.milestones) {
-          delete goal.milestones;
-        }
-      }
-      
-      if (__DEV__) {
-        console.log(`Pull: Extracted ${changedMilestones.length} milestones and ${changedSteps.length} steps from ${changedGoals.length} goals`);
-      }
-
-      const allChanges = [...changedEvents, ...changedTasks, ...changedGoals, ...changedMilestones, ...changedSteps];
-      const allDeletedIds = [...(deletedEventIds || []), ...deletedTaskIds, ...deletedGoalIds, ...deletedMilestoneIds, ...deletedStepIds];
-
-      if (__DEV__) {
-        console.log(`Pull: Breakdown of changes:`, {
-          events: changedEvents.length,
-          tasks: changedTasks.length,
-          goals: changedGoals.length,
-          milestones: changedMilestones.length,
-          steps: changedSteps.length,
-          total: allChanges.length,
-        });
-      }
+      const allChanges = [...changedEvents, ...changedTasks, ...changedGoals];
+      const allDeletedIds = [...(deletedEventIds || []), ...deletedTaskIds, ...deletedGoalIds];
 
       if (allChanges.length === 0 && allDeletedIds.length === 0) {
         console.log('Pull: No new data from server.');
@@ -587,123 +406,22 @@ class SyncService {
             }
             console.log(`Pull: Deleted ${recordsToDelete.length} goals`);
           }
-
-          // Process milestone deletions
-          if (deletedMilestoneIds && deletedMilestoneIds.length > 0) {
-            const milestoneCollection = database.get<Milestone>('milestones');
-            const recordsToDelete = await milestoneCollection.query(Q.where('id', Q.oneOf(deletedMilestoneIds))).fetch();
-            for (const record of recordsToDelete) {
-              await record.destroyPermanently();
-            }
-            console.log(`Pull: Deleted ${recordsToDelete.length} milestones`);
-          }
-
-          // Process milestone step deletions
-          if (deletedStepIds && deletedStepIds.length > 0) {
-            const stepCollection = database.get<MilestoneStep>('milestone_steps');
-            const recordsToDelete = await stepCollection.query(Q.where('id', Q.oneOf(deletedStepIds))).fetch();
-            for (const record of recordsToDelete) {
-              await record.destroyPermanently();
-            }
-            console.log(`Pull: Deleted ${recordsToDelete.length} milestone steps`);
-          }
         }
 
         // Process changed records
-        // Wrap each record processing in try-catch so invalid records don't break the entire sync
-        const processingErrors: Array<{ id: string; type: string; error: any }> = [];
-        
         for (const changeData of allChanges) {
-          try {
-            // Skip null/undefined entries
-            if (!changeData || typeof changeData !== 'object') {
-              if (__DEV__) {
-                console.warn('Pull: Skipping null/undefined/invalid change data:', changeData);
-              }
-              continue;
-            }
-            
-            // Determine record type based on the data structure
-            if (changeData.start?.dateTime || changeData.start_time) {
-              // This is a calendar event
-              await this.processEventChange(changeData, database);
-            } else if (changeData.priority !== undefined || changeData.estimated_duration_minutes !== undefined) {
-              // This is a task
-              await this.processTaskChange(changeData, database);
-            } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
-              // This is a goal
-              await this.processGoalChange(changeData, database);
-            } else if (changeData.goal_id !== undefined && changeData.text === undefined && !changeData.target_completion_date && !changeData.priority) {
-              // This is a milestone (has goal_id, no text field, and doesn't match goal/task patterns)
-              // More lenient check: just needs goal_id and shouldn't be a task/goal/step
-              if (__DEV__) {
-                console.log(`Pull: Processing milestone ${changeData.id} (goal_id: ${changeData.goal_id})`, {
-                  hasCompleted: changeData.completed !== undefined,
-                  completedType: typeof changeData.completed,
-                  hasOrder: changeData.order !== undefined,
-                  orderType: typeof changeData.order,
-                  hasTitle: !!changeData.title,
-                });
-              }
-              await this.processMilestoneChange(changeData, database);
-            } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
-              // This is a milestone step (has milestone_id and text string)
-              if (__DEV__) {
-                console.log(`Pull: Processing step ${changeData.id} (milestone_id: ${changeData.milestone_id})`, {
-                  text: changeData.text?.substring(0, 30),
-                  hasCompleted: changeData.completed !== undefined,
-                });
-              }
-              await this.processStepChange(changeData, database);
-            } else {
-              if (__DEV__) {
-                console.warn(`Pull: Unknown record type for change data:`, {
-                  id: changeData?.id,
-                  hasGoalId: changeData?.goal_id !== undefined,
-                  hasMilestoneId: changeData?.milestone_id !== undefined,
-                  hasTargetDate: changeData?.target_completion_date !== undefined,
-                  hasProgress: changeData?.progress_percentage !== undefined,
-                  hasPriority: changeData?.priority !== undefined,
-                  hasText: changeData?.text !== undefined,
-                  completed: changeData?.completed,
-                  order: changeData?.order,
-                });
-              }
-            }
-          } catch (recordError: any) {
-            // Log the error but continue processing other records
-            const recordId = changeData?.id || 'unknown';
-            const recordType = changeData?.start?.dateTime ? 'event' :
-                              changeData?.priority !== undefined ? 'task' :
-                              changeData?.target_completion_date !== undefined ? 'goal' :
-                              changeData?.goal_id !== undefined ? 'milestone' :
-                              changeData?.milestone_id !== undefined ? 'milestone_step' : 'unknown';
-            
-            processingErrors.push({ id: recordId, type: recordType, error: recordError });
-            
-            // Log detailed error in development with goal-specific details
-            if (__DEV__) {
-              console.warn(`Pull: Failed to process ${recordType} ${recordId}:`, recordError.message || recordError);
-              if (recordType === 'goal') {
-                console.warn(`Pull: Invalid goal data:`, JSON.stringify(changeData, null, 2));
-                console.warn(`Pull: Goal validation details:`, {
-                  hasId: !!changeData?.id,
-                  idType: typeof changeData?.id,
-                  hasTitle: changeData?.title !== undefined && changeData?.title !== null && changeData?.title !== '',
-                  titleValue: changeData?.title,
-                  isObject: changeData && typeof changeData === 'object',
-                });
-              }
-              console.warn(`Pull: Skipping invalid ${recordType} and continuing sync`);
-            }
-          }
-        }
-        
-        // Log summary of processing errors if any
-        if (processingErrors.length > 0) {
-          console.warn(`Pull: Skipped ${processingErrors.length} invalid record(s) during sync. Sync completed successfully.`);
-          if (__DEV__) {
-            console.warn('Processing errors:', processingErrors.map(e => `${e.type}:${e.id}`).join(', '));
+          // Determine record type based on the data structure
+          if (changeData.start?.dateTime || changeData.start_time) {
+            // This is a calendar event
+            await this.processEventChange(changeData, database);
+          } else if (changeData.priority !== undefined || changeData.estimated_duration_minutes !== undefined) {
+            // This is a task
+            await this.processTaskChange(changeData, database);
+          } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
+            // This is a goal
+            await this.processGoalChange(changeData, database);
+          } else {
+            console.warn(`Pull: Unknown record type for change data:`, changeData);
           }
         }
       });
@@ -724,70 +442,33 @@ class SyncService {
         } else if (status >= 500) {
           userMessage = 'There was a problem with the server. Please try again later.';
           shouldRetry = true;
-        } else if (status === 404) {
-          // 404 errors are already handled gracefully, but if we reach here, it's unexpected
-          userMessage = 'Some data could not be found on the server. Sync partially completed.';
-          shouldRetry = false;
         } else { // Other 4xx errors e.g. data/validation
-          // Validation errors from server - some records may have been skipped
-          userMessage = 'Some data from the server was invalid and was skipped. Sync completed successfully.';
+          userMessage = 'A data validation error occurred. Please check your inputs.';
           shouldRetry = false;
         }
       } else if (error.message && (error.message.toLowerCase().includes('network') || error.message.toLowerCase().includes('timeout'))) {
         userMessage = 'A network error occurred. Please check your connection and try again.';
         shouldRetry = true;
       } else if (error instanceof Error) {
-        // Check if it's a validation error from record processing
-        if (error.message.includes('missing required field') || error.message.includes('Invalid')) {
-          userMessage = 'Some data from the server was invalid and was skipped. Sync completed successfully.';
-        } else {
-          userMessage = `An unexpected error occurred: ${error.message}`;
-        }
+        userMessage = `An unexpected error occurred: ${error.message}`;
       }
 
-      // Check if this is a validation error that should be handled gracefully
-      const isValidationError = 
-        error?.response?.status === 400 ||
-        (error instanceof Error && (
-          error.message.includes('missing required field') ||
-          error.message.includes('Invalid') ||
-          error.message.includes('validation')
-        )) ||
-        (error && typeof error === 'object' && 'isUserFriendlyError' in error && 
-         (error as any).category === ErrorCategory.GOALS && 
-         (error as any).severity === 'LOW');
+      console.error('Pull: Failed to fetch or process changes from server.', {
+        errorMessage: error.message,
+        statusCode: error?.response?.status,
+        responseData: error?.response?.data,
+        shouldRetry,
+        originalError: error,
+      });
 
-      // Only show notification and throw if it's not a handled validation error
-      // Validation errors from record processing are already handled above
-      if (!isValidationError) {
-        console.error('Pull: Failed to fetch or process changes from server.', {
-          errorMessage: error.message,
-          statusCode: error?.response?.status,
-          responseData: error?.response?.data,
-          shouldRetry,
-          originalError: error,
-        });
+      notificationService.showInAppNotification('Data Pull Failed', userMessage);
 
-        notificationService.showInAppNotification('Data Pull Failed', userMessage);
-        // Re-throw non-validation errors
-        throw error;
-      } else {
-        // Log validation errors but don't treat as sync failure
-        // Save sync timestamp even with validation errors since sync technically completed
-        // (we just skipped invalid records)
-        if (__DEV__) {
-          console.warn('Pull: Validation error detected but handled gracefully:', error.message || error);
-        }
-        // Update sync timestamp since we processed what we could
-        await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
-        console.log(`Pull: Sync completed with validation errors. New sync time: ${serverTimeBeforePull}`);
-        // Don't re-throw validation errors - sync completed successfully (with skipped records)
-        return;
-      }
+      // Re-throw the original error so the main sync logic can handle it
+      throw error;
     }
   }
 
-  async sync(silent = false, forceFullSync = false) {
+  async sync(silent = false) {
     const user = authService.getCurrentUser();
     if (!user) {
       console.log('Sync skipped: No authenticated user.');
@@ -805,33 +486,18 @@ class SyncService {
     this.isSyncing = true;
     try {
       if (!silent) {
-        notificationService.showInAppNotification('Sync Started', forceFullSync ? 'Performing full sync...' : 'Syncing your data...');
+        notificationService.showInAppNotification('Sync Started', 'Syncing your data...');
       }
       await this.pushData();
-      await this.pullData(forceFullSync);
+      await this.pullData();
       if (!silent) {
         notificationService.showInAppNotification('Sync Successful', 'Your data is up to date.');
       }
     } catch (error) {
-      // Check if this is a validation error that shouldn't be treated as a failure
-      const isValidationError = 
-        error && typeof error === 'object' && 'isUserFriendlyError' in error &&
-        (error as any).category === ErrorCategory.GOALS && 
-        (error as any).severity === 'LOW';
-      
-      if (isValidationError) {
-        // Validation errors are already handled gracefully in pullData()
-        // Don't log as sync failure
-        if (__DEV__) {
-          console.warn('Sync: Validation error handled gracefully, sync completed successfully');
-        }
-      } else {
-        // Real sync failure
-        console.error('Sync failed:', error);
-        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
-        if (!silent) {
-          notificationService.showInAppNotification('Sync Failed', `Could not sync data: ${errorMessage}`);
-        }
+      console.error('Sync failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+      if (!silent) {
+        notificationService.showInAppNotification('Sync Failed', `Could not sync data: ${errorMessage}`);
       }
     } finally {
       this.isSyncing = false;
@@ -840,75 +506,6 @@ class SyncService {
 
   async silentSync() {
     return this.sync(true);
-  }
-
-  /**
-   * Force a full sync - fetches all data from the server regardless of last sync time
-   * Useful for ensuring complete data, especially after schema changes or if sync appears incomplete
-   */
-  async fullSync(silent = false) {
-    return this.sync(silent, true);
-  }
-
-  /**
-   * Debug utility to check database contents
-   * Logs all goals, milestones, and steps for the current user
-   */
-  async debugDatabaseContents() {
-    const database = getDatabase();
-    const user = authService.getCurrentUser();
-    
-    if (!user) {
-      console.log('Debug: No authenticated user');
-      return;
-    }
-    
-    try {
-      // Get all goals
-      const allGoals = await database.get<Goal>('goals').query().fetch();
-      console.log(`\n=== Database Debug for ${user.email} ===`);
-      console.log(`Total Goals: ${allGoals.length}`);
-      
-      // Get all milestones
-      const allMilestones = await database.get<Milestone>('milestones').query().fetch();
-      console.log(`Total Milestones: ${allMilestones.length}`);
-      
-      // Get all steps
-      const allSteps = await database.get<MilestoneStep>('milestone_steps').query().fetch();
-      console.log(`Total Steps: ${allSteps.length}`);
-      
-      // Show goals with their milestones
-      for (const goal of allGoals) {
-        const goalMilestones = await database.get<Milestone>('milestones')
-          .query(Q.where('goal_id', goal.id))
-          .fetch();
-        
-        console.log(`\nGoal: ${goal.title} (${goal.id})`);
-        console.log(`  User ID: ${goal.userId}`);
-        console.log(`  Status: ${goal.status}`);
-        console.log(`  Milestones: ${goalMilestones.length}`);
-        
-        for (const milestone of goalMilestones) {
-          const milestoneSteps = await database.get<MilestoneStep>('milestone_steps')
-            .query(Q.where('milestone_id', milestone.id))
-            .fetch();
-          
-          console.log(`    - ${milestone.title} (${milestone.id})`);
-          console.log(`      Steps: ${milestoneSteps.length}`);
-          console.log(`      Completed: ${milestone.completed}`);
-          console.log(`      Status: ${milestone.status}`);
-          
-          for (const step of milestoneSteps) {
-            console.log(`        • ${step.text?.substring(0, 50)}... (${step.id})`);
-            console.log(`          Completed: ${step.completed}, Status: ${step.status}`);
-          }
-        }
-      }
-      
-      console.log(`\n=== End Database Debug ===\n`);
-    } catch (error) {
-      console.error('Debug: Error checking database:', error);
-    }
   }
 
   private async processEventChange(eventData: any, database: Database) {
@@ -1028,29 +625,9 @@ class SyncService {
   }
 
   private async processGoalChange(goalData: any, database: Database) {
-    // Validate required fields with detailed error messages
-    if (!goalData || typeof goalData !== 'object') {
-      const errorMsg = `Invalid goal data: data is not an object. Received: ${typeof goalData}, value: ${JSON.stringify(goalData)}`;
-      console.error('Pull: Goal validation failed:', errorMsg);
-      throw new Error(errorMsg);
-    }
-    if (!goalData.id || typeof goalData.id !== 'string') {
-      const errorMsg = `Goal data missing required field: id. Received id: ${goalData.id} (type: ${typeof goalData.id})`;
-      console.error('Pull: Goal validation failed:', errorMsg);
-      console.error('Pull: Full goal data:', JSON.stringify(goalData, null, 2));
-      throw new Error(errorMsg);
-    }
-    if (goalData.title === undefined || goalData.title === null || goalData.title === '') {
-      const errorMsg = `Goal ${goalData.id} missing required field: title. Received title: ${goalData.title} (type: ${typeof goalData.title})`;
-      console.error('Pull: Goal validation failed:', errorMsg);
-      console.error('Pull: Full goal data:', JSON.stringify(goalData, null, 2));
-      throw new Error(errorMsg);
-    }
-
     const parsedTargetDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
     if (goalData.target_completion_date && !parsedTargetDate) {
-      console.warn(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
-      // Don't throw - continue without the date
+      console.error(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
     }
 
     const goalCollection = database.get<Goal>('goals');
@@ -1062,13 +639,7 @@ class SyncService {
       await localGoal.update((record: Goal) => {
         record.title = goalData.title;
         record.description = goalData.description;
-        // Only set targetCompletionDate if parsing succeeded, otherwise preserve existing value
-        if (parsedTargetDate) {
-          record.targetCompletionDate = parsedTargetDate;
-        } else if (goalData.target_completion_date) {
-          // Log error but don't overwrite existing targetCompletionDate
-          console.error(`Pull: Skipping target_completion_date update for goal ${goalData.id} due to parsing failure, preserving existing value`);
-        }
+        record.targetCompletionDate = parsedTargetDate;
         record.progressPercentage = goalData.progress_percentage;
         record.category = goalData.category;
         record.isActive = goalData.is_active;
@@ -1088,72 +659,6 @@ class SyncService {
         record.status = 'synced';
       });
     }
-    
-    // Note: Nested milestones and steps are processed separately in the main loop
-    // They are extracted before processing (see extraction logic above)
-  }
-
-  private async processMilestoneChange(milestoneData: any, database: Database) {
-    const milestoneCollection = database.get<Milestone>('milestones');
-    const existingMilestones = await milestoneCollection.query(Q.where('id', milestoneData.id)).fetch();
-    const localMilestone = existingMilestones.length > 0 ? existingMilestones[0] : null;
-
-    if (localMilestone) {
-      // Update existing milestone
-      await localMilestone.update((record: Milestone) => {
-        record.title = milestoneData.title;
-        record.description = milestoneData.description;
-        record.completed = milestoneData.completed ?? false;
-        record.order = milestoneData.order ?? 0;
-        record.status = 'synced';
-      });
-    } else {
-      // Create new milestone
-      if (!milestoneData.goal_id) {
-        console.warn(`Pull: Skipping milestone creation for ID ${milestoneData.id} due to missing goal_id.`);
-        return;
-      }
-      await milestoneCollection.create((record: Milestone) => {
-        record._raw.id = milestoneData.id;
-        record.goalId = milestoneData.goal_id;
-        record.title = milestoneData.title;
-        record.description = milestoneData.description;
-        record.completed = milestoneData.completed ?? false;
-        record.order = milestoneData.order ?? 0;
-        record.status = 'synced';
-      });
-    }
-  }
-
-  private async processStepChange(stepData: any, database: Database) {
-    const stepCollection = database.get<MilestoneStep>('milestone_steps');
-    const existingSteps = await stepCollection.query(Q.where('id', stepData.id)).fetch();
-    const localStep = existingSteps.length > 0 ? existingSteps[0] : null;
-
-    if (localStep) {
-      // Update existing step
-      await localStep.update((record: MilestoneStep) => {
-        record.text = stepData.text;
-        record.completed = stepData.completed ?? false;
-        record.order = stepData.order ?? 0;
-        record.status = 'synced';
-      });
-    } else {
-      // Create new step
-      if (!stepData.milestone_id) {
-        console.warn(`Pull: Skipping step creation for ID ${stepData.id} due to missing milestone_id.`);
-        return;
-      }
-      await stepCollection.create((record: MilestoneStep) => {
-        record._raw.id = stepData.id;
-        record.milestoneId = stepData.milestone_id;
-        record.text = stepData.text;
-        record.completed = stepData.completed ?? false;
-        record.order = stepData.order ?? 0;
-        record.status = 'synced';
-      });
-    }
-  }
-}
+  }}
 
 export const syncService = new SyncService();
