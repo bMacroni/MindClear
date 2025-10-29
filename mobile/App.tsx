@@ -36,11 +36,9 @@ const SECURE_CONFIG_TIMEOUT = 15000; // 15 seconds
 // Shared core initialization logic
 const performCoreInitialization = async (): Promise<Database> => {
   // First, initialize secure config with timeout protection using AbortController
-  console.log('Initializing secure config...');
   
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
-    console.log('Secure config initialization timeout - aborting...');
     controller.abort();
   }, SECURE_CONFIG_TIMEOUT);
 
@@ -48,7 +46,6 @@ const performCoreInitialization = async (): Promise<Database> => {
     await secureConfigService.initialize(controller.signal);
     // Clear timeout on success
     clearTimeout(timeoutId);
-    console.log('Secure config initialized successfully');
   } catch (error) {
     // Clear timeout on error
     clearTimeout(timeoutId);
@@ -62,7 +59,6 @@ const performCoreInitialization = async (): Promise<Database> => {
   }
 
   // Now, set up other services that depend on this config
-  console.log('Configuring Google Sign-In...');
   const googleConfig = {
     web: configService.getGoogleWebClientId(),
     android: configService.getGoogleAndroidClientId(),
@@ -71,14 +67,11 @@ const performCoreInitialization = async (): Promise<Database> => {
   configService.setGoogleClientIds(googleConfig);
 
   // Then, set up the database
-  console.log('Initializing database...');
   const db = await initializeDatabase();
   
   // Initialize error handling service
-  console.log('Initializing error handling service...');
   await initializeErrorHandling();
   
-  console.log('Core initialization complete');
   return db;
 };
 
@@ -92,12 +85,8 @@ function App() {
     setDatabase(null);
     
     try {
-      console.log('Retrying app initialization...');
       const db = await performCoreInitialization();
       setDatabase(db);
-      
-      // Success - app will now continue loading
-      console.log('App retry initialization successful');      console.log('App retry initialization complete');
 
     } catch (error) {
       console.error('Failed to retry app initialization:', error);
@@ -115,11 +104,8 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        console.log('Initializing app...');
         const db = await performCoreInitialization();
         setDatabase(db);
-        
-        console.log('App initialization complete');
 
       } catch (error) {
         console.error('Failed to initialize app:', error);
@@ -150,7 +136,9 @@ function App() {
 
         // Try to load remote config now that app is initialized
         secureConfigService.loadRemoteConfigIfNeeded().catch(error => {
-          console.warn('Failed to load remote config after initialization:', error);
+          if (__DEV__) {
+            console.warn('Failed to load remote config after initialization:', error);
+          }
         });
 
         if (!mounted) return; // Check again after async operation
@@ -160,13 +148,9 @@ function App() {
           'change',
           nextAppState => {
             if (nextAppState === 'active') {
-              console.log('App has come to the foreground, checking auth before sync.');
               // Only trigger sync if user is authenticated
               if (authService.isAuthenticated()) {
-                console.log('User is authenticated, triggering sync.');
                 syncService.sync();
-              } else {
-                console.log('User not authenticated, skipping sync.');
               }
             }
           },
@@ -183,11 +167,12 @@ function App() {
               const supabase = getSupabaseClient();
               channel = supabase.channel(`user-${currentUser.id}-changes`)
                 .on('broadcast', { event: 'update' }, (payload) => {
-                  console.log('Realtime update received!', payload);
+                  if (__DEV__) {
+                    console.log('Realtime update received!', payload);
+                  }
                   syncService.sync();
                 })
                 .subscribe();
-              console.log(`Subscribed to Supabase channel: user-${currentUser.id}-changes`);
             }
 
             notificationService.initialize();
@@ -195,7 +180,9 @@ function App() {
               tokenRefreshUnsubscribe();
             }
             tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (token: string) => {
-              console.log('FCM token refreshed:', token.substring(0, 20) + '...');
+              if (__DEV__) {
+                console.log('FCM token refreshed:', token.substring(0, 20) + '...');
+              }
               try {
                 await notificationService.registerTokenWithBackend(token);
               } catch (error) {
@@ -222,7 +209,6 @@ function App() {
             if (channel) {
               const supabase = getSupabaseClient();
               supabase.removeChannel(channel);
-              console.log('Unsubscribed from Supabase channel on logout.');
               channel = null;
             }
             webSocketService.disconnect();
@@ -265,7 +251,9 @@ function App() {
 
           GoogleSignin.configure(baseConfig);
         } catch (e) {
-          console.warn('Failed to configure Google Sign-In at app init:', e);
+          if (__DEV__) {
+            console.warn('Failed to configure Google Sign-In at app init:', e);
+          }
         }
       } catch (error) {
         console.error('Failed to initialize app:', error);
@@ -290,7 +278,6 @@ function App() {
       if (channel) {
         const supabase = getSupabaseClient();
         supabase.removeChannel(channel);
-        console.log('Unsubscribed from Supabase channel.');
       }
       webSocketService.disconnect();
     };

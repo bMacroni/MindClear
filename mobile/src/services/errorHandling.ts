@@ -705,23 +705,25 @@ class ErrorHandlingService {
     return status === 0 || message.includes('Network request failed');
   }
 
-  // Debug method to log detailed error information
+  // Debug method to log detailed error information (only in development)
   private async logErrorDetails(error: any, category: ErrorCategory, context: ErrorContext): Promise<void> {
-    const status = error.status || error.response?.status || 0;
-    const message = error.message || error.toString();
-    const isNetworkConnected = await this.getNetworkStatus();
-    
-    console.warn('=== Error Debug Information ===');
-    console.warn('Error Status:', status);
-    console.warn('Error Message:', message);
-    console.warn('Network Connected:', isNetworkConnected);
-    console.warn('Error Category:', category);
-    console.warn('Operation:', context.operation);
-    console.warn('Endpoint:', context.endpoint);
-    console.warn('Retry Count:', context.retryCount);
-    console.warn('Timestamp:', new Date(context.timestamp).toISOString());
-    console.warn('Full Error Object:', JSON.stringify(error, null, 2));
-    console.warn('================================');
+    if (__DEV__) {
+      const status = error.status || error.response?.status || 0;
+      const message = error.message || error.toString();
+      const isNetworkConnected = await this.getNetworkStatus();
+      
+      console.warn('=== Error Debug Information ===');
+      console.warn('Error Status:', status);
+      console.warn('Error Message:', message);
+      console.warn('Network Connected:', isNetworkConnected);
+      console.warn('Error Category:', category);
+      console.warn('Operation:', context.operation);
+      console.warn('Endpoint:', context.endpoint);
+      console.warn('Retry Count:', context.retryCount);
+      console.warn('Timestamp:', new Date(context.timestamp).toISOString());
+      console.warn('Full Error Object:', JSON.stringify(error, null, 2));
+      console.warn('================================');
+    }
   }
 
   // Get retry configuration for category
