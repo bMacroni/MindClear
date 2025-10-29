@@ -32,25 +32,43 @@ import { colors } from './src/themes/colors';
 
 // Constants for initialization
 const SECURE_CONFIG_TIMEOUT = 15000; // 15 seconds
-const GOOGLE_CLIENT_CONFIG = {
-  web: '416233535798-dpehu9uiun1nlub5nu1rgi36qog1e57j.apps.googleusercontent.com', // Web client ID - used for ID token requests
-  android: '416233535798-g0enucudvioslu32ditbja3q0pn4iom7.apps.googleusercontent.com', // Android client ID - used for app configuration
-  ios: '', // iOS client ID not needed for Android development
-};
 
 // Shared core initialization logic
 const performCoreInitialization = async (): Promise<Database> => {
-  // First, initialize secure config with timeout protection
+  // First, initialize secure config with timeout protection using AbortController
   console.log('Initializing secure config...');
-  await Promise.race([
-    secureConfigService.initialize(),
-    new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Secure config initialization timeout')), SECURE_CONFIG_TIMEOUT)
-    )
-  ]);
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.log('Secure config initialization timeout - aborting...');
+    controller.abort();
+  }, SECURE_CONFIG_TIMEOUT);
+
+  try {
+    await secureConfigService.initialize(controller.signal);
+    // Clear timeout on success
+    clearTimeout(timeoutId);
+    console.log('Secure config initialized successfully');
+  } catch (error) {
+    // Clear timeout on error
+    clearTimeout(timeoutId);
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Secure config initialization timeout');
+    }
+    
+    // Re-throw other errors
+    throw error;
+  }
 
   // Now, set up other services that depend on this config
-  configService.setGoogleClientIds(GOOGLE_CLIENT_CONFIG);
+  console.log('Configuring Google Sign-In...');
+  const googleConfig = {
+    web: configService.getGoogleWebClientId(),
+    android: configService.getGoogleAndroidClientId(),
+    ios: configService.getGoogleIosClientId(),
+  };
+  configService.setGoogleClientIds(googleConfig);
 
   // Then, set up the database
   console.log('Initializing database...');
@@ -78,9 +96,8 @@ function App() {
       const db = await performCoreInitialization();
       setDatabase(db);
       
-      // Show success feedback
-      Alert.alert('Success', 'Application has been successfully restarted!');
-      console.log('App retry initialization complete');
+      // Success - app will now continue loading
+      console.log('App retry initialization successful');      console.log('App retry initialization complete');
 
     } catch (error) {
       console.error('Failed to retry app initialization:', error);

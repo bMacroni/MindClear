@@ -51,21 +51,41 @@ class SecureConfigService {
   /**
    * Asynchronously initialize the singleton by loading secure config.
    * Must be awaited at app startup before using the service.
+   * @param signal Optional AbortSignal to cancel the initialization
    */
-  async initialize(): Promise<void> {
+  async initialize(signal?: AbortSignal): Promise<void> {
     if (!this.isLoaded) {
-      await this.loadSecureConfig();
+      // Check if already cancelled before starting
+      if (signal?.aborted) {
+        throw new Error('Initialization was cancelled');
+      }
+
+      await this.loadSecureConfig(signal);
+      
+      // Check if cancelled after loading config
+      if (signal?.aborted) {
+        throw new Error('Initialization was cancelled');
+      }
+
       // Load remote config in background - don't block app startup
-      this.loadRemoteConfig().catch(error => {
-        logger.warn('Background remote config loading failed:', error);
+      this.loadRemoteConfig(signal).catch(error => {
+        // Only log if not cancelled
+        if (!signal?.aborted) {
+          logger.warn('Background remote config loading failed:', error);
+        }
       });
     }
   }
 
-  private async loadRemoteConfig(): Promise<void> {
+  private async loadRemoteConfig(signal?: AbortSignal): Promise<void> {
     try {
       if (!this.config) {
         throw new Error('Secure config is not initialized; cannot load remote config.');
+      }
+      
+      // Check if cancelled before making network request
+      if (signal?.aborted) {
+        throw new Error('Remote config loading was cancelled');
       }
       
       // Add timeout to prevent hanging during app startup
@@ -76,6 +96,11 @@ class SecureConfigService {
       const remoteConfigPromise = enhancedAPI.getUserConfig();
       const remoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
       
+      // Check if cancelled after getting remote config
+      if (signal?.aborted) {
+        throw new Error('Remote config loading was cancelled');
+      }
+      
       if (remoteConfig.supabaseUrl && remoteConfig.supabaseAnonKey) {
         this.config.remoteConfig = remoteConfig;
         logger.info('Secure remote config loaded from server');
@@ -83,15 +108,23 @@ class SecureConfigService {
         logger.warn('Remote config from server is missing required keys.');
       }
     } catch (error) {
-      logger.error('Failed to load secure remote config:', error);
-      // Don't re-throw - allow app to continue with fallback config
-      // This prevents the app from hanging on startup if the server is unreachable
-      logger.warn('Continuing with fallback config due to remote config failure');
+      // Only log if not cancelled
+      if (!signal?.aborted) {
+        logger.error('Failed to load secure remote config:', error);
+        // Don't re-throw - allow app to continue with fallback config
+        // This prevents the app from hanging on startup if the server is unreachable
+        logger.warn('Continuing with fallback config due to remote config failure');
+      }
     }
   }
 
-  private async loadSecureConfig(): Promise<void> {
+  private async loadSecureConfig(signal?: AbortSignal): Promise<void> {
     try {
+      // Check if cancelled before starting
+      if (signal?.aborted) {
+        throw new Error('Secure config loading was cancelled');
+      }
+
       const savedConfig = await AsyncStorage.getItem(this.configKey);
       if (savedConfig) {
         try {
@@ -105,7 +138,15 @@ class SecureConfigService {
         }
       }
     } catch (error) {
-      logger.warn('Failed to load secure config from storage:', error);
+      // Only log if not cancelled
+      if (!signal?.aborted) {
+        logger.warn('Failed to load secure config from storage:', error);
+      }
+    }
+
+    // Check if cancelled before setting defaults
+    if (signal?.aborted) {
+      throw new Error('Secure config loading was cancelled');
     }
 
     // Initialize with default config
@@ -310,9 +351,9 @@ class SecureConfigService {
     }
   }
   // Manually trigger remote config loading (useful after app is ready)
-  async loadRemoteConfigIfNeeded(): Promise<void> {
+  async loadRemoteConfigIfNeeded(signal?: AbortSignal): Promise<void> {
     if (this.isLoaded && this.config && !this.config.remoteConfig) {
-      await this.loadRemoteConfig();
+      await this.loadRemoteConfig(signal);
     }
   }
 

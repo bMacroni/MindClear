@@ -737,7 +737,7 @@ class ErrorHandlingService {
   ): Promise<T> {
     let lastError: any;
     
-    for (let attempt = 0; attempt <= this.getRetryConfig(category).maxRetries; attempt++) {
+    for (let attempt = 0; attempt < this.getRetryConfig(category).maxRetries; attempt++) {
       try {
         return await operation();
       } catch (error) {
@@ -757,11 +757,6 @@ class ErrorHandlingService {
         // Check if we should retry
         if (!userError.retryable || !this.shouldRetryOperation(errorType, attempt, category)) {
           throw error; // Don't retry, throw the original error
-        }
-        
-        // If this is the last attempt, throw the error
-        if (attempt === this.getRetryConfig(category).maxRetries) {
-          throw error;
         }
         
         // Calculate delay and wait before retrying

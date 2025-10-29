@@ -185,8 +185,14 @@ export class GoalRepository {
       }
       
       return milestone;
-    } catch {
-      return null;
+    } catch (error) {
+      // Handle WatermelonDB "not found" errors
+      if (error instanceof Error && error.message.includes('not found')) {
+        return null;
+      }
+      
+      // Re-throw other errors (auth, DB connection, etc.)
+      throw error;
     }
   }
 
@@ -207,8 +213,14 @@ export class GoalRepository {
       }
       
       return step;
-    } catch {
-      return null;
+    } catch (error) {
+      // Handle WatermelonDB "not found" errors
+      if (error instanceof Error && error.message.includes('not found')) {
+        return null;
+      }
+      
+      // Re-throw other errors (auth, DB connection, etc.)
+      throw error;
     }
   }
 
@@ -351,9 +363,9 @@ export class GoalRepository {
         });
       });
     } catch (error) {
-      // Handle WatermelonDB "not found" errors
+      // Handle WatermelonDB "not found" errors - return gracefully (idempotent)
       if (error instanceof Error && error.message.includes('not found')) {
-        throw new NotFoundError(`Milestone step with id ${id} not found`);
+        return; // No-op for non-existent milestone steps
       }
       
       // Re-throw custom domain errors

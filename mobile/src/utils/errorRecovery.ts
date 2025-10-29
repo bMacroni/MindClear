@@ -64,24 +64,23 @@ class ErrorRecoveryService {
 
   // Acquire lock for an endpoint
   private async acquireLock(endpoint: string): Promise<() => void> {
-    const existingLock = this.endpointLocks.get(endpoint);
-    if (existingLock) {
-      await existingLock;
+    // Wait for any existing lock
+    while (this.endpointLocks.has(endpoint)) {
+      await this.endpointLocks.get(endpoint);
     }
 
-    let releaseLock: () => void;
+    // Create and set new lock atomically (synchronous operations)
+    let releaseLock!: () => void;
     const lockPromise = new Promise<void>((resolve) => {
       releaseLock = resolve;
     });
-
     this.endpointLocks.set(endpoint, lockPromise);
 
     return () => {
-      releaseLock();
       this.endpointLocks.delete(endpoint);
+      releaseLock();
     };
   }
-
   // Get current circuit breaker state
   private getCircuitBreakerState(endpoint: string): CircuitBreakerState {
     return this.circuitBreakers.get(endpoint) || CircuitBreakerState.CLOSED;

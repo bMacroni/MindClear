@@ -411,9 +411,7 @@ describe('Repository Unit Tests', () => {
     });
 
     test('deleteMilestoneStep handles non-existent step', async () => {
-      await expect(async () => {
-        await goalRepository.deleteMilestoneStep('non-existent-id');
-      }).rejects.toThrow();
+      await expect(goalRepository.deleteMilestoneStep('non-existent-id')).resolves.not.toThrow();
     });
   });
 

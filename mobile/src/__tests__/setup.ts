@@ -639,7 +639,7 @@ jest.mock('../repositories/GoalRepository', () => {
           .filter(milestone => milestone.goalId === goalId && milestone.status !== 'pending_delete')
           .sort((a, b) => (a.order || 0) - (b.order || 0));
       }),
-      createStep: jest.fn(async (milestoneId, stepData) => {
+      createMilestoneStep: jest.fn(async (milestoneId, stepData) => {
         const id = `step_${stepIdCounter++}`;
         const step = {
           id,
@@ -652,7 +652,7 @@ jest.mock('../repositories/GoalRepository', () => {
         mockSteps.set(id, step);
         return step;
       }),
-      updateStep: jest.fn(async (id, updates) => {
+      updateMilestoneStep: jest.fn(async (id, updates) => {
         const step = mockSteps.get(id);
         if (step) {
           const updatedStep = { ...step, ...updates, status: 'pending_update', updatedAt: new Date() };
@@ -661,14 +661,15 @@ jest.mock('../repositories/GoalRepository', () => {
         }
         return null;
       }),
-      deleteStep: jest.fn(async (id) => {
+      deleteMilestoneStep: jest.fn(async (id) => {
         const step = mockSteps.get(id);
         if (step) {
           const deletedStep = { ...step, status: 'pending_delete', updatedAt: new Date() };
           mockSteps.set(id, deletedStep);
           return deletedStep;
         }
-        return null;
+        // No-op for non-existent steps (idempotent)
+        return;
       }),
       getStepById: jest.fn(async (id) => {
         return mockSteps.get(id) || null;
