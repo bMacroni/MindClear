@@ -33,14 +33,25 @@ class EnhancedAPI {
       retryCount,
     };
 
+    // Declare timeoutId outside try block so it's accessible in catch
+    let timeoutId: NodeJS.Timeout | undefined = undefined;
+
     try {
       // Check if external signal is already aborted
       if (signal?.aborted) {
         throw new Error(`${operation} was cancelled`);
       }
 
-      // Add auth token if not present
-      if (!options.headers || !(options.headers as Record<string, string>).Authorization) {
+      // Add auth token if not present and not explicitly set to empty string (for unauthenticated endpoints)
+      const headers = options.headers as Record<string, string> | undefined;
+      const shouldSkipAuth = headers?.Authorization === '';
+      
+      if (shouldSkipAuth) {
+        // Remove Authorization header if explicitly set to empty (for unauthenticated endpoints)
+        const { Authorization, ...restHeaders } = headers;
+        options.headers = restHeaders;
+      } else if (!headers || !headers.Authorization) {
+        // Add auth token if not present
         const token = await authService.getAuthToken();
         options.headers = {
           ...options.headers,
@@ -51,7 +62,6 @@ class EnhancedAPI {
       // Add timeout to prevent hanging requests
       const timeoutMs = 30000; // 30 second timeout
       const controller = new AbortController();
-      let timeoutId: NodeJS.Timeout | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           controller.abort();
@@ -87,8 +97,11 @@ class EnhancedAPI {
         // Handle error with retry logic
         const userError = await errorHandlingService.handleError(error, category, context);
         
+        // Don't retry 404 errors - endpoint doesn't exist
+        const is404 = response.status === 404;
+        
         // Check if we should retry
-        if (userError.retryable && retryCount < 3 && !signal?.aborted) {
+        if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
           const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
           await new Promise(resolve => setTimeout(resolve, delay));
           return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
@@ -125,8 +138,11 @@ class EnhancedAPI {
       // Handle the error and potentially retry
       const userError = await errorHandlingService.handleError(error, category, context);
       
+      // Don't retry 404 errors - endpoint doesn't exist
+      const is404 = error?.status === 404 || error?.response?.status === 404;
+      
       // Check if we should retry
-      if (userError.retryable && retryCount < 3 && !signal?.aborted) {
+      if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
@@ -506,6 +522,19 @@ class EnhancedAPI {
     return;
   }
 
+  async getMilestones(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/milestones?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/milestones`;
+    
+    return this.makeRequest(
+      url,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getMilestones'
+    );
+  }
+
   // Step API methods
   async createStep(milestoneId: string, stepData: any): Promise<any> {
     return this.makeRequest(
@@ -542,6 +571,50 @@ class EnhancedAPI {
     );
     // DELETE operations may return undefined for empty responses
     return;
+  }
+
+  async getMilestoneSteps(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/milestone-steps?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/milestone-steps`;
+    
+    return this.makeRequest(
+      url,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getMilestoneSteps'
+    );
+  }
+
+  // Auth API methods
+  async authenticateWithGoogle(
+    idToken: string,
+    serverAuthCode: string,
+    webClientId: string
+  ): Promise<{ token?: string; user?: any; refresh_token?: string; error?: string }> {
+    const baseUrl = getSecureApiBaseUrl();
+    const url = `${baseUrl}/auth/google/mobile-signin`;
+    
+    // Make unauthenticated request (no auth token needed for initial auth)
+    return this.makeRequest(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Web-Client-Id': webClientId,
+          // Explicitly set empty Authorization to prevent auto-addition
+          'Authorization': '',
+        },
+        body: JSON.stringify({
+          idToken,
+          serverAuthCode,
+          webClientId,
+        }),
+      },
+      ErrorCategory.AUTH,
+      'authenticateWithGoogle'
+    ) as Promise<{ token?: string; user?: any; refresh_token?: string; error?: string }>;
   }
 
   // Auto-scheduling API methods

@@ -59,12 +59,16 @@ const performCoreInitialization = async (): Promise<Database> => {
   }
 
   // Now, set up other services that depend on this config
+  // Set Google Client IDs if available (they may come from remote config later)
   const googleConfig = {
     web: configService.getGoogleWebClientId(),
     android: configService.getGoogleAndroidClientId(),
     ios: configService.getGoogleIosClientId(),
   };
-  configService.setGoogleClientIds(googleConfig);
+  // Only set if we have at least one ID (don't overwrite with empty values)
+  if (googleConfig.web || googleConfig.android || googleConfig.ios) {
+    configService.setGoogleClientIds(googleConfig);
+  }
 
   // Then, set up the database
   const db = await initializeDatabase();
@@ -223,33 +227,46 @@ function App() {
         authUnsubscribe = authService.subscribe(checkAuthAndInitialize);
 
         // Also configure Google Sign-In now that config is loaded
+        // Only configure if we have at least the web client ID (required for offline access)
         try {
           const webClientId = configService.getGoogleWebClientId();
-          const androidClientId = configService.getGoogleAndroidClientId();
-          const iosClientId = configService.getGoogleIosClientId();
           
-          const baseConfig: any = {
-            webClientId: webClientId,
-            offlineAccess: true,
-            forceCodeForRefreshToken: true,
-            scopes: [
-              'openid',
-              'email',
-              'profile',
-              'https://www.googleapis.com/auth/calendar.events.readonly'
-            ],
-            redirectUri: `${configService.getBaseUrl()}/auth/google/callback`,
-          };
+          // Skip configuration if web client ID is not available
+          // The googleAuthService will handle configuration when IDs become available
+          if (!webClientId) {
+            if (__DEV__) {
+              console.info('Skipping Google Sign-In configuration - web client ID not available yet. Will retry when remote config loads.');
+            }
+          } else {
+            const androidClientId = configService.getGoogleAndroidClientId();
+            const iosClientId = configService.getGoogleIosClientId();
+            
+            const baseConfig: any = {
+              webClientId: webClientId,
+              offlineAccess: true,
+              forceCodeForRefreshToken: true,
+              scopes: [
+                'openid',
+                'email',
+                'profile',
+                'https://www.googleapis.com/auth/calendar.events.readonly'
+              ],
+              redirectUri: `${configService.getBaseUrl()}/auth/google/callback`,
+            };
 
-          if (Platform.OS === 'android') {
-            baseConfig.androidClientId = androidClientId;
+            if (Platform.OS === 'android' && androidClientId) {
+              baseConfig.androidClientId = androidClientId;
+            }
+
+            if (Platform.OS === 'ios' && iosClientId) {
+              baseConfig.iosClientId = iosClientId;
+            }
+
+            GoogleSignin.configure(baseConfig);
+            if (__DEV__) {
+              console.info('Google Sign-In configured successfully');
+            }
           }
-
-          if (Platform.OS === 'ios') {
-            baseConfig.iosClientId = iosClientId;
-          }
-
-          GoogleSignin.configure(baseConfig);
         } catch (e) {
           if (__DEV__) {
             console.warn('Failed to configure Google Sign-In at app init:', e);

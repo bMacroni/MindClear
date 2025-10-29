@@ -203,6 +203,10 @@ class ErrorHandlingService {
     if (status === 400) {
       return ErrorType.VALIDATION;
     }
+    if (status === 404) {
+      // 404 Not Found - endpoint doesn't exist, not retryable
+      return ErrorType.VALIDATION; // Treat as validation error (bad endpoint/resource)
+    }
     if (status >= 500) {
       return ErrorType.SERVER;
     }
@@ -756,6 +760,22 @@ class ErrorHandlingService {
     if (__DEV__) {
       const status = error.status || error.response?.status || 0;
       const message = error.message || error.toString();
+      
+      // Reduce verbosity for 404 errors - these are usually just missing endpoints in development
+      if (status === 404) {
+        // Only log once per endpoint to avoid spam
+        const endpointKey = `404_${context.endpoint}`;
+        const lastLogged = await AsyncStorage.getItem(endpointKey);
+        if (!lastLogged) {
+          console.warn(`[404] Endpoint not found: ${context.operation} at ${context.endpoint}`);
+          console.warn('This is normal if the backend endpoint is not yet implemented.');
+          // Mark as logged (expires after 5 minutes)
+          await AsyncStorage.setItem(endpointKey, Date.now().toString());
+          setTimeout(() => AsyncStorage.removeItem(endpointKey), 5 * 60 * 1000);
+        }
+        return; // Skip detailed logging for 404s
+      }
+      
       const isNetworkConnected = await this.getNetworkStatus();
       
       console.warn('=== Error Debug Information ===');

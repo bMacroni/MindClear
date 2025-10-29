@@ -149,24 +149,117 @@ export async function getGoals(req, res) {
   });
   
   try {
-    let query = supabase
-      .from('goals')
-      .select(`
-        *,
-        milestones (
-          *,
-          steps (*)
-        )
-      `)
-      .eq('user_id', user_id)
-      .order('created_at', { ascending: false });
+    let goalIdsWithUpdatedChildren = [];
     
-    // Add `since` filter for delta sync
+    // For delta sync, also check if milestones or steps were updated
     if (since) {
-      query = query.gt('updated_at', since);
+      // Get goal IDs that have milestones updated since 'since'
+      const { data: updatedMilestones, error: milestonesError } = await supabase
+        .from('milestones')
+        .select('goal_id')
+        .gt('updated_at', since);
+      
+      if (!milestonesError && updatedMilestones) {
+        goalIdsWithUpdatedChildren = [
+          ...new Set(updatedMilestones.map(m => m.goal_id))
+        ];
+      }
+      
+      // Get goal IDs that have steps updated since 'since'
+      const { data: updatedSteps, error: stepsError } = await supabase
+        .from('steps')
+        .select('milestone_id')
+        .gt('updated_at', since);
+      
+      if (!stepsError && updatedSteps && updatedSteps.length > 0) {
+        // Get milestone goal_ids for these steps
+        const milestoneIds = [...new Set(updatedSteps.map(s => s.milestone_id))];
+        const { data: milestonesForSteps, error: milestonesForStepsError } = await supabase
+          .from('milestones')
+          .select('goal_id')
+          .in('id', milestoneIds);
+        
+        if (!milestonesForStepsError && milestonesForSteps) {
+          const goalIdsFromSteps = milestonesForSteps.map(m => m.goal_id);
+          goalIdsWithUpdatedChildren = [
+            ...new Set([...goalIdsWithUpdatedChildren, ...goalIdsFromSteps])
+          ];
+        }
+      }
+      
+      logger.info(`[Goals API] Found ${goalIdsWithUpdatedChildren.length} goals with updated milestones/steps since ${since}`);
     }
-
-    const { data, error } = await query;
+    
+    let data = [];
+    let error = null;
+    
+    if (since && goalIdsWithUpdatedChildren.length > 0) {
+      // For delta sync with updated children, fetch goals that match either condition
+      // Fetch goals that were updated
+      const { data: updatedGoals, error: updatedError } = await supabase
+        .from('goals')
+        .select(`
+          *,
+          milestones (
+            *,
+            steps (*)
+          )
+        `)
+        .eq('user_id', user_id)
+        .gt('updated_at', since)
+        .order('created_at', { ascending: false });
+      
+      if (updatedError) {
+        error = updatedError;
+      } else if (updatedGoals) {
+        data = updatedGoals;
+      }
+      
+      // Fetch goals that have updated milestones/steps (even if goal itself wasn't updated)
+      const { data: goalsWithUpdatedChildren, error: childrenError } = await supabase
+        .from('goals')
+        .select(`
+          *,
+          milestones (
+            *,
+            steps (*)
+          )
+        `)
+        .eq('user_id', user_id)
+        .in('id', goalIdsWithUpdatedChildren)
+        .order('created_at', { ascending: false });
+      
+      if (childrenError) {
+        error = childrenError;
+      } else if (goalsWithUpdatedChildren) {
+        // Combine and deduplicate by goal id
+        const existingIds = new Set(data.map(g => g.id));
+        const newGoals = goalsWithUpdatedChildren.filter(g => !existingIds.has(g.id));
+        data = [...data, ...newGoals];
+      }
+    } else {
+      // Simple query - either no since filter or no updated children
+      let query = supabase
+        .from('goals')
+        .select(`
+          *,
+          milestones (
+            *,
+            steps (*)
+          )
+        `)
+        .eq('user_id', user_id);
+      
+      if (since) {
+        query = query.gt('updated_at', since);
+      }
+      
+      query = query.order('created_at', { ascending: false });
+      
+      const result = await query;
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
       logger.error('Error fetching goals from database:', error);
@@ -915,15 +1008,22 @@ export async function createMilestone(req, res) {
 
 export async function updateMilestone(req, res) {
   const { milestoneId } = req.params;
-  const { title, description, order } = req.body;
+  const { title, description, order, completed } = req.body;
   const token = req.headers.authorization?.split(' ')[1];
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: `Bearer ${token}` } }
   });
 
+  // Build update object with only provided fields
+  const updateFields = { updated_at: new Date().toISOString() };
+  if (title !== undefined) updateFields.title = title;
+  if (description !== undefined) updateFields.description = description;
+  if (order !== undefined) updateFields.order = order;
+  if (typeof completed === 'boolean') updateFields.completed = completed;
+
   const { data, error } = await supabase
     .from('milestones')
-    .update({ title, description, order, updated_at: new Date().toISOString() })
+    .update(updateFields)
     .eq('id', milestoneId)
     .select()
     .single();

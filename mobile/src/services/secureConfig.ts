@@ -134,16 +134,27 @@ class SecureConfigService {
           logger.warn('Google iOS Client ID not available in remote config');
         }
         
-        // If Google Web Client ID is now available, trigger Google Auth reconfiguration
-        if (remoteConfig.googleWebClientId) {
+        // If Google Client IDs are now available, update configService and trigger Google Auth reconfiguration
+        if (remoteConfig.googleWebClientId || remoteConfig.googleAndroidClientId || remoteConfig.googleIosClientId) {
           try {
-            // Dynamically import to avoid circular dependency
-            const { googleAuthService } = await import('./googleAuth');
-            googleAuthService.reconfigure();
-            logger.info('Google Sign-In reconfigured with remote config');
+            // Update configService with the new IDs
+            configService.setGoogleClientIds({
+              web: remoteConfig.googleWebClientId,
+              android: remoteConfig.googleAndroidClientId,
+              ios: remoteConfig.googleIosClientId,
+            });
+            logger.info('Google Client IDs updated in configService from remote config');
+            
+            // Trigger Google Auth reconfiguration now that IDs are available
+            if (remoteConfig.googleWebClientId) {
+              // Dynamically import to avoid circular dependency
+              const { googleAuthService } = await import('./googleAuth');
+              googleAuthService.reconfigure();
+              logger.info('Google Sign-In reconfigured with remote config');
+            }
           } catch (reconfigError) {
             // Log but don't fail if reconfiguration fails
-            logger.warn('Failed to reconfigure Google Sign-In after remote config load:', reconfigError);
+            logger.warn('Failed to update Google config after remote config load:', reconfigError);
           }
         }
         
@@ -167,10 +178,13 @@ class SecureConfigService {
       
       // Only log if not cancelled
       if (!signal?.aborted) {
-        logger.error('Failed to load secure remote config:', error);
-        // Don't re-throw - allow app to continue with fallback config
-        // This prevents the app from hanging on startup if the server is unreachable
-        logger.warn('Continuing with fallback config due to remote config failure');
+        // Distinguish between timeout and other errors
+        if (error instanceof Error && error.message.includes('timeout')) {
+          logger.warn('Remote config request timed out - continuing with fallback config. This is normal if the backend is unreachable.');
+        } else {
+          logger.error('Failed to load secure remote config:', error);
+          logger.warn('Continuing with fallback config due to remote config failure');
+        }
       }
     }
   }

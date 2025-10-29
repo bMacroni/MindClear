@@ -8,6 +8,12 @@ import {name as appName} from './app.json';
 import messaging from '@react-native-firebase/messaging';
 import { syncService } from './src/services/SyncService';
 
+// Expose syncService globally for debugging (only in development)
+if (__DEV__) {
+  global.syncService = syncService;
+  console.log('Debug: syncService is available globally. Use syncService.debugDatabaseContents() to check database.');
+}
+
 let isSyncing = false;
 
 // Register background handler for silent push notifications

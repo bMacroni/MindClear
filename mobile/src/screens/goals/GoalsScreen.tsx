@@ -142,10 +142,12 @@ const CircularProgress = React.memo(({ percentage, size = 56 }: CircularProgress
 interface GoalsScreenProps {
   navigation: any;
   goals: Goal[]; // From withObservables
+  milestones: any[]; // From withObservables
+  steps: any[]; // From withObservables
   database: any;
 }
 
-const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observableGoals, database }) => {
+const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observableGoals, milestones: observableMilestones, steps: observableSteps, database }) => {
   const insets = useSafeAreaInsets();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -253,33 +255,84 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     
     // Group milestones by goal_id for efficient lookup
     const milestonesByGoal = allMilestones.reduce((acc: Record<string, any[]>, milestone: any) => {
-      if (!acc[milestone.goalId]) acc[milestone.goalId] = [];
-      acc[milestone.goalId].push(milestone);
+      // Handle both camelCase and snake_case property names
+      const goalId = milestone.goalId || milestone.goal_id;
+      if (!goalId) {
+        if (__DEV__) console.warn('Milestone missing goalId:', milestone);
+        return acc;
+      }
+      if (!acc[goalId]) acc[goalId] = [];
+      acc[goalId].push(milestone);
       return acc;
     }, {} as Record<string, any[]>);
     
     // Group steps by milestone_id for efficient lookup
     const stepsByMilestone = allSteps.reduce((acc: Record<string, any[]>, step: any) => {
-      if (!acc[step.milestoneId]) acc[step.milestoneId] = [];
-      acc[step.milestoneId].push(step);
+      // Handle both camelCase and snake_case property names
+      const milestoneId = step.milestoneId || step.milestone_id;
+      if (!milestoneId) {
+        if (__DEV__) console.warn('Step missing milestoneId:', step);
+        return acc;
+      }
+      if (!acc[milestoneId]) acc[milestoneId] = [];
+      acc[milestoneId].push(step);
       return acc;
     }, {} as Record<string, any[]>);
     
     // Transform goals using pre-fetched data
     const transformedGoals = watermelonGoals.map((goal: any) => {
       const milestones = milestonesByGoal[goal.id] || [];
-      const milestonesWithSteps = milestones.map((milestone: any) => ({
-        ...milestone,
-        steps: stepsByMilestone[milestone.id] || []
-      }));
+      
+      // Sort milestones by order before processing
+      const sortedMilestones = [...milestones].sort((a: any, b: any) => {
+        const orderA = a.order ?? 0;
+        const orderB = b.order ?? 0;
+        return orderA - orderB;
+      });
+      
+      const milestonesWithSteps = sortedMilestones.map((milestone: any) => {
+        const steps = stepsByMilestone[milestone.id] || [];
+        // Sort steps by order
+        const sortedSteps = [...steps].sort((a: any, b: any) => {
+          const orderA = a.order ?? 0;
+          const orderB = b.order ?? 0;
+          return orderA - orderB;
+        });
+        
+        // Determine if milestone is completed: either explicitly marked or all steps are complete
+        const allStepsCompleted = sortedSteps.length > 0 && sortedSteps.every((s: any) => s.completed);
+        const milestoneCompleted = milestone.completed === true || allStepsCompleted;
+        
+        return {
+          id: milestone.id,
+          title: milestone.title || '',
+          description: milestone.description || '',
+          completed: milestoneCompleted,
+          order: milestone.order ?? 0,
+          steps: sortedSteps
+        };
+      });
       
       const totalMilestones = milestonesWithSteps.length;
       const completedMilestones = milestonesWithSteps.filter((m: any) => m.completed).length;
       const totalSteps = milestonesWithSteps.reduce((total: number, milestone: any) => total + (milestone.steps?.length || 0), 0);
       const completedSteps = milestonesWithSteps.reduce((total: number, milestone: any) => total + (milestone.steps?.filter((s: any) => s.completed).length || 0), 0);
-      const nextMilestoneObj = milestonesWithSteps.find((m: any) => (m.steps?.some((s: any) => !s.completed)));
+      
+      // Find the first incomplete milestone (sorted by order)
+      const nextMilestoneObj = milestonesWithSteps.find((m: any) => !m.completed);
       const nextMilestone = nextMilestoneObj?.title || '';
       const nextStep = nextMilestoneObj?.steps?.find((s: any) => !s.completed)?.text || '';
+      
+      if (__DEV__ && goal.id) {
+        console.log(`Goal "${goal.title}" (${goal.id}):`);
+        console.log(`  - Found ${milestones.length} milestones in grouping`);
+        console.log(`  - Processed ${milestonesWithSteps.length} milestones with steps`);
+        milestonesWithSteps.forEach((m: any, idx: number) => {
+          console.log(`    Milestone ${idx + 1}: "${m.title || '(no title)'}" (completed: ${m.completed}, steps: ${m.steps?.length || 0})`);
+        });
+        console.log(`  - Current milestone: "${nextMilestone || '(none)'}"`);
+        console.log(`  - Next step: "${nextStep.substring(0, 50) || '(none)'}..."`);
+      }
       
       return {
         id: goal.id,
@@ -296,16 +349,16 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         targetDate: goal.targetCompletionDate,
         milestones: milestonesWithSteps.map((milestone: any) => ({
           id: milestone.id,
-          title: milestone.title,
+          title: milestone.title || '',
           description: milestone.description || '',
-          completed: milestone.completed || ((milestone.steps || []).every((s: any) => s.completed)) || false,
-          order: milestone.order,
+          completed: milestone.completed || false,
+          order: milestone.order ?? 0,
           steps: (milestone.steps || []).map((step: any) => ({
             id: step.id,
-            title: step.text, // Fixed: MilestoneStep model uses 'text' property, not 'title'
+            title: step.text || '', // Fixed: MilestoneStep model uses 'text' property, not 'title'
             description: step.description || '',
             completed: step.completed || false,
-            order: step.order,
+            order: step.order ?? 0,
           })),
         })),
       } as Goal;
@@ -314,7 +367,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     return transformedGoals;
   }, []);
 
-  // Update local goals when observable goals change
+  // Update local goals when observable goals, milestones, or steps change
   useEffect(() => {
     if (observableGoals) {
       transformGoals(observableGoals, database).then((transformedGoals) => {
@@ -325,7 +378,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         setGoalsLoading(false);
       });
     }
-  }, [observableGoals, transformGoals, database]);
+  }, [observableGoals, observableMilestones, observableSteps, transformGoals, database]);
 
   // Reset help overlay when this screen gains focus
   useFocusEffect(
@@ -344,6 +397,8 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
+      // On pull-to-refresh, do a full sync to ensure complete data
+      await syncService.fullSync(true);
       await loadGoals();
     } finally {
       setRefreshing(false);
@@ -1126,6 +1181,22 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                 title="Debug: Re-initialize Auth"
                 onPress={async () => {
                   await authService.debugReinitialize();
+                }}
+                variant="secondary"
+                style={styles.debugButton}
+              />
+              <Button
+                title="Debug: Check Database Contents"
+                onPress={async () => {
+                  await syncService.debugDatabaseContents();
+                }}
+                variant="secondary"
+                style={styles.debugButton}
+              />
+              <Button
+                title="Debug: Force Full Sync"
+                onPress={async () => {
+                  await syncService.fullSync(false);
                 }}
                 variant="secondary"
                 style={styles.debugButton}
@@ -1959,11 +2030,26 @@ const styles = StyleSheet.create({
   },
 });
 
-const enhance = withObservables(['database'], ({database}) => ({
-  goals: database.collections.get('goals')
+const enhance = withObservables(['database'], ({database}) => {
+  const goals = database.collections.get('goals')
     .query(Q.where('status', Q.notEq('pending_delete')))
-    .observe(),
-}));
+    .observe();
+  
+  // Also observe milestones and steps so component refreshes when they change
+  const milestones = database.collections.get('milestones')
+    .query()
+    .observe();
+  
+  const steps = database.collections.get('milestone_steps')
+    .query()
+    .observe();
+  
+  return {
+    goals,
+    milestones,
+    steps,
+  };
+});
 
 const EnhancedGoalsScreen = enhance(GoalsScreen);
 
