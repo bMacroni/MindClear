@@ -43,7 +43,7 @@ const REQUIRED_VARS = {
 // Sensitive variables that should never be logged
 const SENSITIVE_VARS = [
   'SUPABASE_SERVICE_ROLE_KEY',
-  'SUPABASE_JWT_SECRET',
+  // SUPABASE_JWT_SECRET is no longer needed - Supabase SDK handles JWT verification via JWKS
   'GOOGLE_CLIENT_SECRET',
   'GOOGLE_AI_API_KEY',
   'FIREBASE_PRIVATE_KEY',

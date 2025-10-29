@@ -252,12 +252,26 @@ export async function getClientConfig(req, res) {
     const config = {
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID,
+      googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID,
+      googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID,
     };
 
     if (!config.supabaseUrl || !config.supabaseAnonKey) {
       // Assuming logger is available globally or imported elsewhere
       logger.error('getClientConfig: Missing Supabase environment variables on the server.');
       return res.status(500).json({ error: 'Server configuration error.' });
+    }
+
+    // Google client IDs are optional, but log if missing
+    if (!config.googleWebClientId) {
+      logger.warn('getClientConfig: GOOGLE_WEB_CLIENT_ID not set. Google Sign-In may not work.');
+    }
+    if (!config.googleAndroidClientId) {
+      logger.warn('getClientConfig: GOOGLE_ANDROID_CLIENT_ID not set. Android Google Sign-In may not work.');
+    }
+    if (!config.googleIosClientId) {
+      logger.warn('getClientConfig: GOOGLE_IOS_CLIENT_ID not set. iOS Google Sign-In may not work.');
     }
 
     res.json(config);

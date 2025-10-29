@@ -39,22 +39,39 @@ class GoogleAuthService {
     return GoogleAuthService.instance;
   }
 
+  /**
+   * Public method to force reconfiguration, useful when config becomes available later
+   */
+  public reconfigure(): void {
+    this.isConfigured = false;
+    this.configureGoogleSignIn();
+  }
+
   private configureGoogleSignIn() {
     if (this.isConfigured) {
       return;
     }
 
     try {
-      const webClientId = configService.getGoogleWebClientId();
-      const iosClientId = configService.getGoogleIosClientId();
-      const androidClientId = configService.getGoogleAndroidClientId();
+      // Priority: 1) secureConfigService (from remote config) 2) configService (from env)
+      let webClientId = secureConfigService.getGoogleWebClientId();
+      let iosClientId = secureConfigService.getGoogleIosClientId();
+      let androidClientId = secureConfigService.getGoogleAndroidClientId();
 
-      // Log client ID configuration for debugging
-      // Configuring Google Sign-In
+      // Fallback to configService if secureConfigService doesn't have them
+      if (!webClientId) {
+        webClientId = configService.getGoogleWebClientId();
+      }
+      if (!iosClientId) {
+        iosClientId = configService.getGoogleIosClientId();
+      }
+      if (!androidClientId) {
+        androidClientId = configService.getGoogleAndroidClientId();
+      }
 
       // Check if we have the required web client ID
       if (!webClientId) {
-        console.warn('[GoogleAuth] Web client ID not available, skipping configuration');
+        logger.warn('[GoogleAuth] Web client ID not available, skipping configuration');
         return;
       }
 
@@ -71,19 +88,20 @@ class GoogleAuthService {
         ],
       };
 
-      // Add platform-specific client IDs
-      if (Platform.OS === 'android') {
+      // Add platform-specific client IDs if available
+      if (Platform.OS === 'android' && androidClientId) {
         baseConfig.androidClientId = androidClientId;
       }
 
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === 'ios' && iosClientId) {
         baseConfig.iosClientId = iosClientId;
       }
 
       GoogleSignin.configure(baseConfig);
       this.isConfigured = true;
+      logger.info('[GoogleAuth] Google Sign-In configured successfully');
     } catch (error) {
-      console.error('[GoogleAuth] Failed to configure Google Sign-In:', error);
+      logger.error('[GoogleAuth] Failed to configure Google Sign-In:', error);
     }
   }
 
@@ -151,7 +169,11 @@ class GoogleAuthService {
   private async authenticateWithBackend(idToken: string, serverAuthCode: string): Promise<GoogleAuthResult> {
     try {
       const baseUrl = getSecureApiBaseUrl();
-      const webClientId = configService.getGoogleWebClientId();
+      // Priority: 1) secureConfigService 2) configService
+      let webClientId = secureConfigService.getGoogleWebClientId();
+      if (!webClientId) {
+        webClientId = configService.getGoogleWebClientId();
+      }
       
       console.log('[GoogleAuth] Authenticating with backend...');
       console.log(`[GoogleAuth] Backend URL: ${baseUrl}/auth/google/mobile-signin`);

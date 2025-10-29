@@ -639,7 +639,13 @@ class SyncService {
       await localGoal.update((record: Goal) => {
         record.title = goalData.title;
         record.description = goalData.description;
-        record.targetCompletionDate = parsedTargetDate;
+        // Only set targetCompletionDate if parsing succeeded, otherwise preserve existing value
+        if (parsedTargetDate) {
+          record.targetCompletionDate = parsedTargetDate;
+        } else if (goalData.target_completion_date) {
+          // Log error but don't overwrite existing targetCompletionDate
+          console.error(`Pull: Skipping target_completion_date update for goal ${goalData.id} due to parsing failure, preserving existing value`);
+        }
         record.progressPercentage = goalData.progress_percentage;
         record.category = goalData.category;
         record.isActive = goalData.is_active;

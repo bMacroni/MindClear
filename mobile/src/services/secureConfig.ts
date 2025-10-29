@@ -10,9 +10,20 @@ import { configService } from './config';
 import logger from '../utils/logger';
 import { enhancedAPI } from './enhancedApi'; // Import enhancedAPI
 
+// Type declarations for React Native environment variables
+declare const process: {
+  env: {
+    [key: string]: string | undefined;
+  };
+};
+
+
 interface RemoteConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
+  googleWebClientId?: string;
+  googleAndroidClientId?: string;
+  googleIosClientId?: string;
 }
 
 interface SecureConfig {
@@ -78,6 +89,7 @@ class SecureConfigService {
   }
 
   private async loadRemoteConfig(signal?: AbortSignal): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       if (!this.config) {
         throw new Error('Secure config is not initialized; cannot load remote config.');
@@ -90,11 +102,17 @@ class SecureConfigService {
       
       // Add timeout to prevent hanging during app startup
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Remote config request timeout')), 5000); // Reduced to 5 second timeout
+        timeoutId = setTimeout(() => reject(new Error('Remote config request timeout')), 5000); // Reduced to 5 second timeout
       });
       
-      const remoteConfigPromise = enhancedAPI.getUserConfig();
-      const remoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
+      const remoteConfigPromise = enhancedAPI.getUserConfig(signal);
+      const remoteConfig: RemoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
+      
+      // Clear timeout on success
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
       
       // Check if cancelled after getting remote config
       if (signal?.aborted) {
@@ -104,10 +122,49 @@ class SecureConfigService {
       if (remoteConfig.supabaseUrl && remoteConfig.supabaseAnonKey) {
         this.config.remoteConfig = remoteConfig;
         logger.info('Secure remote config loaded from server');
+        
+        // Log Google client IDs availability (optional, so don't fail if missing)
+        if (!remoteConfig.googleWebClientId) {
+          logger.warn('Google Web Client ID not available in remote config');
+        }
+        if (!remoteConfig.googleAndroidClientId) {
+          logger.warn('Google Android Client ID not available in remote config');
+        }
+        if (!remoteConfig.googleIosClientId) {
+          logger.warn('Google iOS Client ID not available in remote config');
+        }
+        
+        // If Google Web Client ID is now available, trigger Google Auth reconfiguration
+        if (remoteConfig.googleWebClientId) {
+          try {
+            // Dynamically import to avoid circular dependency
+            const { googleAuthService } = await import('./googleAuth');
+            googleAuthService.reconfigure();
+            logger.info('Google Sign-In reconfigured with remote config');
+          } catch (reconfigError) {
+            // Log but don't fail if reconfiguration fails
+            logger.warn('Failed to reconfigure Google Sign-In after remote config load:', reconfigError);
+          }
+        }
+        
+        // Persist the updated config to AsyncStorage for offline use
+        try {
+          await AsyncStorage.setItem(this.configKey, JSON.stringify(this.config));
+          logger.info('Remote config persisted to AsyncStorage');
+        } catch (persistError) {
+          // Log but don't crash startup if persistence fails
+          logger.warn('Failed to persist remote config to AsyncStorage:', persistError);
+        }
       } else {
-        logger.warn('Remote config from server is missing required keys.');
+        logger.warn('Remote config from server is missing required keys (supabaseUrl/supabaseAnonKey).');
       }
     } catch (error) {
+      // Clear timeout on error
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+      
       // Only log if not cancelled
       if (!signal?.aborted) {
         logger.error('Failed to load secure remote config:', error);
@@ -168,22 +225,154 @@ class SecureConfigService {
     logger.info('Secure config initialized with defaults');
   }
 
+  /**
+   * Gets the Supabase URL from runtime sources.
+   * Priority: 1) Remote config 2) Environment variable 3) Dev-only placeholder or error
+   * 
+   * @returns Supabase URL string
+   * @throws Error in production if no valid source is found
+   */
   getSupabaseUrl(): string {
-    if (!this.config?.remoteConfig?.supabaseUrl) {
-      logger.warn('Supabase URL not available from remote config, using fallback.');
-      // Return a fallback URL - using actual Supabase URL from backend
-      return 'https://kwxbyovbvigvcdkzzpbk.supabase.co';
+    // First priority: Remote config (most secure, fetched from backend)
+    if (this.config?.remoteConfig?.supabaseUrl) {
+      return this.config.remoteConfig.supabaseUrl;
     }
-    return this.config.remoteConfig.supabaseUrl;
+
+    // Second priority: Environment variable (for build-time configuration)
+    const envUrl = process.env.SUPABASE_URL?.trim();
+    if (envUrl && envUrl.length > 0) {
+      logger.info('Using Supabase URL from environment variable');
+      return envUrl;
+    }
+
+    // Runtime guard: Log warning but never embed values
+    if (__DEV__) {
+      logger.warn('Supabase URL missing from both remote config and environment variables. Using dev-only placeholder.');
+      return ''; // Non-functional placeholder in development
+    }
+
+    // Production: Must have a valid source
+    logger.error('Supabase URL unavailable: missing from remote config and environment variables (SUPABASE_URL).');
+    throw new Error(
+      'Supabase URL configuration missing. ' +
+      'Required: Either remote config from backend or SUPABASE_URL environment variable. ' +
+      'Check your environment configuration.'
+    );
   }
 
+  /**
+   * Gets the Supabase anonymous key from runtime sources.
+   * Priority: 1) Remote config 2) Environment variable 3) Dev-only placeholder or error
+   * 
+   * SECURITY: Never hardcode keys in source code. This method ensures keys are only
+   * sourced from runtime configuration (remote config or environment variables).
+   * 
+   * @returns Supabase anonymous key string
+   * @throws Error in production if no valid source is found
+   */
   getSupabaseAnonKey(): string {
-    if (!this.config?.remoteConfig?.supabaseAnonKey) {
-      logger.warn('Supabase Anon Key not available from remote config, using fallback.');
-      // Return a fallback key - using actual Supabase anon key from backend
-      return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3eGJ5b3ZidmlndmNka3p6cGJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3MTQ0MDUsImV4cCI6MjA3MTI5MDQwNX0.cTmSlkt6CFXXFMNUjNuDtWRIY938tnCYO1xlBqhtJjw';
+    // First priority: Remote config (most secure, fetched from backend)
+    if (this.config?.remoteConfig?.supabaseAnonKey) {
+      return this.config.remoteConfig.supabaseAnonKey;
     }
-    return this.config.remoteConfig.supabaseAnonKey;
+
+    // Second priority: Environment variable (for build-time configuration)
+    const envKey = process.env.SUPABASE_ANON_KEY?.trim();
+    if (envKey && envKey.length > 0) {
+      logger.info('Using Supabase anon key from environment variable');
+      // Runtime guard: Verify it looks like a JWT but never log the actual key
+      if (envKey.startsWith('eyJ')) {
+        return envKey;
+      } else {
+        logger.warn('SUPABASE_ANON_KEY environment variable format appears invalid (should start with eyJ)');
+        // Still return it in case format is valid but non-standard
+        return envKey;
+      }
+    }
+
+    // Runtime guard: Log warning but never embed values
+    if (__DEV__) {
+      logger.warn('Supabase Anon Key missing from both remote config and environment variables. Using dev-only placeholder.');
+      return ''; // Non-functional placeholder in development
+    }
+
+    // Production: Must have a valid source
+    logger.error('Supabase Anon Key unavailable: missing from remote config and environment variables (SUPABASE_ANON_KEY).');
+    throw new Error(
+      'Supabase Anon Key configuration missing. ' +
+      'Required: Either remote config from backend or SUPABASE_ANON_KEY environment variable. ' +
+      'Check your environment configuration. ' +
+      'SECURITY: Never hardcode keys in source code.'
+    );
+  }
+
+  /**
+   * Gets the Google Web Client ID from runtime sources.
+   * Priority: 1) Remote config 2) Environment variable 3) Empty string (fallback)
+   * 
+   * @returns Google Web Client ID string (empty if not available)
+   */
+  getGoogleWebClientId(): string {
+    // First priority: Remote config (most secure, fetched from backend)
+    if (this.config?.remoteConfig?.googleWebClientId) {
+      return this.config.remoteConfig.googleWebClientId;
+    }
+
+    // Second priority: Environment variable (for build-time configuration)
+    const envId = process.env.GOOGLE_WEB_CLIENT_ID?.trim();
+    if (envId && envId.length > 0) {
+      logger.info('Using Google Web Client ID from environment variable');
+      return envId;
+    }
+
+    // Return empty string if not available (caller should handle gracefully)
+    return '';
+  }
+
+  /**
+   * Gets the Google Android Client ID from runtime sources.
+   * Priority: 1) Remote config 2) Environment variable 3) Empty string (fallback)
+   * 
+   * @returns Google Android Client ID string (empty if not available)
+   */
+  getGoogleAndroidClientId(): string {
+    // First priority: Remote config (most secure, fetched from backend)
+    if (this.config?.remoteConfig?.googleAndroidClientId) {
+      return this.config.remoteConfig.googleAndroidClientId;
+    }
+
+    // Second priority: Environment variable (for build-time configuration)
+    const envId = process.env.GOOGLE_ANDROID_CLIENT_ID?.trim();
+    if (envId && envId.length > 0) {
+      logger.info('Using Google Android Client ID from environment variable');
+      return envId;
+    }
+
+    // Return empty string if not available (caller should handle gracefully)
+    return '';
+  }
+
+  /**
+   * Gets the Google iOS Client ID from runtime sources.
+   * Priority: 1) Remote config 2) Environment variable 3) Empty string (fallback)
+   * 
+   * @returns Google iOS Client ID string (empty if not available)
+   */
+  getGoogleIosClientId(): string {
+    // First priority: Remote config (most secure, fetched from backend)
+    if (this.config?.remoteConfig?.googleIosClientId) {
+      return this.config.remoteConfig.googleIosClientId;
+    }
+
+    // Second priority: Environment variable (for build-time configuration)
+    const envId = process.env.GOOGLE_IOS_CLIENT_ID?.trim();
+    if (envId && envId.length > 0) {
+      logger.info('Using Google iOS Client ID from environment variable');
+      return envId;
+    }
+
+    // Return empty string if not available (caller should handle gracefully)
+    return '';
   }
 
   getApiBaseUrl(): string {

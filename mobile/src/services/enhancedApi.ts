@@ -23,7 +23,8 @@ class EnhancedAPI {
     options: RequestInit,
     category: ErrorCategory,
     operation: string,
-    retryCount: number = 0
+    retryCount: number = 0,
+    signal?: AbortSignal
   ): Promise<T | undefined> {
     const context: ErrorContext = {
       operation,
@@ -33,6 +34,11 @@ class EnhancedAPI {
     };
 
     try {
+      // Check if external signal is already aborted
+      if (signal?.aborted) {
+        throw new Error(`${operation} was cancelled`);
+      }
+
       // Add auth token if not present
       if (!options.headers || !(options.headers as Record<string, string>).Authorization) {
         const token = await authService.getAuthToken();
@@ -45,7 +51,7 @@ class EnhancedAPI {
       // Add timeout to prevent hanging requests
       const timeoutMs = 30000; // 30 second timeout
       const controller = new AbortController();
-      let timeoutId: NodeJS.Timeout;
+      let timeoutId: NodeJS.Timeout | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           controller.abort();
@@ -53,9 +59,24 @@ class EnhancedAPI {
         }, timeoutMs);
       });
 
+      // If external signal is provided, listen to it and abort the controller if needed
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          controller.abort();
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+        });
+      }
+
+      // Merge signals: use the controller's signal (which respects both timeout and external cancellation)
       const fetchPromise = fetch(url, { ...options, signal: controller.signal });
       const response = await Promise.race([fetchPromise, timeoutPromise]);
-      clearTimeout(timeoutId);
+      
+      // Clear timeout on success
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -67,10 +88,10 @@ class EnhancedAPI {
         const userError = await errorHandlingService.handleError(error, category, context);
         
         // Check if we should retry
-        if (userError.retryable && retryCount < 3) {
+        if (userError.retryable && retryCount < 3 && !signal?.aborted) {
           const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
           await new Promise(resolve => setTimeout(resolve, delay));
-          return this.makeRequest(url, options, category, operation, retryCount + 1);
+          return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
         }
         
         throw userError;
@@ -90,7 +111,13 @@ class EnhancedAPI {
         (error as any).responseText = text.substring(0, 200); // Log first 200 chars
         throw error;
       }
-} catch (error) {      // If it's already a UserFriendlyError, re-throw it
+} catch (error) {
+      // Clear timeout on error
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      // If it's already a UserFriendlyError, re-throw it
       if (error && typeof error === 'object' && 'isUserFriendlyError' in error) {
         throw error;
       }
@@ -99,10 +126,10 @@ class EnhancedAPI {
       const userError = await errorHandlingService.handleError(error, category, context);
       
       // Check if we should retry
-      if (userError.retryable && retryCount < 3) {
+      if (userError.retryable && retryCount < 3 && !signal?.aborted) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this.makeRequest(url, options, category, operation, retryCount + 1);
+        return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
       }
       
       throw userError;
@@ -301,12 +328,26 @@ class EnhancedAPI {
   }
 
   // User config
-  async getUserConfig(): Promise<{ supabaseUrl: string; supabaseAnonKey: string; }> {
-    const result = await this.makeRequest<{ supabaseUrl: string; supabaseAnonKey: string; }>(
+  async getUserConfig(signal?: AbortSignal): Promise<{ 
+    supabaseUrl: string; 
+    supabaseAnonKey: string;
+    googleWebClientId?: string;
+    googleAndroidClientId?: string;
+    googleIosClientId?: string;
+  }> {
+    const result = await this.makeRequest<{ 
+      supabaseUrl: string; 
+      supabaseAnonKey: string;
+      googleWebClientId?: string;
+      googleAndroidClientId?: string;
+      googleIosClientId?: string;
+    }>(
       `${getSecureApiBaseUrl()}/user/config`,
       { method: 'GET' },
       ErrorCategory.SYNC,
-      'getUserConfig'
+      'getUserConfig',
+      0,
+      signal
     );
     
     if (result === undefined || result === null) {

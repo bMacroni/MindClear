@@ -34,7 +34,8 @@ function normalizePriorityToCategory(args, functionName) {
 }
 
 /**
- * Helper function to create a goal with milestones and steps
+ * Helper function to create a goal with milestones and steps atomically
+ * Uses a PostgreSQL stored function to ensure all operations succeed or fail together
  * @param {Object} supabase - Supabase client instance
  * @param {string} userId - User ID
  * @param {Object} goalData - Goal data (title, description, target_completion_date, category)
@@ -45,76 +46,39 @@ function normalizePriorityToCategory(args, functionName) {
 async function createGoalWithMilestones(supabase, userId, goalData, milestones) {
   const { title, description, target_completion_date, category } = goalData;
   
-  // Create the goal first
-  const { data: goal, error: goalError } = await supabase
-    .from('goals')
-    .insert([{ user_id: userId, title, description, target_completion_date, category }])
-    .select()
-    .single();
+  // Prepare JSONB payloads for the RPC function
+  const goalPayload = {
+    title,
+    description: description || null,
+    target_completion_date: target_completion_date || null,
+    category: category || null
+  };
   
-  if (goalError) {
-    throw new Error(goalError.message);
+  const milestonesPayload = milestones && Array.isArray(milestones) && milestones.length > 0 
+    ? milestones 
+    : [];
+  
+  // Call the atomic PostgreSQL function
+  const { data, error } = await supabase.rpc('fn_create_goal_with_milestones', {
+    p_user_id: userId,
+    p_goal_data: goalPayload,
+    p_milestones: milestonesPayload
+  });
+  
+  if (error) {
+    throw new Error(`Failed to create goal atomically: ${error.message}`);
   }
-
-  // If milestones are provided, create them along with their steps
-  if (milestones && Array.isArray(milestones) && milestones.length > 0) {
-    for (let i = 0; i < milestones.length; i++) {
-      const milestone = milestones[i];
-      const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
-      
-      // Create the milestone
-      const { data: createdMilestone, error: milestoneError } = await supabase
-        .from('milestones')
-        .insert([{ 
-          goal_id: goal.id, 
-          title: milestoneTitle, 
-          description: milestoneDescription,
-          order: milestoneOrder 
-        }])
-        .select()
-        .single();
-      
-      if (milestoneError) {
-        throw new Error(`Failed to create milestone: ${milestoneError.message}`);
-      }
-
-      // If steps are provided for this milestone, create them
-      if (milestoneSteps && Array.isArray(milestoneSteps) && milestoneSteps.length > 0) {
-        const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
-          milestone_id: createdMilestone.id,
-          text: step.text || step,
-          order: step.order || stepIndex + 1,
-          completed: step.completed || false
-        }));
-
-        const { error: stepsError } = await supabase
-          .from('steps')
-          .insert(stepsToInsert);
-
-        if (stepsError) {
-          throw new Error(`Failed to create steps: ${stepsError.message}`);
-        }
-      }
+  
+  // The function returns JSONB, so we need to parse it if it's a string
+  let completeGoal = data;
+  if (typeof data === 'string') {
+    try {
+      completeGoal = JSON.parse(data);
+    } catch (parseError) {
+      throw new Error(`Failed to parse goal creation result: ${parseError.message}`);
     }
   }
-
-  // Fetch the complete goal with milestones and steps
-  const { data: completeGoal, error: fetchError } = await supabase
-    .from('goals')
-    .select(`
-      *,
-      milestones (
-        *,
-        steps (*)
-      )
-    `)
-    .eq('id', goal.id)
-    .single();
-
-  if (fetchError) {
-    throw new Error(fetchError.message);
-  }
-
+  
   return completeGoal;
 }
 
@@ -205,7 +169,8 @@ export async function getGoals(req, res) {
     const { data, error } = await query;
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      logger.error('Error fetching goals from database:', error);
+      return res.status(500).json({ error: 'Internal server error' });
     }
 
     // For incremental sync, return in the same format as events
@@ -231,6 +196,7 @@ export async function getGoals(req, res) {
 
     res.json(data);
   } catch (error) {
+    logger.error('Error fetching goals:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -355,7 +321,7 @@ export async function updateGoal(req, res) {
                   .update({
                     text: step.text,
                     completed: step.completed,
-                    order: step.order || 0
+                    order: step?.order ?? 0
                   })
                   .eq('id', step.id)
                   .eq('milestone_id', milestone.id);
@@ -447,7 +413,55 @@ export async function deleteGoal(req, res) {
       return res.status(404).json({ error: 'Goal not found' });
     }
     
-    // Delete the goal
+    // Get all milestones for this goal to delete their steps
+    const { data: milestones, error: milestonesFetchError } = await supabase
+      .from('milestones')
+      .select('id')
+      .eq('goal_id', id);
+    
+    if (milestonesFetchError) {
+      return res.status(500).json({ error: 'Failed to fetch milestones' });
+    }
+    
+    // Step 1: Delete all steps belonging to milestones of this goal
+    if (milestones && milestones.length > 0) {
+      const milestoneIds = milestones.map(m => m.id);
+      
+      const { error: stepsDeleteError } = await supabase
+        .from('steps')
+        .delete()
+        .in('milestone_id', milestoneIds);
+      
+      if (stepsDeleteError) {
+        return res.status(500).json({ error: 'Failed to delete steps' });
+      }
+    }
+    
+    // Step 2: Delete all milestones belonging to this goal
+    const { error: milestonesDeleteError } = await supabase
+      .from('milestones')
+      .delete()
+      .eq('goal_id', id);
+    
+    if (milestonesDeleteError) {
+      return res.status(500).json({ error: 'Failed to delete milestones' });
+    }
+    
+    // Step 3: Insert tombstone record into deleted_records for delta-sync
+    const { error: tombstoneError } = await supabase
+      .from('deleted_records')
+      .insert({
+        record_id: id,
+        table_name: 'goals',
+        user_id: user_id,
+        deleted_at: new Date().toISOString()
+      });
+    
+    if (tombstoneError) {
+      return res.status(500).json({ error: 'Failed to create deletion record' });
+    }
+    
+    // Step 4: Delete the goal itself
     const { error: deleteError } = await supabase
       .from('goals')
       .delete()
@@ -842,7 +856,7 @@ export async function updateGoalFromAI(args, userId, userContext) {
           const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
             milestone_id: createdMilestone.id,
             text: step.text || step,
-            order: step.order || stepIndex + 1,
+            order: step?.order ?? (stepIndex + 1),
             completed: step.completed || false
           }));
 

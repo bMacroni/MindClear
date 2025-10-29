@@ -574,6 +574,49 @@ class ErrorHandlingService {
     return retryCount < config.maxRetries;
   }
 
+  /**
+   * Sanitizes error messages before persisting to prevent storing PII/raw response bodies.
+   * Uses sanitized fields from enhancedApi if present, otherwise normalizes and redacts.
+   */
+  private sanitizeErrorMessage(error: any): string {
+    // Check for already-sanitized field from enhancedApi if present
+    if (error.sanitizedMessage && typeof error.sanitizedMessage === 'string') {
+      return error.sanitizedMessage;
+    }
+
+    // Get raw message
+    let message = error.message || error.toString();
+
+    // Normalize whitespace: collapse multiple spaces/newlines into single space
+    message = message.replace(/\s+/g, ' ').trim();
+
+    // Redact JSON bodies (look for JSON-like structures)
+    // Match patterns like { ... } or [ ... ] that might contain sensitive data
+    message = message.replace(/\{[^{}]*("password"|"token"|"secret"|"apiKey"|"email"|"phone"|"ssn"|"creditCard")[^{}]*\}/gi, '{[REDACTED]}');
+    message = message.replace(/\{[^{}]{100,}\}/g, '{[REDACTED_JSON_BODY]}');
+    message = message.replace(/\[[^\]]{100,}\]/g, '[REDACTED_ARRAY_BODY]');
+
+    // Redact HTML snippets that might contain sensitive data
+    message = message.replace(/<[^>]{50,}>/g, '<[REDACTED_HTML]>');
+
+    // Redact base64-like strings (common in response bodies)
+    message = message.replace(/[A-Za-z0-9+/]{50,}={0,2}/g, '[REDACTED_BASE64]');
+
+    // Redact email-like patterns
+    message = message.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
+
+    // Redact long URL-like strings
+    message = message.replace(/https?:\/\/[^\s]{50,}/g, '[REDACTED_URL]');
+
+    // Truncate to safe length (200 characters)
+    const MAX_LENGTH = 200;
+    if (message.length > MAX_LENGTH) {
+      message = message.substring(0, MAX_LENGTH - 3) + '...';
+    }
+
+    return message;
+  }
+
   async handleError(
     error: any,
     category: ErrorCategory,
@@ -588,13 +631,16 @@ class ErrorHandlingService {
       const message = error.message || error.toString();
       const type = await this.classifyError(status, message);
 
+      // Sanitize message before persisting to prevent storing PII/raw response bodies
+      const sanitizedMessage = this.sanitizeErrorMessage(error);
+
       // Create error log
       const errorLog: ErrorLog = {
         id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         type,
         category,
         severity: this.determineSeverity(type, category),
-        message,
+        message: sanitizedMessage,
         context,
         timestamp: Date.now(),
         resolved: false,
