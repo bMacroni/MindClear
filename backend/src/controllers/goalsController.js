@@ -14,10 +14,12 @@ const DEBUG = process.env.DEBUG_LOGS === 'true';
  */
 
 /**
- * Helper function to normalize priority to category for goals
- * @param {Object} args - Arguments object containing priority and category
- * @param {string} functionName - Name of the calling function for logging
- * @returns {string|null} - The computed category filter or null if none
+ * Derives the category filter for goal queries from the provided inputs.
+ *
+ * If a category is present, it is returned. If no category is provided but a priority is present, the priority is used as the category filter. If both are provided, category takes precedence and a warning is logged.
+ * @param {{priority?: string, category?: string}} args - Object containing optional `priority` and `category` fields.
+ * @param {string} functionName - Name of the calling function used in warning logs when both `priority` and `category` are provided.
+ * @returns {string|null} The category to use for filtering goals, or `null` if neither `category` nor `priority` is provided.
  */
 function normalizePriorityToCategory(args, functionName) {
   let categoryFilter = args.category;
@@ -34,13 +36,13 @@ function normalizePriorityToCategory(args, functionName) {
 }
 
 /**
- * Helper function to create a goal with milestones and steps
- * @param {Object} supabase - Supabase client instance
- * @param {string} userId - User ID
- * @param {Object} goalData - Goal data (title, description, target_completion_date, category)
- * @param {Array} milestones - Array of milestone objects with steps
- * @returns {Promise<Object>} Complete goal with milestones and steps
- * @throws {Error} If any database operation fails
+ * Create a goal for the given user and, if provided, create its milestones and steps, then return the complete goal with nested milestones and steps.
+ *
+ * @param {string} userId - ID of the goal owner.
+ * @param {Object} goalData - Goal fields: title, description, target_completion_date, and category.
+ * @param {Array<Object>} [milestones] - Optional array of milestones; each may include `title`, `description`, `order`, and `steps`. Each step may be a string or an object with `text`, `order`, and `completed`.
+ * @returns {Promise<Object>} The created goal including its milestones and their steps.
+ * @throws {Error} If any database operation fails.
  */
 async function createGoalWithMilestones(supabase, userId, goalData, milestones) {
   const { title, description, target_completion_date, category } = goalData;
@@ -118,6 +120,13 @@ async function createGoalWithMilestones(supabase, userId, goalData, milestones) 
   return completeGoal;
 }
 
+/**
+ * Create a new goal (optionally with milestones) for the authenticated user and send the created goal in the response.
+ *
+ * On success responds with HTTP 201 and the created goal object. On failure responds with HTTP 400 and a JSON error `{ error: string }`.
+ * @param {import('express').Request} req - Express request; expects authenticated user on `req.user` and goal payload (`title`, `description`, `target_completion_date`, `category`, optional `milestones`) in `req.body`.
+ * @param {import('express').Response} res - Express response used to send HTTP status and JSON body.
+ */
 export async function createGoal(req, res) {
   const { title, description, target_completion_date, category, milestones } = req.body;
   const user_id = req.user.id;
@@ -163,6 +172,15 @@ export async function createGoal(req, res) {
   }
 }
 
+/**
+ * Fetches goals (including nested milestones and steps) for the authenticated user and optionally performs a delta sync when a `since` timestamp is provided.
+ *
+ * If a valid `since` ISO 8601 string is supplied in the query, the endpoint returns an object `{ changed, deleted }` where `changed` are goals updated after `since` and `deleted` are IDs of goals deleted after `since`. If `since` is omitted, the endpoint returns the full list of matching goals.
+ *
+ * Behavior and error responses:
+ * - Responds 400 when the `since` parameter is present but not a valid ISO 8601 date, or when a Supabase query returns an error.
+ * - Responds 500 for unexpected server-side failures (e.g., fetching deleted records failure or other internal errors).
+ */
 export async function getGoals(req, res) {
   const user_id = req.user.id;
   const since = req.query.since; // For delta sync
@@ -295,6 +313,14 @@ export async function getGoalById(req, res) {
   res.json(data);
 }
 
+/**
+ * Handle an HTTP request to update a user's goal, optionally update its milestones and steps, and send a completion notification when the goal is marked completed.
+ *
+ * Updates the goal record identified by req.params.id for the authenticated user (req.user.id) with any of the provided fields: title, description, target_completion_date, completed, and category. If `milestones` is provided (array), existing milestones and their steps with matching `id` values are updated. After updates, the handler fetches and returns the complete goal with nested milestones and steps; if `completed` is true, a `goal_completed` notification is sent to the user.
+ *
+ * @param {import('express').Request} req - Express request; must include authenticated user at `req.user.id`, route param `req.params.id`, and request body containing any of: `title`, `description`, `target_completion_date`, `completed`, `category`, `milestones` (array of milestone objects with optional `id`, `title`, `description`, `completed`, `order`, and `steps` where each step may include `id`, `text`, `completed`, `order`).
+ * @param {import('express').Response} res - Express response used to send JSON responses and HTTP status codes.
+ */
 export async function updateGoal(req, res) {
   const user_id = req.user.id;
   const { id } = req.params;
@@ -406,6 +432,14 @@ export async function updateGoal(req, res) {
   }
 }
 
+/**
+ * Delete a goal belonging to the authenticated user.
+ *
+ * Verifies that the goal specified by req.params.id exists and belongs to req.user.id, deletes it on success, and sends an appropriate HTTP response (204 on success, 400/404/500 on errors).
+ *
+ * @param {import('express').Request} req - Express request; expects req.user.id (authenticated user) and req.params.id (goal id to delete).
+ * @param {import('express').Response} res - Express response used to send status and JSON error messages.
+ */
 export async function deleteGoal(req, res) {
   try {
     // Get the JWT from the request
@@ -466,6 +500,16 @@ export async function deleteGoal(req, res) {
   }
 } 
 
+/**
+ * Delete a user's goal identified by an id or by a case-insensitive title match.
+ * @param {Object} args - Arguments for deletion.
+ * @param {string} [args.id] - Goal id to delete.
+ * @param {string} [args.title] - Goal title to delete when id is not provided; matched case-insensitively.
+ * @param {string} userId - ID of the authenticated user who owns the goal.
+ * @param {Object} userContext - Context containing authentication information.
+ * @param {string} userContext.token - Supabase JWT used to authorize the request.
+ * @returns {{success: true} | {error: string}} `success: true` on successful deletion, or an `error` message describing the failure.
+ */
 export async function deleteGoalFromAI(args, userId, userContext) {
   const { id, title } = args;
   const token = userContext?.token;
@@ -501,6 +545,21 @@ export async function deleteGoalFromAI(args, userId, userContext) {
   return { success: true };
 }
 
+/**
+ * Retrieve goals for a user, optionally filtered by several criteria, including nested milestones and steps.
+ *
+ * @param {string} userId - The user's ID whose goals should be fetched.
+ * @param {string} token - Supabase JWT used for authenticating the query.
+ * @param {Object} [args] - Optional filters to apply to the query.
+ * @param {string} [args.title] - Partial title to match (case-insensitive).
+ * @param {string} [args.description] - Partial description to match (case-insensitive).
+ * @param {string} [args.due_date] - Exact target_completion_date to match (ISO date string).
+ * @param {string} [args.priority] - Priority value that may be normalized to a category filter.
+ * @param {string} [args.category] - Category to filter goals by.
+ * @param {string} [args.status] - Status value to filter goals by.
+ * @param {string} [args.recurrence] - Recurrence value to filter goals by.
+ * @returns {Array<Object>|{error: string}} An array of goal records (each including nested `milestones` and their `steps`) on success, or an object with an `error` message on failure.
+ */
 export async function getGoalsForUser(userId, token, args = {}) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
@@ -553,6 +612,19 @@ export async function getGoalsForUser(userId, token, args = {}) {
   return data;
 }
 
+/**
+ * Fetches goal titles for a user, applying optional search and filter criteria.
+ *
+ * @param {string} userId - The user's id whose goal titles to fetch.
+ * @param {string} token - JWT used to authenticate the request to Supabase.
+ * @param {Object} [args] - Optional filters for the query.
+ * @param {string} [args.search] - Substring to match against goal titles (case-insensitive).
+ * @param {string} [args.category] - Category to filter by; if omitted, `args.priority` may be mapped to a category.
+ * @param {string} [args.priority] - Priority value that will be normalized to a category when `category` is not provided.
+ * @param {string} [args.status] - Status to filter goals by.
+ * @param {string} [args.due_date] - Target completion date to filter goals by (ISO date string).
+ * @returns {string[]|{error: string}} Array of matching goal titles, or an object with `error` on failure.
+ */
 export async function getGoalTitlesForUser(userId, token, args = {}) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
@@ -587,7 +659,21 @@ export async function getGoalTitlesForUser(userId, token, args = {}) {
 
 // removed duplicate lookupGoalbyTitle definition (older, buggy variant)
 
-// Helper: Create a task from the next unfinished step in a goal
+/**
+ * Create a task from the next unfinished step of a user's goal identified by a partial title.
+ *
+ * Looks up the most recently created goal whose title matches `goal_title` (case-insensitive),
+ * finds the first incomplete step across its milestones (ordered by milestone and step order),
+ * and inserts a linked task with that step's text as the task title.
+ *
+ * @param {string} userId - ID of the user who will own the created task.
+ * @param {string} token - Supabase JWT used to authenticate requests.
+ * @param {Object} [args] - Additional options.
+ * @param {string} args.goal_title - Partial or full title to match the target goal (required).
+ * @param {string|null} [args.due_date] - Optional due date to assign to the created task (ISO string or null).
+ * @param {string|null} [args.priority] - Optional priority value to assign to the created task.
+ * @returns {Object} On success: `{ task, goal: { id, title }, used_step: { id, text } }`. On failure: `{ error: string }`.
+ */
 export async function createTaskFromNextGoalStep(userId, token, args = {}) {
   const { goal_title, due_date, priority } = args || {};
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -671,6 +757,19 @@ export async function createTaskFromNextGoalStep(userId, token, args = {}) {
   };
 }
 
+/**
+ * Create a goal (and optional milestones/steps) from AI-provided data for the specified user.
+ *
+ * @param {Object} args - AI-provided goal data.
+ * @param {string} args.title - Goal title.
+ * @param {string} [args.description] - Goal description.
+ * @param {string} [args.due_date] - Target completion date (ISO string).
+ * @param {string} [args.priority] - Priority mapped to the goal's category.
+ * @param {Array<Object>} [args.milestones] - Array of milestone objects, each may include steps.
+ * @param {string} userId - ID of the user who will own the created goal.
+ * @param {Object} userContext - Context for the user, may include authentication token at `userContext.token`.
+ * @returns {Object} The created complete goal object with nested milestones and steps on success, or `{ error: string }` on failure.
+ */
 export async function createGoalFromAI(args, userId, userContext) {
   const { title, description, due_date, priority, milestones } = args;
   const token = userContext?.token;
@@ -719,6 +818,20 @@ export async function createGoalFromAI(args, userId, userContext) {
   }
 }
 
+/**
+ * Update an existing goal (and optionally its milestones and steps) for a user using AI-provided fields.
+ * @param {Object} args - Fields to locate and update the goal.
+ * @param {string} [args.id] - The goal ID to update. Required if `lookup_title` is not provided.
+ * @param {string} [args.title] - New title for the goal.
+ * @param {string} [args.description] - New description for the goal.
+ * @param {string} [args.due_date] - New target completion date for the goal (mapped to `target_completion_date`).
+ * @param {string} [args.priority] - Priority value mapped to the goal's `category`.
+ * @param {Array<Object>|Array<string>} [args.milestones] - Array of milestones to add or replace; each item may include `title`, `description`, `order`, and `steps` (steps may be strings or objects with `text`, `order`, `completed`).
+ * @param {string} [args.milestone_behavior='add'] - How to handle provided milestones: `'add'` to append or `'replace'` to delete existing milestones and replace them.
+ * @param {string} [args.lookup_title] - If `id` is not provided, a title to locate the goal (case-insensitive exact match).
+ * @param {string} userId - The user's ID owning the goal.
+ * @param {Object} userContext - Context containing authentication info for the user.
+ * @returns {Object} The updated goal record with nested `milestones` and `steps`, or an object `{ error: string }` describing the failure.
 export async function updateGoalFromAI(args, userId, userContext) {
   const {
     id,

@@ -4,7 +4,15 @@ import { autoScheduleTasks, processRecurringTask } from './autoSchedulingControl
 import logger from '../utils/logger.js';
 import cacheService from '../utils/cacheService.js';
 
-// Normalize user-provided search text (e.g., strip trailing words like "task")
+/**
+ * Clean and normalize a user-provided search string.
+ *
+ * Removes surrounding quotes and trailing punctuation, strips leading filler words
+ * like "my" or "the", and drops common trailing nouns such as "task(s)", "goal(s)",
+ * "event(s)", "meeting", "appointment", and "reminder".
+ *
+ * @param {*} input - The text to normalize; if the value is not a string (or is falsy), it is returned unchanged.
+ * @returns {string|*} The normalized string, or the original input when it is not a string.
 function normalizeSearchText(input) {
   if (!input || typeof input !== 'string') return input;
   let q = input.trim();
@@ -17,7 +25,12 @@ function normalizeSearchText(input) {
   return q;
 }
 
-// Normalize year rollover for dates in the past
+/**
+ * Adjusts a YYYY-MM-DD date string to use the current year when the original year is earlier than the current year.
+ *
+ * @param {string} dateStr - A date string in `YYYY-MM-DD` format.
+ * @returns {string} The input with the year replaced by the current year when the input matches `YYYY-MM-DD`, the original year is less than the current year, and the reconstructed date is valid; otherwise the original `dateStr`.
+ */
 function normalizeRolloverYear(dateStr) {
   if (!dateStr || typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return dateStr;
@@ -34,6 +47,17 @@ function normalizeRolloverYear(dateStr) {
   return dateStr;
 }
 
+/**
+ * Create a new task for the authenticated user from request body fields.
+ *
+ * Inserts a task row using fields provided in req.body (e.g., title, description, due_date, priority, goal_id,
+ * scheduling and auto-scheduling fields, category, is_today_focus). Converts empty-string `goal_id` and `due_date`
+ * to null before insert. If a unique constraint prevents setting more than one today-focus task, responds with a
+ * specific `FOCUS_CONSTRAINT_VIOLATION` error. Records an analytics event after successful insertion (analytics
+ * failures are logged and do not affect the response) and invalidates the user's task cache.
+ *
+ * @returns {Object} The created task record (response status 201) or an error body with status 400 for validation/DB errors or 404/500 for other controller-level failures.
+ */
 export async function createTask(req, res) {
   const { 
     title, 
@@ -157,6 +181,15 @@ export async function createTask(req, res) {
   res.status(201).json(data);
 }
 
+/**
+ * Retrieve tasks for the authenticated user, supporting optional delta sync.
+ *
+ * Validates an optional `since` query parameter (ISO 8601). When `since` is provided, the endpoint bypasses the cache and returns an object `{ changed, deleted }` where `changed` are tasks updated since the timestamp and `deleted` are IDs of tasks deleted since the timestamp. When `since` is not provided, the endpoint returns the full list of tasks (cached per user) including related goal and calendar event data.
+ *
+ * Observable behavior:
+ * - Responds 400 if `since` is present but not a valid ISO 8601 date, or on database query errors.
+ * - Responds 500 on internal server failures or when fetching deleted records fails.
+ */
 export async function getTasks(req, res) {
   const user_id = req.user.id;
   const since = req.query.since; // For delta sync
@@ -423,18 +456,14 @@ export async function deleteTask(req, res) {
 }
 
 /**
- * Momentum Mode: Find and set the next focus task for today.
- * Body: { current_task_id: string|null, travel_preference: 'allow_travel'|'home_only'|null, exclude_ids: string[] }
- * Behavior:
- * 1) If current_task_id provided, unset its is_today_focus (set false)
- * 2) Select next candidate among user's tasks:
- *    - Not completed
- *    - Not in exclude_ids
- *    - If travel_preference === 'home_only', prefer tasks without a location
- *    - Must have estimated_duration_minutes; if missing on chosen task, default to 30
- *    - Highest priority (high > medium > low), then earliest due date (nulls last)
- * 3) Set chosen task is_today_focus = true and return the full row
- * 4) If none found, return 404 with message
+ * Finds the next task to focus for today for the authenticated user and marks it as today's focus.
+ *
+ * Unsets the current task's focus if `current_task_id` is provided, selects the highest-priority candidate
+ * task not completed and not in `exclude_ids` (optionally preferring tasks without a location when
+ * `travel_preference` is `"home_only"`), ensures the chosen task has a valid `estimated_duration_minutes`
+ * (defaults to 30 when missing or invalid), sets `is_today_focus = true` on the chosen task, and returns
+ * the updated task row. If no candidate is found, responds with a 404 message; database/query errors
+ * produce corresponding 400/500 responses.
  */
 export async function getNextFocusTask(req, res) {
   const user_id = req.user.id;
@@ -589,6 +618,16 @@ export async function bulkCreateTasks(req, res) {
   res.status(201).json(data);
 }
 
+/**
+ * Create a new task for the given user using AI-provided attributes.
+ *
+ * Accepts task attributes in `args`, resolves a provided `related_goal` to the user's goal id by exact title match, normalizes and parses `due_date` (adjusting past-year rollovers and storing as a midday timestamp when applicable), applies sensible defaults for missing fields (category, priority, status, deadline_type), inserts the task, and records a non-fatal analytics event.
+ *
+ * @param {Object} args - Task attributes from the AI layer. May include `title`, `description`, `due_date` (string), `priority`, `related_goal` (title string), `preferred_time_of_day`, `deadline_type`, `travel_time_minutes`, `category`, and `status`.
+ * @param {string} userId - ID of the user who will own the task.
+ * @param {Object} userContext - Context containing authentication info; `userContext.token` is used for authenticated DB operations.
+ * @returns {Object|{error: string}} The created task row on success, or an object with an `error` message on failure.
+ */
 export async function createTaskFromAI(args, userId, userContext) {
   const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes, category, status } = args;
   const token = userContext?.token;
@@ -731,6 +770,27 @@ export async function createTaskFromAI(args, userId, userContext) {
   return data;
 }
 
+/**
+ * Update an existing task using AI-provided fields; resolves task by `id` or by fuzzy `title` when `id` is absent.
+ *
+ * Accepts partial task fields and applies them to the matched task for the given user. When `title` is provided but `id` is not, performs a case-insensitive partial match against the user's task titles and selects the most recently created match. When `related_goal` is provided, resolves it to a goal id by exact case-insensitive title match among the user's goals. If `due_date` is provided as a string it is parsed via the project's date parser. For backwards compatibility, `completed: true` sets `status` to `"completed"`, while `completed: false` does not change the existing status.
+ *
+ * @param {Object} args - Fields to update or lookup information.
+ * @param {string} [args.id] - Task id to update; if omitted, `title` may be used to resolve the task.
+ * @param {string} [args.title] - Title used for fuzzy lookup when `id` is not provided.
+ * @param {string} [args.description] - New description for the task.
+ * @param {string|Date} [args.due_date] - New due date; string values are parsed.
+ * @param {string} [args.priority] - New priority value.
+ * @param {string} [args.related_goal] - Goal title to resolve and link; resolved by exact case-insensitive title match.
+ * @param {boolean} [args.completed] - Deprecated: when `true` sets `status` to `"completed"`; when `false` does not modify status.
+ * @param {string} [args.status] - New status for the task (overrides `completed`).
+ * @param {string} [args.preferred_time_of_day] - Preferred time of day value.
+ * @param {string} [args.deadline_type] - Deadline type value.
+ * @param {number} [args.travel_time_minutes] - Travel time in minutes.
+ * @param {string} userId - ID of the user owning the task.
+ * @param {Object} userContext - Context containing authentication token (userContext.token).
+ * @returns {Object|{error: string}} The updated task object on success, or an object with an `error` message on failure.
+ */
 export async function updateTaskFromAI(args, userId, userContext) {
   const { id, title, description, due_date, priority, related_goal, /* completed (deprecated) */ completed, status, preferred_time_of_day, deadline_type, travel_time_minutes } = args;
   const token = userContext?.token;
@@ -950,7 +1010,13 @@ export async function readTaskFromAI(args, userId, userContext) {
   return data;
 }
 
-// Auto-scheduling API endpoints
+/**
+ * Set the auto-scheduling enabled state for a user's task.
+ *
+ * Updates the task's `auto_schedule_enabled` field for the authenticated user unless the task's status is `completed`.
+ *
+ * @returns {Object} The updated task row.
+ */
 
 export async function toggleAutoSchedule(req, res) {
   const user_id = req.user.id;

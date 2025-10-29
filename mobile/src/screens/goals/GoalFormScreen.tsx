@@ -26,6 +26,17 @@ interface Milestone {
   }>;
 }
 
+/**
+ * Renders the Goal form screen for creating or editing a goal with nested milestones and steps.
+ *
+ * Manages form state (title, description, target date, category, milestones/steps), loads existing
+ * goal data when editing, performs create/update actions via repositories and services, and
+ * exposes UI controls for adding, editing, reordering, and removing milestones and steps.
+ *
+ * @param navigation - Navigation prop used to navigate back after save or cancel
+ * @param route - Route prop whose params may include `goalId` (to edit) and `category` (initial category)
+ * @returns The rendered GoalForm screen component
+ */
 export default function GoalFormScreen({ navigation, route }: any) {
   const goalId = route.params?.goalId;
   const initialCategory = route.params?.category || '';
