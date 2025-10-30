@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
+    "android": "rn ra",
     "ios": "react-native run-ios",
     "lint": "eslint .",
-    "start": "react-native start",
+    "start": "rn s",
     "test": "jest",
     "gen:android:icons": "node ./scripts/generate-android-icons.mjs",
     "analyze-bundle": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android-bundle.js --assets-dest android-assets && npx react-native-bundle-visualizer --bundle android-bundle.js --out bundle-report.html",
