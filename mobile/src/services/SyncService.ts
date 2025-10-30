@@ -29,6 +29,7 @@ const LAST_SYNCED_AT_KEY = 'last_synced_at';
 
 class SyncService {
   private isSyncing = false;
+  private logger = console;
 
   async pushData() {
     const database = getDatabase();
@@ -336,6 +337,21 @@ class SyncService {
       const syncResponse = await enhancedAPI.getEvents(2500, lastSyncedAt || undefined);
       const tasksResponse = await enhancedAPI.getTasks(lastSyncedAt || undefined);
       const goalsResponse = await enhancedAPI.getGoals(lastSyncedAt || undefined);
+      // Fetch milestones and milestone steps as part of pull (resilient to errors)
+      let milestonesResponse: any = [];
+      let milestoneStepsResponse: any = [];
+      try {
+        milestonesResponse = await enhancedAPI.getMilestones(lastSyncedAt || undefined);
+      } catch (msErr: any) {
+        console.warn('Pull: Failed to fetch milestones, continuing without them.', msErr);
+        milestonesResponse = { changed: [], deleted: [] };
+      }
+      try {
+        milestoneStepsResponse = await enhancedAPI.getMilestoneSteps(lastSyncedAt || undefined);
+      } catch (stepsErr: any) {
+        console.warn('Pull: Failed to fetch milestone steps, continuing without them.', stepsErr);
+        milestoneStepsResponse = { changed: [], deleted: [] };
+      }
 
       const { changed: changedEvents, deleted: deletedEventIds } = syncResponse;
       
@@ -363,8 +379,60 @@ class SyncService {
         deletedGoalIds = goalsResponse.deleted || [];
       }
 
-      const allChanges = [...changedEvents, ...changedTasks, ...changedGoals];
-      const allDeletedIds = [...(deletedEventIds || []), ...deletedTaskIds, ...deletedGoalIds];
+      // Fallback: If incremental sync returned no goals, and local milestones are empty while local goals exist,
+      // perform a one-time full goals fetch to hydrate milestones/steps
+      try {
+        if (lastSyncedAt && changedGoals.length === 0) {
+          const goalsCount = (await database.get<Goal>('goals').query().fetch()).length;
+          const milestonesCount = (await database.get<Milestone>('milestones').query().fetch()).length;
+          if (goalsCount > 0 && milestonesCount === 0) {
+            const fullGoals = await enhancedAPI.getGoals(undefined);
+            if (Array.isArray(fullGoals)) {
+              changedGoals = fullGoals;
+            } else if (fullGoals && typeof fullGoals === 'object') {
+              changedGoals = fullGoals.changed || [];
+            }
+            console.log('Pull: Applied fallback full goals fetch to hydrate milestones/steps.');
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn('Pull: Fallback full goals fetch failed, continuing without it.', fallbackErr);
+      }
+
+      // Handle milestones response
+      let changedMilestones = [];
+      let deletedMilestoneIds = [];
+      if (Array.isArray(milestonesResponse)) {
+        changedMilestones = milestonesResponse;
+      } else if (milestonesResponse && typeof milestonesResponse === 'object') {
+        changedMilestones = milestonesResponse.changed || [];
+        deletedMilestoneIds = milestonesResponse.deleted || [];
+      }
+
+      // Handle milestone steps response
+      let changedMilestoneSteps = [];
+      let deletedMilestoneStepIds = [];
+      if (Array.isArray(milestoneStepsResponse)) {
+        changedMilestoneSteps = milestoneStepsResponse;
+      } else if (milestoneStepsResponse && typeof milestoneStepsResponse === 'object') {
+        changedMilestoneSteps = milestoneStepsResponse.changed || [];
+        deletedMilestoneStepIds = milestoneStepsResponse.deleted || [];
+      }
+
+      const allChanges = [
+        ...changedEvents,
+        ...changedTasks,
+        ...changedGoals,
+        ...changedMilestones,
+        ...changedMilestoneSteps,
+      ];
+      const allDeletedIds = [
+        ...(deletedEventIds || []),
+        ...deletedTaskIds,
+        ...deletedGoalIds,
+        ...deletedMilestoneIds,
+        ...deletedMilestoneStepIds,
+      ];
 
       if (allChanges.length === 0 && allDeletedIds.length === 0) {
         console.log('Pull: No new data from server.');
@@ -406,6 +474,26 @@ class SyncService {
             }
             console.log(`Pull: Deleted ${recordsToDelete.length} goals`);
           }
+
+          // Process milestone deletions
+          if (deletedMilestoneIds && deletedMilestoneIds.length > 0) {
+            const milestoneCollection = database.get<Milestone>('milestones');
+            const recordsToDelete = await milestoneCollection.query(Q.where('id', Q.oneOf(deletedMilestoneIds))).fetch();
+            for (const record of recordsToDelete) {
+              await record.destroyPermanently();
+            }
+            console.log(`Pull: Deleted ${recordsToDelete.length} milestones`);
+          }
+
+          // Process milestone step deletions
+          if (deletedMilestoneStepIds && deletedMilestoneStepIds.length > 0) {
+            const stepCollection = database.get<MilestoneStep>('milestone_steps');
+            const recordsToDelete = await stepCollection.query(Q.where('id', Q.oneOf(deletedMilestoneStepIds))).fetch();
+            for (const record of recordsToDelete) {
+              await record.destroyPermanently();
+            }
+            console.log(`Pull: Deleted ${recordsToDelete.length} milestone steps`);
+          }
         }
 
         // Process changed records
@@ -420,6 +508,12 @@ class SyncService {
           } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
             // This is a goal
             await this.processGoalChange(changeData, database);
+          } else if (changeData.goal_id !== undefined && changeData.title !== undefined) {
+            // This is a milestone
+            await this.processMilestoneChange(changeData, database);
+          } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
+            // This is a milestone step
+            await this.processMilestoneStepChange(changeData, database);
           } else {
             console.warn(`Pull: Unknown record type for change data:`, changeData);
           }
@@ -691,6 +785,131 @@ class SyncService {
         record.status = 'synced';
       });
     }
-  }}
+
+    // Also upsert nested milestones and steps if present on the goal payload
+    if (Array.isArray(goalData.milestones)) {
+      for (const ms of goalData.milestones) {
+        // Ensure the milestone has the required identifiers
+        if (!ms || !ms.id) {continue;}
+
+        const milestonePayload = {
+          id: ms.id,
+          goal_id: goalData.id,
+          title: ms.title,
+          description: ms.description,
+          completed: !!ms.completed,
+          order: ms.order ?? 0,
+          created_at: ms.created_at,
+          updated_at: ms.updated_at,
+        };
+        await this.processMilestoneChange(milestonePayload, database);
+
+        if (Array.isArray(ms.steps)) {
+          for (const st of ms.steps) {
+            if (!st || !st.id) {continue;}
+            const stepPayload = {
+              id: st.id,
+              milestone_id: ms.id,
+              text: st.text,
+              completed: !!st.completed,
+              order: st.order ?? 0,
+              created_at: st.created_at,
+              updated_at: st.updated_at,
+            };
+            await this.processMilestoneStepChange(stepPayload, database);
+          }
+        }
+      }
+    }
+  }
+
+  private async processMilestoneChange(milestoneData: any, database: Database) {
+    const milestoneCollection = database.get<Milestone>('milestones');
+    const existing = await milestoneCollection.query(Q.where('id', milestoneData.id)).fetch();
+    const local = existing.length > 0 ? existing[0] : null;
+
+    const parsedCreatedAt = milestoneData.created_at ? safeParseDate(milestoneData.created_at) : undefined;
+    const parsedUpdatedAt = milestoneData.updated_at ? safeParseDate(milestoneData.updated_at) : undefined;
+
+    if (milestoneData.created_at && !parsedCreatedAt) {
+      console.error(`Pull: Failed to parse created_at for milestone ${milestoneData.id}:`, milestoneData.created_at);
+    }
+    if (milestoneData.updated_at && !parsedUpdatedAt) {
+      console.error(`Pull: Failed to parse updated_at for milestone ${milestoneData.id}:`, milestoneData.updated_at);
+    }
+
+    if (local) {
+      await local.update((record: Milestone) => {
+        record.title = milestoneData.title;
+        record.description = milestoneData.description;
+        record.goalId = milestoneData.goal_id;
+        record.completed = !!milestoneData.completed;
+        record.order = milestoneData.order ?? 0;
+        record.status = 'synced';
+        if (parsedUpdatedAt) {
+          record.updatedAt = parsedUpdatedAt;
+        }
+      });
+    } else {
+      await milestoneCollection.create((record: Milestone) => {
+        record._raw.id = milestoneData.id;
+        record.title = milestoneData.title;
+        record.description = milestoneData.description;
+        record.goalId = milestoneData.goal_id;
+        record.completed = !!milestoneData.completed;
+        record.order = milestoneData.order ?? 0;
+        record.status = 'synced';
+        record.createdAt = parsedCreatedAt || new Date();
+        record.updatedAt = parsedUpdatedAt || new Date();
+      });
+    }
+  }
+
+  private async processMilestoneStepChange(stepData: any, database: Database) {
+    const stepCollection = database.get<MilestoneStep>('milestone_steps');
+    const existing = await stepCollection.query(Q.where('id', stepData.id)).fetch();
+    const local = existing.length > 0 ? existing[0] : null;
+
+    const parsedCreatedAt = stepData.created_at ? safeParseDate(stepData.created_at) : undefined;
+    const parsedUpdatedAt = stepData.updated_at ? safeParseDate(stepData.updated_at) : undefined;
+
+    if (stepData.created_at && !parsedCreatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse created_at for step ${stepData.id}:`,
+        stepData.created_at
+      );
+    }
+    if (stepData.updated_at && !parsedUpdatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse updated_at for step ${stepData.id}:`,
+        stepData.updated_at
+      );
+    }
+
+    if (local) {
+      await local.update((record: MilestoneStep) => {
+        record.text = stepData.text;
+        record.milestoneId = stepData.milestone_id;
+        record.completed = !!stepData.completed;
+        record.order = stepData.order ?? 0;
+        record.status = 'synced';
+        if (parsedUpdatedAt) {
+          record.updatedAt = parsedUpdatedAt;
+        }
+      });
+    } else {
+      await stepCollection.create((record: MilestoneStep) => {
+        record._raw.id = stepData.id;
+        record.text = stepData.text;
+        record.milestoneId = stepData.milestone_id;
+        record.completed = !!stepData.completed;
+        record.order = stepData.order ?? 0;
+        record.status = 'synced';
+        record.createdAt = parsedCreatedAt || new Date();
+        record.updatedAt = parsedUpdatedAt || new Date();
+      });
+    }
+  }
+}
 
 export const syncService = new SyncService();

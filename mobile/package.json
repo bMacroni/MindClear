@@ -106,6 +106,7 @@
     "2025-01-27 CST: added devDependency 'babel-plugin-module-resolver' for TypeScript path alias resolution in React Native",
     "2025-09-28 CST: added dependency 'react-native-markdown-display' to render AI chat Markdown (bold, lists)",
     "2025-10-17 CST: added dependency '@react-native-picker/picker' for timezone picker in ProfileScreen",
-    "2025-10-17 CST: added dependencies '@react-native-firebase/app' and '@react-native-firebase/messaging' for push notifications"
+    "2025-10-17 CST: added dependencies '@react-native-firebase/app' and '@react-native-firebase/messaging' for push notifications",
+    "2025-10-30 CST: updated scripts to use 'react-native' CLI instead of 'rn' alias for portability across CI and developers"
   ]
 }
