@@ -29,6 +29,7 @@ const LAST_SYNCED_AT_KEY = 'last_synced_at';
 
 class SyncService {
   private isSyncing = false;
+  private logger = console;
 
   async pushData() {
     const database = getDatabase();
@@ -830,6 +831,13 @@ class SyncService {
     const parsedCreatedAt = milestoneData.created_at ? safeParseDate(milestoneData.created_at) : undefined;
     const parsedUpdatedAt = milestoneData.updated_at ? safeParseDate(milestoneData.updated_at) : undefined;
 
+    if (milestoneData.created_at && !parsedCreatedAt) {
+      console.error(`Pull: Failed to parse created_at for milestone ${milestoneData.id}:`, milestoneData.created_at);
+    }
+    if (milestoneData.updated_at && !parsedUpdatedAt) {
+      console.error(`Pull: Failed to parse updated_at for milestone ${milestoneData.id}:`, milestoneData.updated_at);
+    }
+
     if (local) {
       await local.update((record: Milestone) => {
         record.title = milestoneData.title;
@@ -864,6 +872,19 @@ class SyncService {
 
     const parsedCreatedAt = stepData.created_at ? safeParseDate(stepData.created_at) : undefined;
     const parsedUpdatedAt = stepData.updated_at ? safeParseDate(stepData.updated_at) : undefined;
+
+    if (stepData.created_at && !parsedCreatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse created_at for step ${stepData.id}:`,
+        stepData.created_at
+      );
+    }
+    if (stepData.updated_at && !parsedUpdatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse updated_at for step ${stepData.id}:`,
+        stepData.updated_at
+      );
+    }
 
     if (local) {
       await local.update((record: MilestoneStep) => {
