@@ -126,8 +126,9 @@ export class ConfigService {
 
   getGoogleWebClientId(): string {
     const id = this.googleWebClientId || process.env.GOOGLE_WEB_CLIENT_ID;
-    if (!id) {
-      console.warn('GOOGLE_WEB_CLIENT_ID is not set');
+    // Only warn in development mode, and only once per session
+    if (!id && __DEV__ && this.shouldWarnAboutMissingConfig()) {
+      console.warn('GOOGLE_WEB_CLIENT_ID is not set - Google Sign-In will not be available');
     }
     return id || '';
   }
@@ -135,18 +136,29 @@ export class ConfigService {
 
   getGoogleAndroidClientId(): string {
     const id = this.googleAndroidClientId || process.env.GOOGLE_ANDROID_CLIENT_ID;
-    if (!id) {
-      console.warn('GOOGLE_ANDROID_CLIENT_ID is not set');
+    // Only warn in development mode, and only once per session
+    if (!id && __DEV__ && this.shouldWarnAboutMissingConfig()) {
+      console.warn('GOOGLE_ANDROID_CLIENT_ID is not set - Android Google Sign-In may not work');
     }
     return id || '';
   }
 
   getGoogleIosClientId(): string {
     const id = this.googleIosClientId || process.env.GOOGLE_IOS_CLIENT_ID;
-    if (!id) {
-      console.warn('GOOGLE_IOS_CLIENT_ID is not set');
+    // Only warn in development mode, and only once per session
+    if (!id && __DEV__ && this.shouldWarnAboutMissingConfig()) {
+      console.warn('GOOGLE_IOS_CLIENT_ID is not set - iOS Google Sign-In may not work');
     }
     return id || '';
+  }
+
+  private warnedAboutMissingConfig = false;
+  private shouldWarnAboutMissingConfig(): boolean {
+    if (!this.warnedAboutMissingConfig) {
+      this.warnedAboutMissingConfig = true;
+      return true;
+    }
+    return false;
   }
 }
 

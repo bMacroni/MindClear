@@ -39,6 +39,9 @@ class ErrorRecoveryService {
   private failureCounts: Map<string, number> = new Map();
   private lastFailureTimes: Map<string, number> = new Map();
   
+  // Per-endpoint locks for atomic operations
+  private endpointLocks: Map<string, Promise<void>> = new Map();
+  
   // Default configurations
   private defaultCircuitBreakerConfig: CircuitBreakerConfig = {
     failureThreshold: 5,
@@ -59,6 +62,25 @@ class ErrorRecoveryService {
     return `circuit_breaker_${endpoint}`;
   }
 
+  // Acquire lock for an endpoint
+  private async acquireLock(endpoint: string): Promise<() => void> {
+    // Wait for any existing lock
+    while (this.endpointLocks.has(endpoint)) {
+      await this.endpointLocks.get(endpoint);
+    }
+
+    // Create and set new lock atomically (synchronous operations)
+    let releaseLock!: () => void;
+    const lockPromise = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    this.endpointLocks.set(endpoint, lockPromise);
+
+    return () => {
+      this.endpointLocks.delete(endpoint);
+      releaseLock();
+    };
+  }
   // Get current circuit breaker state
   private getCircuitBreakerState(endpoint: string): CircuitBreakerState {
     return this.circuitBreakers.get(endpoint) || CircuitBreakerState.CLOSED;
@@ -70,16 +92,25 @@ class ErrorRecoveryService {
   }
 
   // Record a failure
-  private recordFailure(endpoint: string): void {
-    const currentCount = this.failureCounts.get(endpoint) || 0;
-    const newCount = currentCount + 1;
-    this.failureCounts.set(endpoint, newCount);
-    this.lastFailureTimes.set(endpoint, Date.now());
+  private async recordFailure(endpoint: string): Promise<void> {
+    const releaseLock = await this.acquireLock(endpoint);
+    
+    try {
+      // Atomic read-modify-write operation
+      const currentCount = this.failureCounts.get(endpoint) || 0;
+      const newCount = currentCount + 1;
+      this.failureCounts.set(endpoint, newCount);
+      this.lastFailureTimes.set(endpoint, Date.now());
 
-    const config = this.defaultCircuitBreakerConfig;
-    if (newCount >= config.failureThreshold) {
-      this.updateCircuitBreakerState(endpoint, CircuitBreakerState.OPEN);
-      console.warn(`Circuit breaker opened for ${endpoint} after ${newCount} failures`);
+      const config = this.defaultCircuitBreakerConfig;
+      if (newCount >= config.failureThreshold) {
+        this.updateCircuitBreakerState(endpoint, CircuitBreakerState.OPEN);
+        if (__DEV__) {
+          console.warn(`Circuit breaker opened for ${endpoint} after ${newCount} failures`);
+        }
+      }
+    } finally {
+      releaseLock();
     }
   }
 
@@ -128,7 +159,9 @@ class ErrorRecoveryService {
     if (circuitState === CircuitBreakerState.OPEN) {
       if (this.shouldTransitionToHalfOpen(circuitBreakerKey)) {
         this.updateCircuitBreakerState(circuitBreakerKey, CircuitBreakerState.HALF_OPEN);
-        console.warn(`Circuit breaker transitioning to half-open for ${endpoint}`);
+        if (__DEV__) {
+          console.warn(`Circuit breaker transitioning to half-open for ${endpoint}`);
+        }
       } else {
         throw new Error(`Circuit breaker is open for ${endpoint}. Service is temporarily unavailable.`);
       }
@@ -153,7 +186,7 @@ class ErrorRecoveryService {
         
         // Check if this is the last attempt
         if (attempt === retryStrategy.maxRetries) {
-          this.recordFailure(circuitBreakerKey);
+          await this.recordFailure(circuitBreakerKey);
           break;
         }
 
@@ -164,7 +197,9 @@ class ErrorRecoveryService {
 
         // Wait before retry
         const delay = this.calculateRetryDelay(attempt, retryStrategy);
-        console.warn(`Retrying operation in ${delay}ms (attempt ${attempt + 1}/${retryStrategy.maxRetries + 1})`);
+        if (__DEV__) {
+          console.warn(`Retrying operation in ${delay}ms (attempt ${attempt + 1}/${retryStrategy.maxRetries + 1})`);
+        }
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -184,7 +219,7 @@ class ErrorRecoveryService {
   // Check if error is retryable
   private isRetryableError(error: any, _category: ErrorCategory): boolean {
     // Don't retry authentication errors
-    if (error && typeof error === 'object' && 'title' in error) {
+    if (error && typeof error === 'object' && 'isUserFriendlyError' in error) {
       const userError = error as UserFriendlyError;
       return userError.retryable;
     }

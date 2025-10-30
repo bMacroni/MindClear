@@ -28,3 +28,6 @@ The app has been renamed to **Mind Clear**, please use this name for naming sche
 - Implement proper error boundaries and loading states
 - Follow the established patterns for AI integration and database operations
 - Ensure proper performance optimization
+
+## Critical Security Practices
+- Never under any circumstance hard code environment variables into our code

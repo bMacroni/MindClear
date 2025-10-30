@@ -21,7 +21,9 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { LazyList } from '../../utils/lazyListUtils';
 import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
 import { enhancedAPI } from '../../services/enhancedApi';
-import { offlineService } from '../../services/offline';
+import { taskRepository } from '../../repositories/TaskRepository';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
 import analyticsService from '../../services/analyticsService';
 import Icon from 'react-native-vector-icons/Octicons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -32,6 +34,11 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import { Q, Database } from '@nozbe/watermelondb';
+import Task from '../../db/models/Task';
+import Goal from '../../db/models/Goal';
 
 // Development-only logging for EOD prompt debugging
 const EOD_DEBUG = true; // set false to silence
@@ -42,42 +49,20 @@ const eodLog = (...args: any[]) => {
   }
 };
 
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'not_started' | 'in_progress' | 'completed';
-  due_date?: string;
-  category?: string;
-  goal_id?: string;
-  estimated_duration_minutes?: number;
-  is_today_focus?: boolean;
-  goal?: {
-    id: string;
-    title: string;
-  };
-  // Auto-scheduling fields
-  auto_schedule_enabled?: boolean;
-  weather_dependent?: boolean;
-  location?: string;
-  travel_time_minutes?: number;
-  // Required backend fields
-  preferred_time_of_day?: 'morning' | 'afternoon' | 'evening';
-  deadline_type?: 'soft' | 'hard';
-  recurrence_pattern?: 'none' | 'daily' | 'weekly' | 'monthly';
-  scheduling_preferences?: any;
-  max_daily_tasks?: number;
-  buffer_time_minutes?: number;
-  task_type?: 'indoor' | 'outdoor' | 'travel' | 'virtual' | 'other';
+// Internal props interface - what the component actually uses
+interface InternalTasksScreenProps {
+  tasks: Task[];
+  goals: Goal[];
 }
 
-interface Goal {
-  id: string;
-  title: string;
+// External props interface - what the HOC/wrapper provides
+interface ExternalTasksScreenProps {
+  tasks: Task[];
+  goals: Goal[];
+  database: Database;
 }
 
-const TasksScreen: React.FC = () => {
+const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const _insets = useSafeAreaInsets();
@@ -85,7 +70,7 @@ const TasksScreen: React.FC = () => {
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
   const [tasks, setTasks] = useState<Task[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false since we have observable data
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
@@ -98,6 +83,19 @@ const TasksScreen: React.FC = () => {
   const [toastCalendarEvent, setToastCalendarEvent] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [selectingFocus, setSelectingFocus] = useState(false);
+
+  // Sync observable data with local state
+  useEffect(() => {
+    if (observableTasks) {
+      setTasks(observableTasks);
+    }
+  }, [observableTasks]);
+
+  useEffect(() => {
+    if (observableGoals) {
+      setGoals(observableGoals);
+    }
+  }, [observableGoals]);
   const [showEodPrompt, setShowEodPrompt] = useState(false);
   const [quickMenuVisible, setQuickMenuVisible] = useState(false);
   const [quickAnchor, setQuickAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
@@ -136,7 +134,7 @@ const TasksScreen: React.FC = () => {
     analyticsService.trackScreenView('tasks', {
       taskCount: tasks.length,
       completedCount: tasks.filter(t => t.status === 'completed').length,
-      focusTaskCount: tasks.filter(t => t.is_today_focus).length
+      focusTaskCount: tasks.filter(t => t.isTodayFocus).length
     }).catch(error => {
       console.warn('Failed to track screen view analytics:', error);
     });
@@ -177,56 +175,31 @@ const TasksScreen: React.FC = () => {
   const loadData = async (options?: { silent?: boolean }) => {
     const silent = !!options?.silent;
     try {
-      // Paint from cache immediately if available
-      const [cachedTasks, cachedGoals] = await Promise.all([
-        offlineService.getCachedTasks(),
-        offlineService.getCachedGoals(),
-      ]);
-      let paintedFromCache = false;
-      if (cachedTasks && Array.isArray(cachedTasks)) {
-        setTasks(cachedTasks as any);
-        paintedFromCache = true;
-      }
-      if (cachedGoals && Array.isArray(cachedGoals)) {
-        setGoals(cachedGoals as any);
-        paintedFromCache = true;
-      }
-      if (paintedFromCache) {
-        // Dismiss spinner immediately; we will refresh in background
-        setLoading(false);
-      } else {
-        if (!silent) {setLoading(true);}
+      if (!silent) {
+        setLoading(true);
       }
 
-      // Fetch fresh in parallel
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const [tasksData, goalsData, prefs] = await Promise.all([
-        tasksAPI.getTasks(controller.signal as any),
-        goalsAPI.getGoals(controller.signal as any),
-        appPreferencesAPI.get().catch(() => null),
-      ]).finally(() => clearTimeout(timeout));
-      setTasks(tasksData);
-      setGoals(goalsData);
-      if (prefs && typeof prefs === 'object') {
-        setMomentumEnabled(!!(prefs as any).momentum_mode_enabled);
-        setTravelPreference((prefs as any).momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
-      }
-      // Cache raw responses
+      // Trigger silent sync to get latest data from server
       try {
-        await Promise.all([
-          offlineService.cacheTasks(tasksData as any),
-          offlineService.cacheGoals(goalsData as any),
-        ]);
-      } catch {}
-    } catch (error) {
-      if ((error as any)?.name === 'AbortError') {
-        console.warn('Tasks/Goals fetch aborted due to timeout');
-        // Keep whatever cache we already showed; avoid alert
-        return;
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
       }
+
+      // Load preferences
+      try {
+        const prefs = await appPreferencesAPI.get();
+        if (prefs && typeof prefs === 'object') {
+          setMomentumEnabled(!!(prefs as any).momentum_mode_enabled);
+          setTravelPreference((prefs as any).momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
+        }
+      } catch (error) {
+        console.warn('Failed to load preferences:', error);
+      }
+    } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load tasks and goals');
+      Alert.alert('Error', 'Failed to sync data');
     } finally {
       setLoading(false);
     }
@@ -261,21 +234,82 @@ const TasksScreen: React.FC = () => {
     setShowModal(true);
   }, []);
 
+  // Helper function to convert WatermelonDB Task to TaskForm's expected format
+  const convertTaskForTaskForm = (task: Task | undefined) => {
+    if (!task) return undefined;
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
+      status: task.status as 'not_started' | 'in_progress' | 'completed',
+      due_date: task.dueDate?.toISOString(),
+      category: task.category,
+      goal_id: task.goalId,
+      estimated_duration_minutes: task.estimatedDurationMinutes,
+      auto_schedule_enabled: task.autoScheduleEnabled,
+      weather_dependent: false, // Default value
+      is_today_focus: task.isTodayFocus,
+      location: task.location,
+    };
+  };
+
+  // Helper function to convert WatermelonDB Task to TaskCard's expected format
+  const convertTaskForTaskCard = (task: Task) => {
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
+      status: task.status as 'not_started' | 'in_progress' | 'completed',
+      due_date: task.dueDate?.toISOString(),
+      category: task.category,
+      goal: task.goal ? {
+        id: task.goal.id,
+        title: task.goal.title,
+      } : undefined,
+      auto_schedule_enabled: task.autoScheduleEnabled,
+      weather_dependent: false, // Default value
+      estimated_duration_minutes: task.estimatedDurationMinutes,
+      is_today_focus: task.isTodayFocus,
+      location: task.location,
+    };
+  };
+
+  // Helper function to convert WatermelonDB Task data to API Task format
+  const convertTaskDataToApiFormat = (taskData: Partial<Task>) => {
+    const apiData: any = {};
+    if (taskData.title !== undefined) apiData.title = taskData.title;
+    if (taskData.description !== undefined) apiData.description = taskData.description;
+    if (taskData.priority !== undefined) apiData.priority = taskData.priority;
+    if (taskData.estimatedDurationMinutes !== undefined) apiData.estimated_duration_minutes = taskData.estimatedDurationMinutes;
+    if (taskData.dueDate !== undefined) apiData.due_date = taskData.dueDate?.toISOString();
+    if (taskData.goalId !== undefined) apiData.goal_id = taskData.goalId;
+    if (taskData.isTodayFocus !== undefined) apiData.is_today_focus = taskData.isTodayFocus;
+    if (taskData.status !== undefined) apiData.status = taskData.status;
+    return apiData;
+  };
+
   const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
       
       if (editingTask) {
         // Update existing task
-        const updatedTask = await tasksAPI.updateTask(editingTask.id, taskData);
-        setTasks(prev => prev.map(task => 
-          task.id === editingTask.id ? updatedTask : task
-        ));
+        const updatedTask = await tasksAPI.updateTask(editingTask.id, convertTaskDataToApiFormat(taskData));
       } else {
         // Create new task
-        const newTask = await tasksAPI.createTask(taskData);
-        setTasks(prev => [newTask, ...prev]);
+        const newTask = await tasksAPI.createTask(convertTaskDataToApiFormat(taskData));
       }
+      
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
+      
       setShowModal(false);
       setEditingTask(undefined);
     } catch (error) {
@@ -287,51 +321,60 @@ const TasksScreen: React.FC = () => {
   }, [editingTask]);
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
-    const prevTasks = tasks;
-    setTasks(prev => prev.filter(task => task.id !== taskId));
     try {
-      await tasksAPI.deleteTask(taskId);
+      await taskRepository.deleteTask(taskId);
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
     } catch (error) {
       console.error('Error deleting task:', error);
-      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to delete task');
     }
-  }, [tasks]);
+  }, []);
 
   const handleToggleStatus = useCallback(async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
-    const prevTasks = tasks;
-    const prevTask = tasks.find(t => t.id === taskId);
-    setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: newStatus } as any : task));
     try {
-      const updatedTask = await tasksAPI.updateTask(taskId, { status: newStatus });
-      setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
+      await tasksAPI.updateTask(taskId, { status: newStatus });
+      
+      // Trigger silent sync to push changes to server
+      try {
+        await syncService.silentSync();
+      } catch (error) {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      }
 
-      if (newStatus === 'completed' && prevTask) {
-        analyticsService.trackTaskCompleted({
-          taskId: prevTask.id,
-          taskTitle: prevTask.title,
-          priority: prevTask.priority,
-          hasLocation: !!prevTask.location,
-          hasEstimatedDuration: !!prevTask.estimated_duration_minutes,
-          autoScheduleEnabled: prevTask.auto_schedule_enabled,
-          isTodayFocus: prevTask.is_today_focus
-        }).catch(error => {
-          console.warn('Failed to track task completion analytics:', error);
-        });
+      // Track analytics for completed tasks
+      if (newStatus === 'completed') {
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+          analyticsService.trackTaskCompleted({
+            taskId: task.id,
+            taskTitle: task.title,
+            priority: task.priority,
+            hasLocation: !!task.location,
+            hasEstimatedDuration: !!task.estimatedDurationMinutes,
+            autoScheduleEnabled: task.autoScheduleEnabled ?? false,
+            isTodayFocus: task.isTodayFocus
+          }).catch(error => {
+            console.warn('Failed to track task completion analytics:', error);
+          });
+        }
       }
     } catch (error) {
       console.error('Error updating task status:', error);
-      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to update task status');
     }
   }, [tasks]);
 
   const handleResetCompletedTask = useCallback(async (taskId: string) => {
     const prevTasks = tasks;
-    setTasks(prev => prev.map(task => task.id === taskId ? { ...task, status: 'not_started' } as any : task));
     try {
       const updatedTask = await tasksAPI.updateTask(taskId, { status: 'not_started' });
-      setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
       
       // Handle calendar event - remove any associated calendar events since task is no longer completed
       try {
@@ -354,10 +397,10 @@ const TasksScreen: React.FC = () => {
   }, [tasks]);
 
   // Helper function to format due date for display
-  const formatDueDate = (dueDate: string | undefined): string => {
+  const formatDueDate = (dueDate: Date | string | undefined): string => {
     if (!dueDate) return 'none';
     try {
-      const date = new Date(dueDate);
+      const date = dueDate instanceof Date ? dueDate : new Date(dueDate);
       return date.toLocaleDateString();
     } catch {
       return 'none';
@@ -372,8 +415,8 @@ const TasksScreen: React.FC = () => {
         return;
       }
 
-      const needsDuration = !Number.isFinite((task as any).estimated_duration_minutes) || (task as any).estimated_duration_minutes! <= 0;
-      const needsDueDate = !task.due_date;
+      const needsDuration = !Number.isFinite(task.estimatedDurationMinutes) || task.estimatedDurationMinutes! <= 0;
+      const needsDueDate = !task.dueDate;
 
       if (needsDuration || needsDueDate) {
         const missingParts: string[] = [];
@@ -381,8 +424,8 @@ const TasksScreen: React.FC = () => {
         if (needsDueDate) { missingParts.push('due date'); }
 
         const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-        const duePart = formatDueDate(task.due_date);
-        const durationPart = Number.isFinite((task as any).estimated_duration_minutes) ? String((task as any).estimated_duration_minutes) : 'none';
+        const duePart = formatDueDate(task.dueDate);
+        const durationPart = Number.isFinite(task.estimatedDurationMinutes) ? String(task.estimatedDurationMinutes) : 'none';
 
         const prompt = `Help me schedule this task on my calendar. Ask me conversational clarifying questions to fill any missing values and then summarize the final values. After that, suggest one tiny micro-step to help me begin.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
 
@@ -394,7 +437,7 @@ const TasksScreen: React.FC = () => {
         summary: task.title || 'Task',
         description: task.description || '',
         startTime: new Date().toISOString(),
-        endTime: new Date(Date.now() + (((task as any).estimated_duration_minutes || 60) * 60 * 1000)).toISOString(),
+        endTime: new Date(Date.now() + ((task.estimatedDurationMinutes || 60) * 60 * 1000)).toISOString(),
       });
       
       const startTimeStr = result?.data?.scheduled_time;
@@ -427,9 +470,9 @@ const TasksScreen: React.FC = () => {
   const handleAIHelp = useCallback(async (task: Task) => {
     try {
       const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-      const duePart = formatDueDate(task.due_date);
-      const durationPart = Number.isFinite((task as any).estimated_duration_minutes)
-        ? String((task as any).estimated_duration_minutes)
+      const duePart = formatDueDate(task.dueDate);
+      const durationPart = Number.isFinite(task.estimatedDurationMinutes)
+        ? String(task.estimatedDurationMinutes)
         : 'none';
       const prompt = `Help me think through and schedule this task. Ask conversational clarifying questions if needed, then summarize final values and suggest one tiny micro-step.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}`;
       (navigation as any).navigate('AIChat', { initialMessage: prompt, taskTitle: task.title });
@@ -599,7 +642,7 @@ const TasksScreen: React.FC = () => {
       }
 
       // Calculate end time (use estimated duration or default to 1 hour)
-      const durationMinutes = task.estimated_duration_minutes || 60;
+      const durationMinutes = task.estimatedDurationMinutes || 60;
       const endTime = new Date(target.getTime() + durationMinutes * 60 * 1000);
 
       // Check if a calendar event already exists for this task
@@ -656,9 +699,6 @@ const TasksScreen: React.FC = () => {
   const handleToggleAutoSchedule = async (taskId: string, enabled: boolean) => {
     try {
       await autoSchedulingAPI.toggleTaskAutoScheduling(taskId, enabled);
-      setTasks(prev => prev.map(task => 
-        task.id === taskId ? { ...task, auto_schedule_enabled: enabled } : task
-      ));
     } catch (error) {
       console.error('Error toggling auto-schedule:', error);
       Alert.alert('Error', 'Failed to update auto-schedule setting');
@@ -673,8 +713,8 @@ const TasksScreen: React.FC = () => {
         return;
       }
 
-      const needsDuration = !Number.isFinite((task as any).estimated_duration_minutes) || (task as any).estimated_duration_minutes! <= 0;
-      const needsDueDate = !task.due_date;
+      const needsDuration = !Number.isFinite(task.estimatedDurationMinutes) || task.estimatedDurationMinutes! <= 0;
+      const needsDueDate = !task.dueDate;
 
       if (needsDuration || needsDueDate) {
         const missingParts: string[] = [];
@@ -682,8 +722,8 @@ const TasksScreen: React.FC = () => {
         if (needsDueDate) { missingParts.push('due date'); }
 
         const descriptionPart = task.description ? `\nDescription: ${task.description}` : '';
-        const duePart = formatDueDate(task.due_date);
-        const durationPart = Number.isFinite((task as any).estimated_duration_minutes) ? String((task as any).estimated_duration_minutes) : 'none';
+        const duePart = formatDueDate(task.dueDate);
+        const durationPart = Number.isFinite(task.estimatedDurationMinutes) ? String(task.estimatedDurationMinutes) : 'none';
 
         const prompt = `I want to schedule this task now. Please ask me conversationally to confirm or fill in any missing values needed for scheduling, then summarize the final values. Also propose one tiny micro-step to get started.\n\nTask details:\n- Title: ${task.title}${descriptionPart}\n- Current due date: ${duePart}\n- Estimated duration (minutes): ${durationPart}\n\nMissing: ${missingParts.join(', ')}.`;
 
@@ -695,7 +735,7 @@ const TasksScreen: React.FC = () => {
         summary: task.title || 'Task',
         description: task.description || '',
         startTime: new Date().toISOString(),
-        endTime: new Date(Date.now() + (((task as any).estimated_duration_minutes || 60) * 60 * 1000)).toISOString(),
+        endTime: new Date(Date.now() + ((task.estimatedDurationMinutes || 60) * 60 * 1000)).toISOString(),
       });
       
       const startTimeStr = result?.data?.scheduled_time;
@@ -773,19 +813,19 @@ const TasksScreen: React.FC = () => {
   };
 
   const getFocusTask = useCallback((): Task | undefined => {
-    return tasks.find(task => task.is_today_focus && task.status !== 'completed');
+    return tasks.find(task => task.isTodayFocus && task.status !== 'completed');
   }, [tasks]);
 
   const inboxTasks = useMemo(() => {
-    return tasks.filter(task => !task.is_today_focus && task.status !== 'completed');
+    return tasks.filter(task => !task.isTodayFocus && task.status !== 'completed');
   }, [tasks]);
 
   const getAutoScheduledTasks = () => {
-    return tasks.filter(task => task.auto_schedule_enabled);
+    return tasks.filter(task => task.autoScheduleEnabled);
   };
 
   const getScheduledTasks = () => {
-    return tasks.filter(task => task.due_date && task.auto_schedule_enabled);
+    return tasks.filter(task => task.dueDate && task.autoScheduleEnabled);
   };
 
   const renderEmptyState = () => (
@@ -799,7 +839,7 @@ const TasksScreen: React.FC = () => {
 
   // Optimized task selection handler - async and non-blocking
   const handleTaskSelect = useCallback(async (task: Task) => {
-    if ((task as any).is_today_focus) {
+    if (task.isTodayFocus) {
       setToastMessage("This task is already today's focus.");
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -809,7 +849,7 @@ const TasksScreen: React.FC = () => {
     }
 
     // Find the current focus task (if any) - we'll remove its calendar event after setting the new focus
-    const currentFocusTask = tasks.find(t => (t as any).is_today_focus && t.id !== task.id);
+    const currentFocusTask = tasks.find(t => t.isTodayFocus && t.id !== task.id);
 
     // Start the focus update process asynchronously (non-blocking)
     setSelectingFocus(false);
@@ -817,10 +857,7 @@ const TasksScreen: React.FC = () => {
 
     try {
       // Set the task as today's focus (immediate UI feedback)
-      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true } as any);
-
-      // Update state optimistically for immediate UI feedback
-      setTasks(prev => prev.map(t => t.id === updated.id ? updated : { ...t, is_today_focus: false }));
+      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true });
 
       // Show immediate feedback
       setToastMessage("Setting as Today's Focus...");
@@ -848,7 +885,7 @@ const TasksScreen: React.FC = () => {
             const now = new Date();
             const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             const todaysEvents = await enhancedAPI.getEventsForDate(today);
-            const taskDuration = (task as any).estimated_duration_minutes || 60;
+            const taskDuration = task.estimatedDurationMinutes || 60;
 
             availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
@@ -908,12 +945,16 @@ const TasksScreen: React.FC = () => {
 
   const renderTaskItem = useCallback(({ item }: { item: Task }) => (
     <TaskCard
-      task={item}
+      task={convertTaskForTaskCard(item)}
       onPress={(task) => {
+        // Find the original WatermelonDB Task by ID
+        const originalTask = tasks.find(t => t.id === task.id);
+        if (!originalTask) return;
+        
         if (selectingFocus) {
-          handleTaskSelect(task);
+          handleTaskSelect(originalTask);
         } else {
-          handleTaskPress(task);
+          handleTaskPress(originalTask);
         }
       }}
       onDelete={handleDeleteTask}
@@ -923,7 +964,12 @@ const TasksScreen: React.FC = () => {
       onScheduleNow={handleScheduleNow}
       onOpenQuickSchedule={handleOpenQuickSchedule}
       onQuickSchedule={handleQuickSchedule}
-      onAIHelp={handleAIHelp}
+      onAIHelp={(task) => {
+        // Find the original WatermelonDB Task by ID
+        const originalTask = tasks.find(t => t.id === task.id);
+        if (!originalTask) return;
+        handleAIHelp(originalTask);
+      }}
     />
   ), [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp]);
 
@@ -973,7 +1019,7 @@ const TasksScreen: React.FC = () => {
       eodLog('maybePromptEndOfDay invoked', { loading });
       if (loading) {return;}
       const focus = getFocusTask();
-      eodLog('focus task check', { hasFocus: !!focus, status: focus?.status, id: focus?.id, title: focus?.title, due_date: (focus as any)?.due_date });
+      eodLog('focus task check', { hasFocus: !!focus, status: focus?.status, id: focus?.id, title: focus?.title, dueDate: focus?.dueDate });
       if (!focus) {return;}
       const todayStr = new Date().toISOString().slice(0, 10);
       try {
@@ -1007,31 +1053,17 @@ const TasksScreen: React.FC = () => {
     try {
       // Update task status immediately for responsive UI
       const updated = await tasksAPI.updateTask(task.id, { status: 'completed' });
-      setTasks(prev => prev.map(t => t.id === task.id ? updated : t));
       setToastMessage('Great job! Focus task completed.');
       setToastCalendarEvent(false);
       setShowToast(true);
 
-      if (task.is_today_focus && momentumEnabled) {
+      if (task.isTodayFocus && momentumEnabled) {
         try {
           // Get next focus task
           const next = await tasksAPI.focusNext({
             current_task_id: task.id,
             travel_preference: travelPreference,
             exclude_ids: [],
-          });
-
-          // Update state optimistically
-          setTasks(prev => {
-            const mapped = prev.map(t => {
-              if (t.id === task.id) { return { ...t, is_today_focus: false }; }
-              if (t.id === next.id) { return next as any; }
-              return t;
-            });
-            if (!mapped.find(t => t.id === next.id)) {
-              return [next as any, ...mapped];
-            }
-            return mapped;
           });
 
           // Handle calendar operations asynchronously (non-blocking)
@@ -1051,7 +1083,7 @@ const TasksScreen: React.FC = () => {
               try {
                 const today = new Date().toISOString().split('T')[0];
                 const todaysEvents = await enhancedAPI.getEventsForDate(today);
-                const taskDuration = (next as any).estimated_duration_minutes || 60;
+                const taskDuration = next.estimated_duration_minutes || 60;
 
                 const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
@@ -1142,7 +1174,7 @@ const TasksScreen: React.FC = () => {
     if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
     eodActionInFlightRef.current = true;
     const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prev_due: (focus as any)?.due_date });
+    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prevDue: focus?.dueDate });
     if (!focus) { 
       // even if focus vanished, mark prompted so the modal doesn't re-open
       await markEodPrompted();
@@ -1160,10 +1192,9 @@ const TasksScreen: React.FC = () => {
     await markEodPrompted();
 
     try {
-      eodLog('updating task due_date -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
+      eodLog('updating task dueDate -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
       const updated = await tasksAPI.updateTask(focus.id, { due_date: `${yyyy}-${mm}-${dd}` });
-      setTasks(prev => prev.map(t => t.id === focus.id ? updated : t));
-      eodLog('update success, task updated', { updated_due: (updated as any)?.due_date });
+      eodLog('update success, task updated', { updatedDue: updated?.due_date });
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1204,7 +1235,6 @@ const TasksScreen: React.FC = () => {
       const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
       const dd = String(tomorrow.getDate()).padStart(2, '0');
       const updated = await tasksAPI.updateTask(task.id, { due_date: `${yyyy}-${mm}-${dd}` });
-      setTasks(prev => prev.map(t => t.id === task.id ? updated : t));
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1252,19 +1282,6 @@ const TasksScreen: React.FC = () => {
         exclude_ids: [focus.id],
       });
 
-      // Update state optimistically
-      setTasks(prev => {
-        const mapped = prev.map(t => {
-          if (t.id === focus.id) { return { ...t, is_today_focus: false }; }
-          if (t.id === next.id) { return next as any; }
-          return t;
-        });
-        if (!mapped.find(t => t.id === next.id)) {
-          return [next as any, ...mapped];
-        }
-        return mapped;
-      });
-
       // Handle calendar operations asynchronously (non-blocking)
       const handleSkipCalendarOperations = async () => {
         try {
@@ -1282,7 +1299,7 @@ const TasksScreen: React.FC = () => {
           try {
             const today = new Date().toISOString().split('T')[0];
             const todaysEvents = await enhancedAPI.getEventsForDate(today);
-            const taskDuration = (next as any).estimated_duration_minutes || 60;
+            const taskDuration = next.estimated_duration_minutes || 60;
 
             const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
@@ -1443,7 +1460,7 @@ const TasksScreen: React.FC = () => {
                     {!!focus.category && (
                       <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
                     )}
-                    <View style={[styles.badge, styles[focus.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                    <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
                   </View>
                   <View style={styles.focusActionsRow}>
                     <HelpTarget helpId="tasks-focus-complete">
@@ -1498,7 +1515,7 @@ const TasksScreen: React.FC = () => {
               {completedTasks.slice(0, 10).map(task => (
                 <CompletedTaskCard
                   key={task.id}
-                  task={task}
+                  task={convertTaskForTaskCard(task)}
                   onResetStatus={handleResetCompletedTask}
                 />
               ))}
@@ -1537,7 +1554,7 @@ const TasksScreen: React.FC = () => {
         onRequestClose={handleCancelModal}
       >
         <TaskForm
-          task={editingTask}
+          task={convertTaskForTaskForm(editingTask)}
           goals={goals}
           onSave={handleSaveTask}
           onCancel={handleCancelModal}
@@ -1588,7 +1605,7 @@ const TasksScreen: React.FC = () => {
                     {!!focus.category && (
                       <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
                     )}
-                    <View style={[styles.badge, styles[focus.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                    <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
                   </View>
                 </View>
               );
@@ -2003,4 +2020,21 @@ const styles = StyleSheet.create({
   },
 });
 
-export default TasksScreen;
+// Create the enhanced component with WatermelonDB observables
+const enhance = withObservables(['database'], ({database}: {database: Database}) => ({
+  tasks: database.collections.get('tasks').query(
+    Q.where('status', Q.notEq('pending_delete'))
+  ).observe() as any, // Cast to Task[] for type compatibility
+  goals: database.collections.get('goals').query(
+    Q.where('status', Q.notEq('pending_delete'))
+  ).observe() as any, // Cast to Goal[] for type compatibility
+}));
+
+const EnhancedTasksScreen = enhance(TasksScreen);
+
+const TasksScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedTasksScreen {...props} database={database} />;
+};
+
+export default TasksScreenWithDatabase;

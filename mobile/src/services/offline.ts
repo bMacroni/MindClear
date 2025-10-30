@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { CalendarEvent, Task } from '../types/calendar';
-import { Goal } from '../services/api';
+import Goal from '../db/models/Goal';
+import { Goal as ApiGoal } from './api';
+import { taskRepository } from '../repositories/TaskRepository';
+import { goalRepository } from '../repositories/GoalRepository';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -123,62 +126,60 @@ class OfflineService {
     }
   }
 
-  async cacheTasks(tasks: Task[]) {
-    const cacheData: CacheData<Task[]> = {
-      data: tasks,
-      timestamp: Date.now(),
-      version: '1.0',
-    };
-    await AsyncStorage.setItem(STORAGE_KEYS.TASKS_CACHE, JSON.stringify(cacheData));
-  }
-
   async getCachedTasks(): Promise<Task[] | null> {
     try {
-      const cached = await AsyncStorage.getItem(STORAGE_KEYS.TASKS_CACHE);
-      if (!cached) {return null;}
-
-      const cacheData: CacheData<Task[]> = JSON.parse(cached);
-      const isExpired = Date.now() - cacheData.timestamp > CACHE_EXPIRATION;
-
-      if (isExpired) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.TASKS_CACHE);
-        return null;
-      }
-
-      return cacheData.data;
+      return await taskRepository.getAllTasks();
     } catch (_error) {
       console.error('Error reading cached tasks:', _error);
       return null;
     }
   }
 
-  async cacheGoals(goals: Goal[]) {
-    const cacheData: CacheData<Goal[]> = {
-      data: goals,
-      timestamp: Date.now(),
-      version: '1.0',
-    };
-    await AsyncStorage.setItem(STORAGE_KEYS.GOALS_CACHE, JSON.stringify(cacheData));
+  async cacheTasks(tasks: Task[]) {
+    // No-op - WatermelonDB handles this automatically
+    console.warn('offlineService.cacheTasks is deprecated - use taskRepository');
   }
 
-  async getCachedGoals(): Promise<Goal[] | null> {
+  // Convert WatermelonDB Goal model to API Goal type
+  private convertGoalToApiType(watermelonGoal: Goal): ApiGoal {
+    return {
+      id: watermelonGoal.id,
+      title: watermelonGoal.title,
+      description: watermelonGoal.description || '',
+      target_completion_date: watermelonGoal.targetCompletionDate?.toISOString(),
+      category: watermelonGoal.category,
+      completed: watermelonGoal.progressPercentage === 100,
+      created_at: watermelonGoal.createdAt?.toISOString(),
+      milestones: [], // Will be populated separately if needed
+    };
+  }
+
+  async getCachedGoals(): Promise<ApiGoal[] | null> {
     try {
-      const cached = await AsyncStorage.getItem(STORAGE_KEYS.GOALS_CACHE);
-      if (!cached) {return null;}
-
-      const cacheData: CacheData<Goal[]> = JSON.parse(cached);
-      const isExpired = Date.now() - cacheData.timestamp > CACHE_EXPIRATION;
-
-      if (isExpired) {
-        await AsyncStorage.removeItem(STORAGE_KEYS.GOALS_CACHE);
-        return null;
+      const watermelonGoals = await goalRepository.getAllGoals();
+      return watermelonGoals.map(goal => this.convertGoalToApiType(goal));
+    } catch (error) {
+      console.error('Error reading cached goals:', error);
+      
+      // Show user-facing error notification
+      try {
+        const { notificationService } = await import('./notificationService');
+        notificationService.showInAppNotification(
+          'Error Loading Goals',
+          'Unable to load your goals from local storage. Please try refreshing the app.'
+        );
+      } catch (importError) {
+        console.error('Failed to import notificationService:', importError);
+        // Continue execution without showing notification
       }
-
-      return cacheData.data;
-    } catch (_error) {
-      console.error('Error reading cached goals:', _error);
+      
       return null;
     }
+  }
+
+  async cacheGoals(goals: Goal[]) {
+    // No-op - WatermelonDB handles this automatically
+    console.warn('offlineService.cacheGoals is deprecated - use goalRepository');
   }
 
   // Offline queue management

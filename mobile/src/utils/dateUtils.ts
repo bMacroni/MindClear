@@ -257,13 +257,13 @@ export const subtractDays = (date: Date, days: number): Date => {
 };
 
 /**
- * Safely parse a date string, returning null if invalid
+ * Safely parse a date string, returning undefined if invalid
  * @param dateString - The date string to parse
- * @returns A valid Date object or null if parsing fails
+ * @returns A valid Date object or undefined if parsing fails
  */
-export const safeParseDate = (dateString: string | null | undefined): Date | null => {
+export const safeParseDate = (dateString: string | null | undefined): Date | undefined => {
   if (!dateString) {
-    return null;
+    return undefined;
   }
   
   try {
@@ -271,11 +271,11 @@ export const safeParseDate = (dateString: string | null | undefined): Date | nul
     
     // Check if the parsed date is valid
     if (isNaN(parsedDate.getTime())) {
-      return null;
+      return undefined;
     }
     
     return parsedDate;
   } catch (error) {
-    return null;
+    return undefined;
   }
 };

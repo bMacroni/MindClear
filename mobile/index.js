@@ -8,6 +8,8 @@ import {name as appName} from './app.json';
 import messaging from '@react-native-firebase/messaging';
 import { syncService } from './src/services/SyncService';
 
+// Debug utilities are now available via the GoalsScreen debug buttons
+
 let isSyncing = false;
 
 // Register background handler for silent push notifications

@@ -6,9 +6,13 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, Button } from '../../components/common';
-import { goalsAPI } from '../../services/api';
-import { offlineService } from '../../services/offline';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
 import { authService, AuthState } from '../../services/auth';
+import { Q } from '@nozbe/watermelondb';
+import GoalModel from '../../db/models/Goal';
 import analyticsService from '../../services/analyticsService';
 import GoalsListModal from '../../components/goals/GoalsListModal';
 import AddGoalOptionsModal from '../../components/goals/AddGoalOptionsModal';
@@ -135,7 +139,15 @@ const CircularProgress = React.memo(({ percentage, size = 56 }: CircularProgress
   );
 });
 
-export default function GoalsScreen({ navigation }: any) {
+interface GoalsScreenProps {
+  navigation: any;
+  goals: Goal[]; // From withObservables
+  milestones: Milestone[]; // From withObservables
+  steps: Step[]; // From withObservables
+  database: any;
+}
+
+const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observableGoals, milestones: observableMilestones, steps: observableSteps, database }) => {
   const insets = useSafeAreaInsets();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -186,159 +198,23 @@ export default function GoalsScreen({ navigation }: any) {
   }), []);
 
   const loadGoals = React.useCallback(async () => {
-    let paintedFromCache = false;
+    // Goals are now provided via observableGoals prop from WatermelonDB
+    // Just trigger sync to ensure data is up to date
     try {
-      // Try cache first for instant paint
-      const cached = await offlineService.getCachedGoals();
-      if (cached && Array.isArray(cached) && cached.length > 0) {
-        const transformedFromCache: Goal[] = cached.map((goal: any) => {
-          const milestones = goal.milestones || [];
-          const totalMilestones = milestones.length;
-          const completedMilestones = milestones.filter((m: any) => m.completed).length;
-          const totalSteps = milestones.reduce((total: number, milestone: any) => total + (milestone.steps?.length || 0), 0);
-          const completedSteps = milestones.reduce((total: number, milestone: any) => total + (milestone.steps?.filter((s: any) => s.completed).length || 0), 0);
-          const nextMilestoneObj = milestones.find((m: any) => (m.steps?.some((s: any) => !s.completed)));
-          const nextMilestone = nextMilestoneObj?.title || '';
-          const nextStep = nextMilestoneObj?.steps?.find((s: any) => !s.completed)?.text || '';
-          return {
-            id: goal.id,
-            title: goal.title,
-            description: goal.description,
-            completedMilestones,
-            totalMilestones,
-            completedSteps,
-            totalSteps,
-            nextMilestone,
-            nextStep,
-            status: goal.status || 'active',
-            createdAt: new Date(goal.created_at || goal.createdAt),
-            targetDate: goal.target_completion_date ? new Date(goal.target_completion_date) : undefined,
-            milestones: milestones.map((milestone: any) => ({
-              id: milestone.id,
-              title: milestone.title,
-              description: milestone.description || '',
-              completed: milestone.completed || ((milestone.steps || []).every((s: any) => s.completed)) || false,
-              order: milestone.order,
-              steps: (milestone.steps || []).map((step: any) => ({
-                id: step.id,
-                title: step.text || step.title,
-                description: step.description || '',
-                completed: step.completed || false,
-                order: step.order,
-              })),
-            })),
-          } as Goal;
-        });
-        setGoals(transformedFromCache);
-        setGoalsLoading(false);
-        paintedFromCache = true;
-      } else {
-        setGoalsLoading(true);
-      }
-
-      const fetchedGoals = await goalsAPI.getGoals();
-      
-      // Transform backend data to match our UI structure
-      const transformedGoals: Goal[] = fetchedGoals.map((goal: any) => {
-        const milestones = goal.milestones || [];
-        const totalMilestones = milestones.length;
-        const completedMilestones = milestones.filter((m: any) => m.completed).length;
-        
-        const totalSteps = milestones.reduce((total: number, milestone: any) => {
-          return total + (milestone.steps?.length || 0);
-        }, 0);
-        
-        const completedSteps = milestones.reduce((total: number, milestone: any) => {
-          return total + (milestone.steps?.filter((s: any) => s.completed).length || 0);
-        }, 0);
-
-        // Find next milestone and step (based on step completion to avoid stale milestone.completed)
-        const nextMilestoneObj = milestones.find((m: any) => (m.steps?.some((s: any) => !s.completed)));
-        const nextMilestone = nextMilestoneObj?.title || '';
-        const nextStep = nextMilestoneObj?.steps?.find((s: any) => !s.completed)?.text || '';
-
-        return {
-          id: goal.id,
-          title: goal.title,
-          description: goal.description,
-          completedMilestones,
-          totalMilestones,
-          completedSteps,
-          totalSteps,
-          nextMilestone,
-          nextStep,
-          status: goal.status || 'active',
-          createdAt: new Date(goal.created_at || goal.createdAt),
-          targetDate: goal.target_completion_date ? new Date(goal.target_completion_date) : undefined,
-          milestones: milestones.map((milestone: any) => ({
-            id: milestone.id,
-            title: milestone.title,
-            description: milestone.description || '',
-            completed: milestone.completed || ((milestone.steps || []).every((s: any) => s.completed)) || false,
-            order: milestone.order,
-            steps: (milestone.steps || []).map((step: any) => ({
-              id: step.id,
-              title: step.text || step.title,
-              description: step.description || '',
-              completed: step.completed || false,
-              order: step.order,
-            })),
-          })),
-        };
-      });
-
-      setGoals(transformedGoals);
-      try { await offlineService.cacheGoals(fetchedGoals as any); } catch {}
-
-      // Track screen view analytics
-      analyticsService.trackScreenView('goals', {
-        goalCount: transformedGoals.length,
-        completedGoals: transformedGoals.filter(g => {
-          const hasMilestones = g.milestones.length > 0;
-          const milestonesComplete = hasMilestones && g.milestones.every(m => m.completed);
-          return g.status === 'completed' || milestonesComplete;
-        }).length,
-        totalMilestones: transformedGoals.reduce((sum, g) => sum + g.totalMilestones, 0),
-        completedMilestones: transformedGoals.reduce((sum, g) => sum + g.completedMilestones, 0)
-      }).catch(error => {
-        console.warn('Failed to track screen view analytics:', error);
-      });
-    } catch (_error) {
-      // error loading goals
-      
-      // Check if it's an authentication error
-      if (_error instanceof Error && _error.message.includes('No authentication token')) {
-        // User needs to log in
-        Alert.alert(
-          'Authentication Required',
-          'Please log in to view your goals.',
-          [
-            {
-              text: 'Go to Login',
-              onPress: () => navigation.navigate('Login'),
-            },
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-          ]
-        );
-      } else {
-        Alert.alert('Error', 'Failed to load goals. Please try again.');
-      }
-    } finally {
-      if (!paintedFromCache) {setGoalsLoading(false);}
+      await syncService.silentSync();
+    } catch (error) {
+      console.error('Error syncing goals:', error);
     }
-  }, [navigation]);
+  }, []);
 
   // Subscribe to auth state changes
   useEffect(() => {
     const unsubscribe = authService.subscribe((state) => {
       setAuthState(state);
       
-      // If user becomes authenticated, load goals
+      // If user becomes authenticated, trigger sync
       if (state.isAuthenticated && !state.isLoading) {
-        loadGoals();
+        syncService.silentSync().catch(console.error);
       } else if (!state.isAuthenticated && !state.isLoading) {
         // User is not authenticated, clear goals and stop loading
         setGoals([]);
@@ -349,14 +225,160 @@ export default function GoalsScreen({ navigation }: any) {
     return unsubscribe;
   }, [navigation, loadGoals]);
 
-  // Load goals from backend on component mount (only if authenticated)
+  // Trigger sync on component mount (only if authenticated)
   useEffect(() => {
     if (authState.isAuthenticated && !authState.isLoading) {
-      loadGoals();
+      syncService.silentSync().catch(console.error);
     } else if (!authState.isAuthenticated && !authState.isLoading) {
       setGoalsLoading(false);
     }
-  }, [authState.isAuthenticated, authState.isLoading, loadGoals]);
+  }, [authState.isAuthenticated, authState.isLoading]);
+
+  // Transform WatermelonDB goals to the expected format with optimized batch queries
+  const transformGoals = useCallback(async (watermelonGoals: Goal[], database: any) => {
+    if (watermelonGoals.length === 0) return [];
+    
+    const goalIds = watermelonGoals.map(g => g.id);
+    
+    // Batch fetch all milestones for all goals (eliminates N+1 query)
+    const allMilestones = await database.collections.get('milestones')
+      .query(Q.where('goal_id', Q.oneOf(goalIds)))
+      .fetch();
+    
+    // Batch fetch all steps for all milestones (eliminates N*M+1 query)
+    const milestoneIds = allMilestones.map((m: any) => m.id);
+    const allSteps = milestoneIds.length > 0 
+      ? await database.collections.get('milestone_steps')
+          .query(Q.where('milestone_id', Q.oneOf(milestoneIds)))
+          .fetch()
+      : [];
+    
+    // Group milestones by goal_id for efficient lookup
+    const milestonesByGoal = allMilestones.reduce((acc: Record<string, any[]>, milestone: any) => {
+      // Handle both camelCase and snake_case property names
+      const goalId = milestone.goalId || milestone.goal_id;
+      if (!goalId) {
+        if (__DEV__) console.warn('Milestone missing goalId:', milestone);
+        return acc;
+      }
+      if (!acc[goalId]) acc[goalId] = [];
+      acc[goalId].push(milestone);
+      return acc;
+    }, {} as Record<string, any[]>);
+    
+    // Group steps by milestone_id for efficient lookup
+    const stepsByMilestone = allSteps.reduce((acc: Record<string, any[]>, step: any) => {
+      // Handle both camelCase and snake_case property names
+      const milestoneId = step.milestoneId || step.milestone_id;
+      if (!milestoneId) {
+        if (__DEV__) console.warn('Step missing milestoneId:', step);
+        return acc;
+      }
+      if (!acc[milestoneId]) acc[milestoneId] = [];
+      acc[milestoneId].push(step);
+      return acc;
+    }, {} as Record<string, any[]>);
+    
+    // Transform goals using pre-fetched data
+    const transformedGoals = watermelonGoals.map((goal: any) => {
+      const milestones = milestonesByGoal[goal.id] || [];
+      
+      // Sort milestones by order before processing
+      const sortedMilestones = [...milestones].sort((a: any, b: any) => {
+        const orderA = a.order ?? 0;
+        const orderB = b.order ?? 0;
+        return orderA - orderB;
+      });
+      
+      const milestonesWithSteps = sortedMilestones.map((milestone: any) => {
+        const steps = stepsByMilestone[milestone.id] || [];
+        // Sort steps by order
+        const sortedSteps = [...steps].sort((a: any, b: any) => {
+          const orderA = a.order ?? 0;
+          const orderB = b.order ?? 0;
+          return orderA - orderB;
+        });
+        
+        // Determine if milestone is completed: either explicitly marked or all steps are complete
+        const allStepsCompleted = sortedSteps.length > 0 && sortedSteps.every((s: any) => s.completed);
+        const milestoneCompleted = milestone.completed === true || allStepsCompleted;
+        
+        return {
+          id: milestone.id,
+          title: milestone.title || '',
+          description: milestone.description || '',
+          completed: milestoneCompleted,
+          order: milestone.order ?? 0,
+          steps: sortedSteps
+        };
+      });
+      
+      const totalMilestones = milestonesWithSteps.length;
+      const completedMilestones = milestonesWithSteps.filter((m: any) => m.completed).length;
+      const totalSteps = milestonesWithSteps.reduce((total: number, milestone: any) => total + (milestone.steps?.length || 0), 0);
+      const completedSteps = milestonesWithSteps.reduce((total: number, milestone: any) => total + (milestone.steps?.filter((s: any) => s.completed).length || 0), 0);
+      
+      // Find the first incomplete milestone (sorted by order)
+      const nextMilestoneObj = milestonesWithSteps.find((m: any) => !m.completed);
+      const nextMilestone = nextMilestoneObj?.title || '';
+      const nextStep = nextMilestoneObj?.steps?.find((s: any) => !s.completed)?.text || '';
+      
+      if (__DEV__ && goal.id) {
+        console.log(`Goal "${goal.title}" (${goal.id}):`);
+        console.log(`  - Found ${milestones.length} milestones in grouping`);
+        console.log(`  - Processed ${milestonesWithSteps.length} milestones with steps`);
+        milestonesWithSteps.forEach((m: any, idx: number) => {
+          console.log(`    Milestone ${idx + 1}: "${m.title || '(no title)'}" (completed: ${m.completed}, steps: ${m.steps?.length || 0})`);
+        });
+        console.log(`  - Current milestone: "${nextMilestone || '(none)'}"`);
+        console.log(`  - Next step: "${nextStep.substring(0, 50) || '(none)'}..."`);
+      }
+      
+      return {
+        id: goal.id,
+        title: goal.title,
+        description: goal.description,
+        completedMilestones,
+        totalMilestones,
+        completedSteps,
+        totalSteps,
+        nextMilestone,
+        nextStep,
+        status: goal.status || 'active',
+        createdAt: goal.createdAt,
+        targetDate: goal.targetCompletionDate,
+        milestones: milestonesWithSteps.map((milestone: any) => ({
+          id: milestone.id,
+          title: milestone.title || '',
+          description: milestone.description || '',
+          completed: milestone.completed || false,
+          order: milestone.order ?? 0,
+          steps: (milestone.steps || []).map((step: any) => ({
+            id: step.id,
+            title: step.text || '', // Fixed: MilestoneStep model uses 'text' property, not 'title'
+            description: step.description || '',
+            completed: step.completed || false,
+            order: step.order ?? 0,
+          })),
+        })),
+      } as Goal;
+    });
+    
+    return transformedGoals;
+  }, []);
+
+  // Update local goals when observable goals, milestones, or steps change
+  useEffect(() => {
+    if (observableGoals) {
+      transformGoals(observableGoals, database).then((transformedGoals) => {
+        setGoals(transformedGoals);
+        setGoalsLoading(false);
+      }).catch((error) => {
+        console.error('Error transforming goals:', error);
+        setGoalsLoading(false);
+      });
+    }
+  }, [observableGoals, observableMilestones, observableSteps, transformGoals, database]);
 
   // Reset help overlay when this screen gains focus
   useFocusEffect(
@@ -375,6 +397,8 @@ export default function GoalsScreen({ navigation }: any) {
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
+      // On pull-to-refresh, do a full sync to ensure complete data
+      await syncService.fullSync(true);
       await loadGoals();
     } finally {
       setRefreshing(false);
@@ -402,8 +426,8 @@ export default function GoalsScreen({ navigation }: any) {
             style: 'destructive',
             onPress: async () => {
               try {
-                await goalsAPI.deleteGoal(goalId);
-                await loadGoals();
+                await goalRepository.deleteGoal(goalId);
+                syncService.silentSync();
                 Alert.alert('Success', 'Goal deleted successfully');
               } catch (_error) {
                 // error deleting goal
@@ -443,7 +467,7 @@ export default function GoalsScreen({ navigation }: any) {
     if (!draft) {return;}
     try {
       setLoading(true);
-      await goalsAPI.updateGoal(goalId, { target_completion_date: draft.toISOString() } as any);
+      await goalRepository.updateGoal(goalId, { targetCompletionDate: draft });
       setGoals((prev) => prev.map((g) => (g.id === goalId ? { ...g, targetDate: draft } : g)));
       setEditingDate((p) => ({ ...p, [goalId]: false }));
       setDateDrafts((p) => {
@@ -453,6 +477,8 @@ export default function GoalsScreen({ navigation }: any) {
       if (Platform.OS === 'android') {
         setAndroidDatePickerVisible((p) => ({ ...p, [goalId]: false }));
       }
+      // Trigger background sync
+      syncService.silentSync();
     } catch (e) {
       Alert.alert('Error', 'Failed to update target date.');
     } finally {
@@ -497,13 +523,13 @@ export default function GoalsScreen({ navigation }: any) {
       for (const draftMilestone of drafts) {
         const origMilestone = original.milestones.find((m) => m.id === draftMilestone.id);
         if (origMilestone && origMilestone.title !== draftMilestone.title) {
-          await goalsAPI.updateMilestone(draftMilestone.id, { title: draftMilestone.title });
+          await goalRepository.updateMilestone(draftMilestone.id, { title: draftMilestone.title });
         }
         if (origMilestone) {
           for (const draftStep of draftMilestone.steps) {
             const origStep = origMilestone.steps.find((s) => s.id === draftStep.id);
             if (origStep && (origStep.title !== draftStep.title)) {
-              await goalsAPI.updateStep(draftStep.id, { text: draftStep.title });
+              await goalRepository.updateMilestoneStep(draftStep.id, { text: draftStep.title });
             }
           }
         }
@@ -532,6 +558,9 @@ export default function GoalsScreen({ navigation }: any) {
         const { [goalId]: _, ...rest } = prev as any;
         return rest;
       });
+      
+      // Trigger background sync
+      syncService.silentSync();
     } catch (error) {
       Alert.alert('Error', 'Failed to save edits. Please try again.');
     } finally {
@@ -589,7 +618,9 @@ export default function GoalsScreen({ navigation }: any) {
     }));
 
     try {
-      await goalsAPI.updateStep(stepId, { completed: newCompleted });
+      await goalRepository.updateMilestoneStep(stepId, { completed: newCompleted });
+      // Trigger background sync
+      syncService.silentSync();
     } catch (error) {
       Alert.alert('Error', 'Failed to update step status.');
       // Reload to reconcile from backend on failure
@@ -814,7 +845,7 @@ export default function GoalsScreen({ navigation }: any) {
                       onPress={async () => {
                         try {
                           setLoading(true);
-                          await goalsAPI.deleteMilestone(mDraft.id);
+                          await goalRepository.deleteMilestone(mDraft.id);
                           setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                             ...g,
                             milestones: g.milestones.filter((m) => m.id !== mDraft.id),
@@ -823,6 +854,8 @@ export default function GoalsScreen({ navigation }: any) {
                             ...prev,
                             [goal.id]: prev[goal.id].filter((m) => m.id !== mDraft.id),
                           }));
+                          // Trigger background sync
+                          syncService.silentSync();
                         } catch {
                           Alert.alert('Error', 'Failed to delete milestone.');
                         } finally {
@@ -838,7 +871,7 @@ export default function GoalsScreen({ navigation }: any) {
                         try {
                           setLoading(true);
                           const order = (goal.milestones?.length || 0) + 1;
-                          const created = await goalsAPI.createMilestone(goal.id, { title: 'New milestone', order });
+                          const created = await goalRepository.createMilestone(goal.id, { title: 'New milestone', order });
                           setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                             ...g,
                             milestones: [...g.milestones, { id: created.id, title: created.title, description: '', completed: false, order, steps: [] }],
@@ -847,6 +880,8 @@ export default function GoalsScreen({ navigation }: any) {
                             ...prev,
                             [goal.id]: [...(prev[goal.id] || []), { id: created.id, title: created.title, steps: [] }],
                           }));
+                          // Trigger background sync
+                          syncService.silentSync();
                         } catch {
                           Alert.alert('Error', 'Failed to add milestone.');
                         } finally {
@@ -893,7 +928,7 @@ export default function GoalsScreen({ navigation }: any) {
                           onPress={async () => {
                             try {
                               setLoading(true);
-                              await goalsAPI.deleteStep(sDraft.id);
+                              await goalRepository.deleteMilestoneStep(sDraft.id);
                               setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                                 ...g,
                                 milestones: g.milestones.map((mm) => mm.id === mDraft.id ? { ...mm, steps: mm.steps.filter((s) => s.id !== sDraft.id) } : mm),
@@ -902,6 +937,8 @@ export default function GoalsScreen({ navigation }: any) {
                                 ...prev,
                                 [goal.id]: prev[goal.id].map((mm) => mm.id === mDraft.id ? { ...mm, steps: mm.steps.filter((s) => s.id !== sDraft.id) } : mm),
                               }));
+                              // Trigger background sync
+                              syncService.silentSync();
                             } catch {
                               Alert.alert('Error', 'Failed to delete step.');
                             } finally {
@@ -917,7 +954,7 @@ export default function GoalsScreen({ navigation }: any) {
                             try {
                               setLoading(true);
                               const order = (mDraft.steps?.length || 0) + 1;
-                              const created = await goalsAPI.createStep(mDraft.id, { text: 'New step', order });
+                              const created = await goalRepository.createMilestoneStep(mDraft.id, { text: 'New step', order });
                               setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                                 ...g,
                                 milestones: g.milestones.map((mm) => mm.id === mDraft.id ? { ...mm, steps: [...mm.steps, { id: created.id, title: created.text, description: '', completed: false, order }] } : mm),
@@ -926,6 +963,8 @@ export default function GoalsScreen({ navigation }: any) {
                                 ...prev,
                                 [goal.id]: prev[goal.id].map((mm) => mm.id === mDraft.id ? { ...mm, steps: [...mm.steps, { id: created.id, title: created.text }] } : mm),
                               }));
+                              // Trigger background sync
+                              syncService.silentSync();
                             } catch {
                               Alert.alert('Error', 'Failed to add step.');
                             } finally {
@@ -976,7 +1015,7 @@ export default function GoalsScreen({ navigation }: any) {
                         try {
                           setLoading(true);
                           const order = 1;
-                          const created = await goalsAPI.createStep(mDraft.id, { text: 'New step', order });
+                          const created = await goalRepository.createMilestoneStep(mDraft.id, { text: 'New step', order });
                           setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                             ...g,
                             milestones: g.milestones.map((mm) => mm.id === mDraft.id ? { ...mm, steps: [...mm.steps, { id: created.id, title: created.text, description: '', completed: false, order }] } : mm),
@@ -985,6 +1024,8 @@ export default function GoalsScreen({ navigation }: any) {
                             ...prev,
                             [goal.id]: prev[goal.id].map((mm) => mm.id === mDraft.id ? { ...mm, steps: [...mm.steps, { id: created.id, title: created.text }] } : mm),
                           }));
+                          // Trigger background sync
+                          syncService.silentSync();
                         } catch {
                           Alert.alert('Error', 'Failed to add step.');
                         } finally {
@@ -1006,7 +1047,7 @@ export default function GoalsScreen({ navigation }: any) {
                   try {
                     setLoading(true);
                     const order = (goal.milestones?.length || 0) + 1;
-                    const created = await goalsAPI.createMilestone(goal.id, { title: 'New milestone', order });
+                    const created = await goalRepository.createMilestone(goal.id, { title: 'New milestone', order });
                     setGoals((prev) => prev.map((g) => g.id === goal.id ? {
                       ...g,
                       milestones: [...g.milestones, { id: created.id, title: created.title, description: '', completed: false, order, steps: [] }],
@@ -1015,6 +1056,8 @@ export default function GoalsScreen({ navigation }: any) {
                       ...prev,
                       [goal.id]: [...(prev[goal.id] || []), { id: created.id, title: created.title, steps: [] }],
                     }));
+                    // Trigger background sync
+                    syncService.silentSync();
                   } catch {
                     Alert.alert('Error', 'Failed to add milestone.');
                   } finally {
@@ -1138,6 +1181,22 @@ export default function GoalsScreen({ navigation }: any) {
                 title="Debug: Re-initialize Auth"
                 onPress={async () => {
                   await authService.debugReinitialize();
+                }}
+                variant="secondary"
+                style={styles.debugButton}
+              />
+              <Button
+                title="Debug: Check Database Contents"
+                onPress={async () => {
+                  await syncService.debugDatabaseContents();
+                }}
+                variant="secondary"
+                style={styles.debugButton}
+              />
+              <Button
+                title="Debug: Force Full Sync"
+                onPress={async () => {
+                  await syncService.fullSync(false);
                 }}
                 variant="secondary"
                 style={styles.debugButton}
@@ -1970,3 +2029,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
 });
+
+const enhance = withObservables(['database'], ({database}) => {
+  const goals = database.collections.get('goals')
+    .query(Q.where('status', Q.notEq('pending_delete')))
+    .observe();
+  
+  // Also observe milestones and steps so component refreshes when they change
+  const milestones = database.collections.get('milestones')
+    .query()
+    .observe();
+  
+  const steps = database.collections.get('milestone_steps')
+    .query()
+    .observe();
+  
+  return {
+    goals,
+    milestones,
+    steps,
+  };
+});
+
+const EnhancedGoalsScreen = enhance(GoalsScreen);
+
+const GoalsScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedGoalsScreen {...props} database={database} />;
+};
+
+export default GoalsScreenWithDatabase;

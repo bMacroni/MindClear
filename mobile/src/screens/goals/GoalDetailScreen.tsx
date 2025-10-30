@@ -1,63 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { Button } from '../../components/common';
-import { goalsAPI } from '../../services/api';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
+import { Q } from '@nozbe/watermelondb';
+import Goal from '../../db/models/Goal';
+import Milestone from '../../db/models/Milestone';
 
-// Use the Goal interface from the API
-type Goal = Awaited<ReturnType<typeof goalsAPI.getGoalById>>;
+interface GoalDetailScreenProps {
+  route: { params: { goalId: string } };
+  navigation: any;
+  goal: Goal; // From withObservables
+  milestones: Milestone[]; // From withObservables
+  database: any;
+}
 
-export default function GoalDetailScreen({ navigation, route }: any) {
+const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
+  route,
+  navigation,
+  goal,
+  milestones,
+}) => {
   const { goalId } = route.params;
-  const [goal, setGoal] = useState<Goal | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchGoal = async () => {
-      try {
-        setLoading(true);
-        const goalData = await goalsAPI.getGoalById(goalId);
-        setGoal(goalData);
-      } catch (error) {
-        console.error('🎯 GoalDetailScreen: Error fetching goal:', error);
-        Alert.alert(
-          'Error',
-          'Failed to load goal details. Please try again.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+  if (!goal) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" />
+        <Text>Loading goal...</Text>
+      </View>
+    );
+  }
 
-    fetchGoal();
-  }, [goalId, navigation]);
+  // No more loading state needed - data comes reactively
+  // goalId is already destructured from route.params above
+
+  // Data comes from observables, no need to fetch
 
   const toggleMilestone = async (milestoneId: string) => {
-    if (!goal || !goal.milestones) {return;}
-    
     try {
-      const milestone = goal.milestones.find((m: any) => m.id === milestoneId);
-      if (!milestone) {return;}
-
-      const newCompleted = !milestone.completed;
+      const milestone = milestones.find(m => m.id === milestoneId);
+      if (!milestone) return;
       
-      // Update in backend
-      await goalsAPI.updateMilestone(milestoneId, { completed: newCompleted });
-      
-      // Update local state
-      setGoal({
-        ...goal,
-        milestones: goal.milestones.map((m: any) => 
-          m.id === milestoneId ? { ...m, completed: newCompleted } : m
-        ),
+      await goalRepository.updateMilestone(milestoneId, {
+        completed: !milestone.completed,
       });
+      
+      syncService.silentSync();
     } catch (error) {
-      console.error('Error updating milestone:', error);
-      Alert.alert('Error', 'Failed to update milestone. Please try again.');
+      console.error('Error toggling milestone:', error);
+      Alert.alert('Error', 'Failed to update milestone');
     }
   };
 
@@ -531,3 +529,35 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
   },
 });
+
+const enhance = withObservables(['route', 'database'], ({route, database}) => {
+  const goalId = route?.params?.goalId;
+  
+  // Guard against missing goalId
+  if (!goalId) {
+    return {
+      goal: null,
+      milestones: [],
+    };
+  }
+  
+  return {
+    goal: database.collections.get('goals').findAndObserve(goalId),
+    milestones: database.collections.get('milestones')
+      .query(
+        Q.where('goal_id', goalId),
+        Q.where('status', Q.notEq('pending_delete')),
+        Q.sortBy('order', Q.asc)
+      )
+      .observe(),
+  };
+});
+
+const EnhancedGoalDetailScreen = enhance(GoalDetailScreen);
+
+const GoalDetailScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedGoalDetailScreen {...props} database={database} />;
+};
+
+export default GoalDetailScreenWithDatabase;

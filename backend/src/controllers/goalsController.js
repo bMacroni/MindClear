@@ -3,6 +3,85 @@ import logger from '../utils/logger.js';
 import { sendNotification } from '../services/notificationService.js';
 const DEBUG = process.env.DEBUG_LOGS === 'true';
 
+/**
+ * Goals Controller
+ * 
+ * IMPORTANT: Goals vs Tasks Field Mapping
+ * - Goals table has a 'category' field (USER-DEFINED type goal_category) but NO separate 'priority' field
+ * - Tasks table has both 'priority' (USER-DEFINED type priority_level) and 'category' fields
+ * - For goals, priority parameters are normalized to category filters to maintain API compatibility
+ * - When both priority and category are provided, category takes precedence
+ */
+
+/**
+ * Helper function to normalize priority to category for goals
+ * @param {Object} args - Arguments object containing priority and category
+ * @param {string} functionName - Name of the calling function for logging
+ * @returns {string|null} - The computed category filter or null if none
+ */
+function normalizePriorityToCategory(args, functionName) {
+  let categoryFilter = args.category;
+  
+  if (args.priority && !args.category) {
+    // If priority is provided but not category, use priority as the category filter
+    categoryFilter = args.priority;
+  } else if (args.priority && args.category) {
+    // If both are provided, category takes precedence (log a warning for debugging)
+    logger.warn(`[${functionName}] Both priority (${args.priority}) and category (${args.category}) provided. Using category.`);
+  }
+  
+  return categoryFilter;
+}
+
+/**
+ * Helper function to create a goal with milestones and steps atomically
+ * Uses a PostgreSQL stored function to ensure all operations succeed or fail together
+ * @param {Object} supabase - Supabase client instance
+ * @param {string} userId - User ID
+ * @param {Object} goalData - Goal data (title, description, target_completion_date, category)
+ * @param {Array} milestones - Array of milestone objects with steps
+ * @returns {Promise<Object>} Complete goal with milestones and steps
+ * @throws {Error} If any database operation fails
+ */
+async function createGoalWithMilestones(supabase, userId, goalData, milestones) {
+  const { title, description, target_completion_date, category } = goalData;
+  
+  // Prepare JSONB payloads for the RPC function
+  const goalPayload = {
+    title,
+    description: description || null,
+    target_completion_date: target_completion_date || null,
+    category: category || null
+  };
+  
+  const milestonesPayload = milestones && Array.isArray(milestones) && milestones.length > 0 
+    ? milestones 
+    : [];
+  
+  // Call the atomic PostgreSQL function
+  const { data, error } = await supabase.rpc('fn_create_goal_with_milestones', {
+    p_user_id: userId,
+    p_goal_data: goalPayload,
+    p_milestones: milestonesPayload
+  });
+  
+  if (error) {
+    throw new Error(`Failed to create goal atomically: ${error.message}`);
+  }
+  
+  // The function returns JSONB, so we need to parse it if it's a string
+  let completeGoal = data;
+  if (typeof data === 'string') {
+    try {
+      completeGoal = JSON.parse(data);
+    } catch (parseError) {
+      throw new Error(`Failed to parse goal creation result: ${parseError.message}`);
+    }
+  }
+  
+  return completeGoal;
+}
+
 export async function createGoal(req, res) {
   const { title, description, target_completion_date, category, milestones } = req.body;
   const user_id = req.user.id;
@@ -39,89 +118,26 @@ export async function createGoal(req, res) {
     }
   });
   
-  // Goal creation initiated
-  
   try {
-    // Start a transaction by creating the goal first
-    const { data: goal, error: goalError } = await supabase
-      .from('goals')
-      .insert([{ user_id, title, description, target_completion_date, category }])
-      .select()
-      .single();
-    
-    if (goalError) {
-      return res.status(400).json({ error: goalError.message });
-    }
-
-    // If milestones are provided, create them along with their steps
-    if (milestones && Array.isArray(milestones) && milestones.length > 0) {
-      for (let i = 0; i < milestones.length; i++) {
-        const milestone = milestones[i];
-        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
-        
-        // Create the milestone
-        const { data: createdMilestone, error: milestoneError } = await supabase
-          .from('milestones')
-          .insert([{ 
-            goal_id: goal.id, 
-            title: milestoneTitle, 
-            description: milestoneDescription,
-            order: milestoneOrder 
-          }])
-          .select()
-          .single();
-        
-        if (milestoneError) {
-          return res.status(400).json({ error: `Failed to create milestone: ${milestoneError.message}` });
-        }
-
-        // If steps are provided for this milestone, create them
-        if (milestoneSteps && Array.isArray(milestoneSteps) && milestoneSteps.length > 0) {
-          const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
-            milestone_id: createdMilestone.id,
-            text: step.text || step,
-            order: step.order || stepIndex + 1,
-            completed: step.completed || false
-          }));
-
-          const { error: stepsError } = await supabase
-            .from('steps')
-            .insert(stepsToInsert);
-
-          if (stepsError) {
-            return res.status(400).json({ error: `Failed to create steps: ${stepsError.message}` });
-          }
-        }
-      }
-    }
-
-    // Fetch the complete goal with milestones and steps
-    const { data: completeGoal, error: fetchError } = await supabase
-      .from('goals')
-      .select(`
-        *,
-        milestones (
-          *,
-          steps (*)
-        )
-      `)
-      .eq('id', goal.id)
-      .single();
-
-    if (fetchError) {
-      return res.status(400).json({ error: fetchError.message });
-    }
-
+    const goalData = { title, description, target_completion_date, category };
+    const completeGoal = await createGoalWithMilestones(supabase, user_id, goalData, milestones);
     res.status(201).json(completeGoal);
   } catch (error) {
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(400).json({ error: error.message });
   }
 }
 
 export async function getGoals(req, res) {
   const user_id = req.user.id;
+  const since = req.query.since; // For delta sync
+  
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
+  
+  // Validate since parameter if provided
+  if (since && isNaN(Date.parse(since))) {
+    return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
+  }
   
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -133,24 +149,147 @@ export async function getGoals(req, res) {
   });
   
   try {
-    const { data, error } = await supabase
-      .from('goals')
-      .select(`
-        *,
-        milestones (
+    let goalIdsWithUpdatedChildren = [];
+    
+    // For delta sync, also check if milestones or steps were updated
+    if (since) {
+      // Get goal IDs that have milestones updated since 'since'
+      const { data: updatedMilestones, error: milestonesError } = await supabase
+        .from('milestones')
+        .select('goal_id')
+        .gt('updated_at', since);
+      
+      if (!milestonesError && updatedMilestones) {
+        goalIdsWithUpdatedChildren = [
+          ...new Set(updatedMilestones.map(m => m.goal_id))
+        ];
+      }
+      
+      // Get goal IDs that have steps updated since 'since'
+      const { data: updatedSteps, error: stepsError } = await supabase
+        .from('steps')
+        .select('milestone_id')
+        .gt('updated_at', since);
+      
+      if (!stepsError && updatedSteps && updatedSteps.length > 0) {
+        // Get milestone goal_ids for these steps
+        const milestoneIds = [...new Set(updatedSteps.map(s => s.milestone_id))];
+        const { data: milestonesForSteps, error: milestonesForStepsError } = await supabase
+          .from('milestones')
+          .select('goal_id')
+          .in('id', milestoneIds);
+        
+        if (!milestonesForStepsError && milestonesForSteps) {
+          const goalIdsFromSteps = milestonesForSteps.map(m => m.goal_id);
+          goalIdsWithUpdatedChildren = [
+            ...new Set([...goalIdsWithUpdatedChildren, ...goalIdsFromSteps])
+          ];
+        }
+      }
+      
+      logger.info(`[Goals API] Found ${goalIdsWithUpdatedChildren.length} goals with updated milestones/steps since ${since}`);
+    }
+    
+    let data = [];
+    let error = null;
+    
+    if (since && goalIdsWithUpdatedChildren.length > 0) {
+      // For delta sync with updated children, fetch goals that match either condition
+      // Fetch goals that were updated
+      const { data: updatedGoals, error: updatedError } = await supabase
+        .from('goals')
+        .select(`
           *,
-          steps (*)
-        )
-      `)
-      .eq('user_id', user_id)
-      .order('created_at', { ascending: false });
+          milestones (
+            *,
+            steps (*)
+          )
+        `)
+        .eq('user_id', user_id)
+        .gt('updated_at', since)
+        .order('created_at', { ascending: false });
+      
+      if (updatedError) {
+        error = updatedError;
+      } else if (updatedGoals) {
+        data = updatedGoals;
+      }
+      
+      // Fetch goals that have updated milestones/steps (even if goal itself wasn't updated)
+      const { data: goalsWithUpdatedChildren, error: childrenError } = await supabase
+        .from('goals')
+        .select(`
+          *,
+          milestones (
+            *,
+            steps (*)
+          )
+        `)
+        .eq('user_id', user_id)
+        .in('id', goalIdsWithUpdatedChildren)
+        .order('created_at', { ascending: false });
+      
+      if (childrenError) {
+        error = childrenError;
+      } else if (goalsWithUpdatedChildren) {
+        // Combine and deduplicate by goal id
+        const existingIds = new Set(data.map(g => g.id));
+        const newGoals = goalsWithUpdatedChildren.filter(g => !existingIds.has(g.id));
+        data = [...data, ...newGoals];
+      }
+    } else {
+      // Simple query - either no since filter or no updated children
+      let query = supabase
+        .from('goals')
+        .select(`
+          *,
+          milestones (
+            *,
+            steps (*)
+          )
+        `)
+        .eq('user_id', user_id);
+      
+      if (since) {
+        query = query.gt('updated_at', since);
+      }
+      
+      query = query.order('created_at', { ascending: false });
+      
+      const result = await query;
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      logger.error('Error fetching goals from database:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
+    // For incremental sync, return in the same format as events
+    if (since) {
+      let deleted = [];
+      const { data: deletedData, error: deletedError } = await supabase
+        .from('deleted_records')
+        .select('record_id')
+        .eq('user_id', user_id)
+        .eq('table_name', 'goals')
+        .gt('deleted_at', since);
+
+      if (deletedError) {
+        logger.error('Error fetching deleted goal records:', deletedError);
+        return res.status(500).json({ error: 'Failed to fetch deleted records for delta sync' });
+      } else {
+        deleted = deletedData.map(r => r.record_id);
+      }
+      
+      logger.info(`[Goals API] Returning ${data.length} changed and ${deleted.length} deleted goals for user ${user_id}`);
+      return res.json({ changed: data, deleted });
     }
 
     res.json(data);
   } catch (error) {
+    logger.error('Error fetching goals:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -275,7 +414,7 @@ export async function updateGoal(req, res) {
                   .update({
                     text: step.text,
                     completed: step.completed,
-                    order: step.order || 0
+                    order: step?.order ?? 0
                   })
                   .eq('id', step.id)
                   .eq('milestone_id', milestone.id);
@@ -327,36 +466,111 @@ export async function updateGoal(req, res) {
 }
 
 export async function deleteGoal(req, res) {
-  // Goal deletion initiated
-  
-  // Get the JWT from the request
-  const token = req.headers.authorization?.split(' ')[1];
-  
-  // Create Supabase client with the JWT
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+  try {
+    // Get the JWT from the request
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    // Create Supabase client with the JWT
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+    
+    const user_id = req.user.id;
+    const { id } = req.params;
+    
+    // Validate input
+    if (!id) {
+      return res.status(400).json({ error: 'Goal ID is required' });
+    }
+    
+    // First, verify the goal exists and belongs to the user
+    const { data: goal, error: fetchError } = await supabase
+      .from('goals')
+      .select('id')
+      .eq('id', id)
+      .eq('user_id', user_id)
+      .single();
+    
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Goal not found' });
+      }
+      return res.status(500).json({ error: 'Failed to fetch goal' });
+    }
+    
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+    
+    // Get all milestones for this goal to delete their steps
+    const { data: milestones, error: milestonesFetchError } = await supabase
+      .from('milestones')
+      .select('id')
+      .eq('goal_id', id);
+    
+    if (milestonesFetchError) {
+      return res.status(500).json({ error: 'Failed to fetch milestones' });
+    }
+    
+    // Step 1: Delete all steps belonging to milestones of this goal
+    if (milestones && milestones.length > 0) {
+      const milestoneIds = milestones.map(m => m.id);
+      
+      const { error: stepsDeleteError } = await supabase
+        .from('steps')
+        .delete()
+        .in('milestone_id', milestoneIds);
+      
+      if (stepsDeleteError) {
+        return res.status(500).json({ error: 'Failed to delete steps' });
       }
     }
-  });
-  
-  const user_id = req.user.id;
-  const { id } = req.params;
-  
-  // Attempting to delete goal
-  
-  const { error } = await supabase
-    .from('goals')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user_id);
     
-  if (error) {
-    return res.status(400).json({ error: error.message });
+    // Step 2: Delete all milestones belonging to this goal
+    const { error: milestonesDeleteError } = await supabase
+      .from('milestones')
+      .delete()
+      .eq('goal_id', id);
+    
+    if (milestonesDeleteError) {
+      return res.status(500).json({ error: 'Failed to delete milestones' });
+    }
+    
+    // Step 3: Insert tombstone record into deleted_records for delta-sync
+    const { error: tombstoneError } = await supabase
+      .from('deleted_records')
+      .insert({
+        record_id: id,
+        table_name: 'goals',
+        user_id: user_id,
+        deleted_at: new Date().toISOString()
+      });
+    
+    if (tombstoneError) {
+      return res.status(500).json({ error: 'Failed to create deletion record' });
+    }
+    
+    // Step 4: Delete the goal itself
+    const { error: deleteError } = await supabase
+      .from('goals')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user_id);
+    
+    if (deleteError) {
+      return res.status(500).json({ error: 'Failed to delete goal' });
+    }
+    
+    // Return success response
+    res.status(204).send();
+  } catch (error) {
+    logger.error('Error deleting goal:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  
-  res.status(204).send();
 } 
 
 export async function deleteGoalFromAI(args, userId, userContext) {
@@ -423,12 +637,14 @@ export async function getGoalsForUser(userId, token, args = {}) {
   if (args.due_date) {
     query = query.eq('target_completion_date', args.due_date);
   }
-  if (args.priority) {
-    query = query.eq('category', args.priority); // Assuming priority maps to category
+  
+  // Normalize priority to category using helper function
+  const categoryFilter = normalizePriorityToCategory(args, 'getGoalsForUser');
+  
+  if (categoryFilter) {
+    query = query.eq('category', categoryFilter);
   }
-  if (args.category) {
-    query = query.eq('category', args.category);
-  }
+  
   if (args.status) {
     query = query.eq('status', args.status);
   }
@@ -460,8 +676,14 @@ export async function getGoalTitlesForUser(userId, token, args = {}) {
 
   // Apply filters
   if (args.search) query = query.ilike('title', `%${args.search}%`);
-  if (args.category) query = query.eq('category', args.category);
-  if (args.priority) query = query.eq('category', args.priority);
+  
+  // Normalize priority to category using helper function
+  const categoryFilter = normalizePriorityToCategory(args, 'getGoalTitlesForUser');
+  
+  if (categoryFilter) {
+    query = query.eq('category', categoryFilter);
+  }
+  
   if (args.status) query = query.eq('status', args.status);
   if (args.due_date) query = query.eq('target_completion_date', args.due_date);
 
@@ -556,57 +778,6 @@ export async function createTaskFromNextGoalStep(userId, token, args = {}) {
   };
 }
 
-export async function lookupGoalbyTitle(userId, token, args = {}) {
-  if (!token) {
-    return { error: 'No authentication token provided' };
-  }
-
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: { Authorization: `Bearer ${token}` }
-    }
-  });
-
-  let query = supabase
-    .from('goals')
-    .select('id, title')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (args.search) {
-    query = query.ilike('title', `%${args.search}%`);
-  }
-  if (args.category) {
-    query = query.eq('category', args.category);
-  }
-  if (args.priority) {
-    query = query.eq('category', args.priority);
-  }
-  if (args.status) {
-    query = query.eq('status', args.status);
-  }
-  if (args.due_date) {
-    query = query.eq('target_completion_date', args.due_date);
-  }
-  if (args.limit && Number.isInteger(args.limit) && args.limit > 0) {
-    query = query.limit(args.limit);
-  } else if (args.search) {
-    // default to 1 when doing a targeted lookup
-    query = query.limit(1);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  if (data && data.length > 0) {
-    return data;
-  }
-  return { error: 'No goals matched your query' };
-}
-
 export async function createGoalFromAI(args, userId, userContext) {
   const { title, description, due_date, priority, milestones } = args;
   const token = userContext?.token;
@@ -630,6 +801,7 @@ export async function createGoalFromAI(args, userId, userContext) {
     // Don't fail the request if analytics fails
     logger.warn('Failed to track AI goal creation analytics:', analyticsError);
   }
+  
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
       headers: {
@@ -639,85 +811,18 @@ export async function createGoalFromAI(args, userId, userContext) {
   });
 
   try {
-    // Create the goal first
-    const { data: goal, error: goalError } = await supabase
-      .from('goals')
-      .insert([{ 
-        user_id: userId, 
-        title, 
-        description, 
-        target_completion_date: due_date,
-        category: priority // Map priority to category field
-      }])
-      .select()
-      .single();
-
-    if (goalError) {
-      return { error: goalError.message };
-    }
-
-    // If milestones are provided, create them along with their steps
-    if (milestones && Array.isArray(milestones) && milestones.length > 0) {
-      for (let i = 0; i < milestones.length; i++) {
-        const milestone = milestones[i];
-        const { title: milestoneTitle, description: milestoneDescription, steps: milestoneSteps, order: milestoneOrder = i + 1 } = milestone;
-        
-        // Create the milestone
-        const { data: createdMilestone, error: milestoneError } = await supabase
-          .from('milestones')
-          .insert([{ 
-            goal_id: goal.id, 
-            title: milestoneTitle, 
-            description: milestoneDescription,
-            order: milestoneOrder 
-          }])
-          .select()
-          .single();
-        
-        if (milestoneError) {
-          return { error: `Failed to create milestone: ${milestoneError.message}` };
-        }
-
-        // If steps are provided for this milestone, create them
-        if (milestoneSteps && Array.isArray(milestoneSteps) && milestoneSteps.length > 0) {
-          const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
-            milestone_id: createdMilestone.id,
-            text: step.text || step,
-            order: step.order || stepIndex + 1,
-            completed: step.completed || false
-          }));
-
-          const { error: stepsError } = await supabase
-            .from('steps')
-            .insert(stepsToInsert);
-
-          if (stepsError) {
-            return { error: `Failed to create steps: ${stepsError.message}` };
-          }
-        }
-      }
-    }
-
-    // Fetch the complete goal with milestones and steps
-    const { data: completeGoal, error: fetchError } = await supabase
-      .from('goals')
-      .select(`
-        *,
-        milestones (
-          *,
-          steps (*)
-        )
-      `)
-      .eq('id', goal.id)
-      .single();
-
-    if (fetchError) {
-      return { error: fetchError.message };
-    }
-
+    // Map AI-specific fields to goal data format
+    const goalData = { 
+      title, 
+      description, 
+      target_completion_date: due_date,
+      category: priority // Map priority to category field
+    };
+    
+    const completeGoal = await createGoalWithMilestones(supabase, userId, goalData, milestones);
     return completeGoal;
   } catch (error) {
-    return { error: 'Internal server error' };
+    return { error: error.message };
   }
 }
 
@@ -785,6 +890,8 @@ export async function updateGoalFromAI(args, userId, userContext) {
     if (milestones && Array.isArray(milestones) && milestones.length > 0) {
       // If behavior is 'replace', delete existing milestones and their steps first
       if (milestone_behavior === 'replace') {
+        // WARNING: This deletes data before creating new. If creation fails, data is lost.
+        // Consider implementing transaction support.
         // Get existing milestones to delete their steps
         const { data: existingMilestones } = await supabase
           .from('milestones')
@@ -842,7 +949,7 @@ export async function updateGoalFromAI(args, userId, userContext) {
           const stepsToInsert = milestoneSteps.map((step, stepIndex) => ({
             milestone_id: createdMilestone.id,
             text: step.text || step,
-            order: step.order || stepIndex + 1,
+            order: step?.order ?? (stepIndex + 1),
             completed: step.completed || false
           }));
 
@@ -856,7 +963,6 @@ export async function updateGoalFromAI(args, userId, userContext) {
         }
       }
     }
-
     // Fetch the complete goal with milestones and steps
     const { data: completeGoal, error: fetchError } = await supabase
       .from('goals')
@@ -902,15 +1008,22 @@ export async function createMilestone(req, res) {
 
 export async function updateMilestone(req, res) {
   const { milestoneId } = req.params;
-  const { title, description, order } = req.body;
+  const { title, description, order, completed } = req.body;
   const token = req.headers.authorization?.split(' ')[1];
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: `Bearer ${token}` } }
   });
 
+  // Build update object with only provided fields
+  const updateFields = { updated_at: new Date().toISOString() };
+  if (title !== undefined) updateFields.title = title;
+  if (description !== undefined) updateFields.description = description;
+  if (order !== undefined) updateFields.order = order;
+  if (typeof completed === 'boolean') updateFields.completed = completed;
+
   const { data, error } = await supabase
     .from('milestones')
-    .update({ title, description, order, updated_at: new Date().toISOString() })
+    .update(updateFields)
     .eq('id', milestoneId)
     .select()
     .single();

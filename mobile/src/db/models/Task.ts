@@ -5,6 +5,28 @@ import {
   text,
   relation,
 } from '@nozbe/watermelondb/decorators';
+import {GoalType} from './Goal';
+
+// TypeScript interface for Task
+export interface TaskType {
+  id: string;
+  title: string;
+  description?: string;
+  priority?: string;
+  estimatedDurationMinutes?: number;
+  status: string;
+  dueDate?: Date;
+  calendarEventId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  isTodayFocus?: boolean;
+  userId: string;
+  goalId?: string;
+  location?: string;
+  autoScheduleEnabled?: boolean;
+  category?: string;
+  goal?: GoalType;
+}
 
 export default class Task extends Model {
   static table = 'tasks';
@@ -23,6 +45,16 @@ export default class Task extends Model {
   @date('updated_at') updatedAt!: Date;
   @field('is_today_focus') isTodayFocus?: boolean;
   @text('user_id') userId!: string;
+  @text('goal_id') goalId?: string;
+  @text('location') location?: string;
+  @field('auto_schedule_enabled') autoScheduleEnabled?: boolean;
+  @text('category') category?: string;
 
-  @relation('goals', 'goal_id') goal: any;
+  @relation('goals', 'goal_id') goal?: GoalType;
+
+  // Getter for camelCase compatibility
+  get auto_schedule_enabled(): boolean {
+    return this.autoScheduleEnabled ?? false;
+  }
+
 }

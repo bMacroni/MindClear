@@ -23,8 +23,9 @@ class EnhancedAPI {
     options: RequestInit,
     category: ErrorCategory,
     operation: string,
-    retryCount: number = 0
-  ): Promise<T> {
+    retryCount: number = 0,
+    signal?: AbortSignal
+  ): Promise<T | undefined> {
     const context: ErrorContext = {
       operation,
       endpoint: url,
@@ -32,9 +33,25 @@ class EnhancedAPI {
       retryCount,
     };
 
+    // Declare timeoutId outside try block so it's accessible in catch
+    let timeoutId: NodeJS.Timeout | undefined = undefined;
+
     try {
-      // Add auth token if not present
-      if (!options.headers || !(options.headers as Record<string, string>).Authorization) {
+      // Check if external signal is already aborted
+      if (signal?.aborted) {
+        throw new Error(`${operation} was cancelled`);
+      }
+
+      // Add auth token if not present and not explicitly set to empty string (for unauthenticated endpoints)
+      const headers = options.headers as Record<string, string> | undefined;
+      const shouldSkipAuth = headers?.Authorization === '';
+      
+      if (shouldSkipAuth) {
+        // Remove Authorization header if explicitly set to empty (for unauthenticated endpoints)
+        const { Authorization, ...restHeaders } = headers;
+        options.headers = restHeaders;
+      } else if (!headers || !headers.Authorization) {
+        // Add auth token if not present
         const token = await authService.getAuthToken();
         options.headers = {
           ...options.headers,
@@ -42,7 +59,34 @@ class EnhancedAPI {
         };
       }
 
-      const response = await fetch(url, options);
+      // Add timeout to prevent hanging requests
+      const timeoutMs = 30000; // 30 second timeout
+      const controller = new AbortController();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Request timeout after ${timeoutMs}ms for ${operation} at ${url}`));
+        }, timeoutMs);
+      });
+
+      // If external signal is provided, listen to it and abort the controller if needed
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          controller.abort();
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+        }, { once: true });
+      }
+
+      // Merge signals: use the controller's signal (which respects both timeout and external cancellation)
+      const fetchPromise = fetch(url, { ...options, signal: controller.signal });
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      
+      // Clear timeout on success
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -53,31 +97,55 @@ class EnhancedAPI {
         // Handle error with retry logic
         const userError = await errorHandlingService.handleError(error, category, context);
         
+        // Don't retry 404 errors - endpoint doesn't exist
+        const is404 = response.status === 404;
+        
         // Check if we should retry
-        if (userError.retryable && retryCount < 3) {
+        if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
           const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
           await new Promise(resolve => setTimeout(resolve, delay));
-          return this.makeRequest(url, options, category, operation, retryCount + 1);
+          return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
         }
         
         throw userError;
       }
 
-      return await response.json();
-    } catch (error) {
+      // Handle empty responses (common for DELETE operations)
+      const text = await response.text();
+      if (text.trim() === '') {
+        return undefined;
+      }
+      
+      try {
+        return JSON.parse(text);
+      } catch (parseError) {
+        const error = new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+        (error as any).originalError = parseError;
+        (error as any).responseText = text.substring(0, 200); // Log first 200 chars
+        throw error;
+      }
+} catch (error) {
+      // Clear timeout on error
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
       // If it's already a UserFriendlyError, re-throw it
-      if ((error as any).title && (error as any).message) {
+      if (error && typeof error === 'object' && 'isUserFriendlyError' in error) {
         throw error;
       }
       
       // Handle the error and potentially retry
       const userError = await errorHandlingService.handleError(error, category, context);
       
+      // Don't retry 404 errors - endpoint doesn't exist
+      const is404 = error?.status === 404 || error?.response?.status === 404;
+      
       // Check if we should retry
-      if (userError.retryable && retryCount < 3) {
+      if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this.makeRequest(url, options, category, operation, retryCount + 1);
+        return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
       }
       
       throw userError;
@@ -179,12 +247,14 @@ class EnhancedAPI {
   }
 
   async deleteEvent(eventId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/calendar/events/${eventId}?useSupabase=true`,
       { method: 'DELETE' },
       ErrorCategory.CALENDAR,
       'deleteEvent'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Convenience: schedule a task by creating a linked calendar event
@@ -220,23 +290,35 @@ class EnhancedAPI {
   }
 
   async getCalendarStatus(): Promise<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }>{
-    return this.makeRequest(
+    const result = await this.makeRequest<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }>(
       `${getSecureApiBaseUrl()}/calendar/status`,
       { method: 'GET' },
       ErrorCategory.CALENDAR,
       'getCalendarStatus'
     );
+    
+    if (result === undefined || result === null) {
+      throw new Error('Calendar status not available');
+    }
+    
+    return result;
   }
 
 
 
   async importCalendarFirstRun(): Promise<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }>{
-    return this.makeRequest(
+    const result = await this.makeRequest<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }>(
       `${getSecureApiBaseUrl()}/calendar/import/first-run`,
       { method: 'POST' },
       ErrorCategory.SYNC,
       'importCalendarFirstRun'
     );
+    
+    if (result === undefined || result === null) {
+      throw new Error('Calendar import result not available');
+    }
+    
+    return result;
   }
 
   async getAppPreferences(): Promise<any> {
@@ -262,19 +344,43 @@ class EnhancedAPI {
   }
 
   // User config
-  async getUserConfig(): Promise<{ supabaseUrl: string; supabaseAnonKey: string; }> {
-    return this.makeRequest(
+  async getUserConfig(signal?: AbortSignal): Promise<{ 
+    supabaseUrl: string; 
+    supabaseAnonKey: string;
+    googleWebClientId?: string;
+    googleAndroidClientId?: string;
+    googleIosClientId?: string;
+  }> {
+    const result = await this.makeRequest<{ 
+      supabaseUrl: string; 
+      supabaseAnonKey: string;
+      googleWebClientId?: string;
+      googleAndroidClientId?: string;
+      googleIosClientId?: string;
+    }>(
       `${getSecureApiBaseUrl()}/user/config`,
       { method: 'GET' },
       ErrorCategory.SYNC,
-      'getUserConfig'
+      'getUserConfig',
+      0,
+      signal
     );
+    
+    if (result === undefined || result === null) {
+      throw new Error('User config not available');
+    }
+    
+    return result;
   }
 
   // Tasks API methods
-  async getTasks(): Promise<any> {
+  async getTasks(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/tasks?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/tasks`;
+    
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/tasks`,
+      url,
       { method: 'GET' },
       ErrorCategory.TASKS,
       'getTasks'
@@ -317,18 +423,24 @@ class EnhancedAPI {
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/tasks/${taskId}`,
       { method: 'DELETE' },
       ErrorCategory.TASKS,
       'deleteTask'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
   }
 
   // Goals API methods
-  async getGoals(): Promise<any> {
+  async getGoals(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/goals?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/goals`;
+    
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/goals`,
+      url,
       { method: 'GET' },
       ErrorCategory.GOALS,
       'getGoals'
@@ -362,12 +474,147 @@ class EnhancedAPI {
   }
 
   async deleteGoal(goalId: string): Promise<void> {
-    return this.makeRequest(
+    const result = await this.makeRequest(
       `${getSecureApiBaseUrl()}/goals/${goalId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteGoal'
     );
+    // DELETE operations may return undefined for empty responses
+    return;
+  }
+
+  // Milestone API methods
+  async createMilestone(goalId: string, milestoneData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/${goalId}/milestones`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(milestoneData),
+      },
+      ErrorCategory.GOALS,
+      'createMilestone'
+    );
+  }
+
+  async updateMilestone(milestoneId: string, milestoneData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(milestoneData),
+      },
+      ErrorCategory.GOALS,
+      'updateMilestone'
+    );
+  }
+
+  async deleteMilestone(milestoneId: string): Promise<void> {
+    const result = await this.makeRequest(
+      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      { method: 'DELETE' },
+      ErrorCategory.GOALS,
+      'deleteMilestone'
+    );
+    // DELETE operations may return undefined for empty responses
+    return;
+  }
+
+  async getMilestones(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/milestones?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/milestones`;
+    
+    return this.makeRequest(
+      url,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getMilestones'
+    );
+  }
+
+  // Step API methods
+  async createStep(milestoneId: string, stepData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/milestones/${milestoneId}/steps`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stepData),
+      },
+      ErrorCategory.GOALS,
+      'createStep'
+    );
+  }
+
+  async updateStep(stepId: string, stepData: any): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stepData),
+      },
+      ErrorCategory.GOALS,
+      'updateStep'
+    );
+  }
+
+  async deleteStep(stepId: string): Promise<void> {
+    const result = await this.makeRequest(
+      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      { method: 'DELETE' },
+      ErrorCategory.GOALS,
+      'deleteStep'
+    );
+    // DELETE operations may return undefined for empty responses
+    return;
+  }
+
+  async getMilestoneSteps(since?: string): Promise<any> {
+    const url = since 
+      ? `${getSecureApiBaseUrl()}/milestone-steps?since=${encodeURIComponent(since)}`
+      : `${getSecureApiBaseUrl()}/milestone-steps`;
+    
+    return this.makeRequest(
+      url,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getMilestoneSteps'
+    );
+  }
+
+  // Auth API methods
+  async authenticateWithGoogle(
+    idToken: string,
+    serverAuthCode: string,
+    webClientId: string
+  ): Promise<{ token?: string; user?: any; refresh_token?: string; error?: string }> {
+    const baseUrl = getSecureApiBaseUrl();
+    const url = `${baseUrl}/auth/google/mobile-signin`;
+    
+    // Make unauthenticated request (no auth token needed for initial auth)
+    return this.makeRequest(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Web-Client-Id': webClientId,
+          // Explicitly set empty Authorization to prevent auto-addition
+          'Authorization': '',
+        },
+        body: JSON.stringify({
+          idToken,
+          serverAuthCode,
+          webClientId,
+        }),
+      },
+      ErrorCategory.AUTH,
+      'authenticateWithGoogle'
+    ) as Promise<{ token?: string; user?: any; refresh_token?: string; error?: string }>;
   }
 
   // Auto-scheduling API methods
