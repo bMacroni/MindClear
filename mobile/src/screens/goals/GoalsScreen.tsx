@@ -171,6 +171,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   const [editMilestoneHeights, setEditMilestoneHeights] = useState<Record<string, Record<string, number>>>({});
   const [editStepHeights, setEditStepHeights] = useState<Record<string, Record<string, number>>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [triedFullPull, setTriedFullPull] = useState(false);
   
   // Ensure system status bar matches header background (white) with dark content
   useEffect(() => {
@@ -234,9 +235,24 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     }
   }, [authState.isAuthenticated, authState.isLoading]);
 
+  // If authenticated and we still have zero goals after first transform, force a one-time full pull
+  useEffect(() => {
+    if (authState.isAuthenticated && !authState.isLoading && !goalsLoading && goals.length === 0 && !triedFullPull) {
+      (async () => {
+        try {
+          await syncService.forceFullPull();
+        } catch (e) {
+          if (__DEV__) console.warn('Force full pull failed:', e);
+        } finally {
+          setTriedFullPull(true);
+        }
+      })();
+    }
+  }, [authState.isAuthenticated, authState.isLoading, goalsLoading, goals.length, triedFullPull]);
+
   // Transform WatermelonDB goals to the expected format with optimized batch queries
   const transformGoals = useCallback(async (watermelonGoals: Goal[], database: any) => {
-    if (watermelonGoals.length === 0) return [];
+    if (watermelonGoals.length === 0) {return [];}
     
     const goalIds = watermelonGoals.map(g => g.id);
     
@@ -258,10 +274,10 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
       // Handle both camelCase and snake_case property names
       const goalId = milestone.goalId || milestone.goal_id;
       if (!goalId) {
-        if (__DEV__) console.warn('Milestone missing goalId:', milestone);
+        if (__DEV__) {console.warn('Milestone missing goalId:', milestone);}
         return acc;
       }
-      if (!acc[goalId]) acc[goalId] = [];
+      if (!acc[goalId]) {acc[goalId] = [];}
       acc[goalId].push(milestone);
       return acc;
     }, {} as Record<string, any[]>);
@@ -271,10 +287,10 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
       // Handle both camelCase and snake_case property names
       const milestoneId = step.milestoneId || step.milestone_id;
       if (!milestoneId) {
-        if (__DEV__) console.warn('Step missing milestoneId:', step);
+        if (__DEV__) {console.warn('Step missing milestoneId:', step);}
         return acc;
       }
-      if (!acc[milestoneId]) acc[milestoneId] = [];
+      if (!acc[milestoneId]) {acc[milestoneId] = [];}
       acc[milestoneId].push(step);
       return acc;
     }, {} as Record<string, any[]>);
@@ -396,14 +412,18 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    try {
-      // On pull-to-refresh, do a full sync to ensure complete data
-      await syncService.fullSync(true);
+      try {
+        // On pull-to-refresh, do a full sync to ensure complete data
+        if (goals.length === 0) {
+          await syncService.forceFullPull();
+        } else {
+          await syncService.silentSync();
+        }
       await loadGoals();
     } finally {
       setRefreshing(false);
     }
-  }, [loadGoals]);
+  }, [loadGoals, goals.length]);
 
 
   const handleGoalPress = (goalId: string) => {
@@ -571,25 +591,25 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   const toggleStepCompleted = useCallback(async (goalId: string, milestoneId: string, stepId: string) => {
     // Find the goal and step first to get the current state
     const goal = goals.find(g => g.id === goalId);
-    if (!goal) return;
+    if (!goal) {return;}
     
     const milestone = goal.milestones.find(m => m.id === milestoneId);
-    if (!milestone) return;
+    if (!milestone) {return;}
     
     const step = milestone.steps.find(s => s.id === stepId);
-    if (!step) return;
+    if (!step) {return;}
     
     const newCompleted = !step.completed;
     
     // Optimistic UI update - much more efficient
     setGoals((prev) => prev.map((g) => {
-      if (g.id !== goalId) return g;
+      if (g.id !== goalId) {return g;}
       
       const updatedMilestones = g.milestones.map((m) => {
-        if (m.id !== milestoneId) return m;
+        if (m.id !== milestoneId) {return m;}
         
         const updatedSteps = m.steps.map((s) => {
-          if (s.id !== stepId) return s;
+          if (s.id !== stepId) {return s;}
           return { ...s, completed: newCompleted };
         });
         
@@ -1196,7 +1216,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
               <Button
                 title="Debug: Force Full Sync"
                 onPress={async () => {
-                  await syncService.fullSync(false);
+                   await syncService.sync(false);
                 }}
                 variant="secondary"
                 style={styles.debugButton}
@@ -1409,7 +1429,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     </SafeAreaView>
     </HelpScope>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {

@@ -508,6 +508,38 @@ class SyncService {
     return this.sync(true);
   }
 
+  // Convenience alias expected by some screens
+  async fullSync() {
+    await this.pushData();
+    await this.pullData();
+  }
+
+  // Debug helper to inspect current DB state safely
+  async debugDatabaseContents() {
+    const database = getDatabase();
+    const events = await database.get<CalendarEvent>('calendar_events').query().fetch();
+    const tasks = await database.get<Task>('tasks').query().fetch();
+    const goals = await database.get<Goal>('goals').query().fetch();
+    const milestones = await database.get<Milestone>('milestones').query().fetch();
+    const steps = await database.get<MilestoneStep>('milestone_steps').query().fetch();
+
+    console.log('Debug DB Contents:', {
+      events: events.length,
+      tasks: tasks.length,
+      goals: goals.length,
+      milestones: milestones.length,
+      steps: steps.length,
+    });
+
+    return { events, tasks, goals, milestones, steps };
+  }
+
+  // Force a full pull from the server by clearing the incremental cursor
+  async forceFullPull() {
+    await AsyncStorage.removeItem(LAST_SYNCED_AT_KEY);
+    await this.pullData();
+  }
+
   private async processEventChange(eventData: any, database: Database) {
     const eventCollection = database.get<CalendarEvent>('calendar_events');
     const existingEvents = await eventCollection.query(Q.where('id', eventData.id)).fetch();
