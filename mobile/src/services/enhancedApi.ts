@@ -76,7 +76,7 @@ class EnhancedAPI {
           if (timeoutId) {
             clearTimeout(timeoutId);
           }
-        });
+        }, { once: true });
       }
 
       // Merge signals: use the controller's signal (which respects both timeout and external cancellation)

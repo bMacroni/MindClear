@@ -142,8 +142,13 @@ const CircularProgress = React.memo(({ percentage, size = 56 }: CircularProgress
 interface GoalsScreenProps {
   navigation: any;
   goals: Goal[]; // From withObservables
-  milestones: any[]; // From withObservables
-  steps: any[]; // From withObservables
+interface GoalsScreenProps {
+  navigation: any;
+  goals: Goal[]; // From withObservables
+  milestones: Milestone[]; // From withObservables
+  steps: Step[]; // From withObservables
+  database: any;
+}
   database: any;
 }
 

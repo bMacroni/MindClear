@@ -101,11 +101,19 @@ class SecureConfigService {
       }
       
       // Add timeout to prevent hanging during app startup
+      // Create AbortController for timeout
+      const timeoutController = new AbortController();
+      const combinedSignal = signal?.aborted ? signal : timeoutController.signal;
+      
+      // Add timeout to prevent hanging during app startup
       const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('Remote config request timeout')), 5000); // Reduced to 5 second timeout
+        timeoutId = setTimeout(() => {
+          timeoutController.abort();
+          reject(new Error('Remote config request timeout'));
+        }, 5000); // Reduced to 5 second timeout
       });
       
-      const remoteConfigPromise = enhancedAPI.getUserConfig(signal);
+      const remoteConfigPromise = enhancedAPI.getUserConfig(combinedSignal);
       const remoteConfig: RemoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
       
       // Clear timeout on success

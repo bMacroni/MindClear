@@ -591,26 +591,31 @@ class ErrorHandlingService {
     // Get raw message
     let message = error.message || error.toString();
 
-    // Normalize whitespace: collapse multiple spaces/newlines into single space
-    message = message.replace(/\s+/g, ' ').trim();
+    try {
+      // Normalize whitespace: collapse multiple spaces/newlines into single space
+      message = message.replace(/\s+/g, ' ').trim();
 
-    // Redact JSON bodies (look for JSON-like structures)
-    // Match patterns like { ... } or [ ... ] that might contain sensitive data
-    message = message.replace(/\{[^{}]*("password"|"token"|"secret"|"apiKey"|"email"|"phone"|"ssn"|"creditCard")[^{}]*\}/gi, '{[REDACTED]}');
-    message = message.replace(/\{[^{}]{100,}\}/g, '{[REDACTED_JSON_BODY]}');
-    message = message.replace(/\[[^\]]{100,}\]/g, '[REDACTED_ARRAY_BODY]');
+      // Redact JSON bodies (look for JSON-like structures)
+      // Match patterns like { ... } or [ ... ] that might contain sensitive data
+      message = message.replace(/\{[^{}]*("password"|"token"|"secret"|"apiKey"|"email"|"phone"|"ssn"|"creditCard")[^{}]*\}/gi, '{[REDACTED]}');
+      message = message.replace(/\{[^{}]{100,}\}/g, '{[REDACTED_JSON_BODY]}');
+      message = message.replace(/\[[^\]]{100,}\]/g, '[REDACTED_ARRAY_BODY]');
 
-    // Redact HTML snippets that might contain sensitive data
-    message = message.replace(/<[^>]{50,}>/g, '<[REDACTED_HTML]>');
+      // Redact HTML snippets that might contain sensitive data
+      message = message.replace(/<[^>]{50,}>/g, '<[REDACTED_HTML]>');
 
-    // Redact base64-like strings (common in response bodies)
-    message = message.replace(/[A-Za-z0-9+/]{50,}={0,2}/g, '[REDACTED_BASE64]');
+      // Redact base64-like strings (common in response bodies)
+      message = message.replace(/[A-Za-z0-9+/]{50,}={0,2}/g, '[REDACTED_BASE64]');
 
-    // Redact email-like patterns
-    message = message.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
+      // Redact email-like patterns
+      message = message.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]');
 
-    // Redact long URL-like strings
-    message = message.replace(/https?:\/\/[^\s]{50,}/g, '[REDACTED_URL]');
+      // Redact long URL-like strings
+      message = message.replace(/https?:\/\/[^\s]{50,}/g, '[REDACTED_URL]');
+    } catch (_redactionError) {
+      // Fall back to a safe constant if any redaction step fails
+      message = '[REDACTED_ERROR]';
+    }
 
     // Truncate to safe length (200 characters)
     const MAX_LENGTH = 200;
@@ -765,13 +770,28 @@ class ErrorHandlingService {
       if (status === 404) {
         // Only log once per endpoint to avoid spam
         const endpointKey = `404_${context.endpoint}`;
-        const lastLogged = await AsyncStorage.getItem(endpointKey);
+        let lastLogged: string | null = null;
+        try {
+          lastLogged = await AsyncStorage.getItem(endpointKey);
+        } catch (storageError) {
+          console.warn('AsyncStorage.getItem failed during 404 debug handling:', storageError);
+        }
         if (!lastLogged) {
           console.warn(`[404] Endpoint not found: ${context.operation} at ${context.endpoint}`);
           console.warn('This is normal if the backend endpoint is not yet implemented.');
           // Mark as logged (expires after 5 minutes)
-          await AsyncStorage.setItem(endpointKey, Date.now().toString());
-          setTimeout(() => AsyncStorage.removeItem(endpointKey), 5 * 60 * 1000);
+          try {
+            await AsyncStorage.setItem(endpointKey, Date.now().toString());
+          } catch (storageError) {
+            console.warn('AsyncStorage.setItem failed during 404 debug handling:', storageError);
+          }
+          setTimeout(async () => {
+            try {
+              await AsyncStorage.removeItem(endpointKey);
+            } catch (storageError) {
+              console.warn('AsyncStorage.removeItem failed during 404 debug handling:', storageError);
+            }
+          }, 5 * 60 * 1000);
         }
         return; // Skip detailed logging for 404s
       }

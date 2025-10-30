@@ -67,24 +67,38 @@ class WebSocketManager {
             // Verify token using Supabase SDK (supports both legacy HS256 and new ECC signing keys)
             this.supabase.auth.getUser(data.token)
               .then(({ data: userData, error }) => {
+                // If the socket closed before auth resolved, bail out without side effects
+                if (ws.readyState !== ws.OPEN) {
+                  logger.warn('WebSocket auth resolved after socket closed; skipping state mutation');
+                  return;
+                }
                 if (error || !userData?.user) {
                   logger.warn('WebSocket authentication failed:', error?.message || 'No user data');
                   
                   // Send error message to client before terminating
                   try {
-                    ws.send(JSON.stringify({ 
-                      type: 'auth_error', 
-                      message: 'Authentication failed', 
-                      error: error?.message || 'Invalid token'
-                    }));
+                    if (ws.readyState === ws.OPEN) {
+                      ws.send(JSON.stringify({ 
+                        type: 'auth_error', 
+                        message: 'Authentication failed', 
+                        error: error?.message || 'Invalid token'
+                      }));
+                    }
                   } catch (sendError) {
                     logger.error('Failed to send auth error message:', sendError);
                   }
                   
                   // Close with specific code to indicate auth failure
-                  ws.close(1008, 'Authentication failed');
+                  if (ws.readyState === ws.OPEN) {
+                    ws.close(1008, 'Authentication failed');
+                  }
                 } else {
                   const userId = userData.user.id;
+                  // Double-check socket state before mutating and attaching listeners
+                  if (ws.readyState !== ws.OPEN) {
+                    logger.warn('WebSocket became closed before registration; skipping client store and listeners');
+                    return;
+                  }
                   this.clients.set(userId, ws);
                   isAuthenticated = true;
                   logger.info(`WebSocket client authenticated for user: ${userId}`);
@@ -94,20 +108,30 @@ class WebSocketManager {
                     logger.info(`WebSocket client disconnected for user: ${userId}`);
                   });
 
-                  ws.send(JSON.stringify({ type: 'auth_success', message: 'Authentication successful' }));
+                  try {
+                    if (ws.readyState === ws.OPEN) {
+                      ws.send(JSON.stringify({ type: 'auth_success', message: 'Authentication successful' }));
+                    }
+                  } catch (sendError) {
+                    logger.error('Failed to send auth success message:', sendError);
+                  }
                 }
               })
               .catch((err) => {
                 logger.error('WebSocket authentication error:', err);
                 try {
-                  ws.send(JSON.stringify({ 
-                    type: 'auth_error', 
-                    message: 'Authentication service error'
-                  }));
+                  if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify({ 
+                      type: 'auth_error', 
+                      message: 'Authentication service error'
+                    }));
+                  }
                 } catch (sendError) {
                   logger.error('Failed to send auth error message:', sendError);
                 }
-                ws.close(1008, 'Authentication service error');
+                if (ws.readyState === ws.OPEN) {
+                  ws.close(1008, 'Authentication service error');
+                }
               });
           }
         } catch (e) {
