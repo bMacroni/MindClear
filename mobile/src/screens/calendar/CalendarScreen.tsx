@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,8 @@ import {
   CalendarState,
   DayViewEvent,
   WeekViewEvent,
+  CalendarEvent as CalendarEventType,
+  Task as TaskType,
 } from '../../types/calendar';
 // import { Goal } from '../../services/api';
 import { formatDateToYYYYMMDD, getLocalDateKey } from '../../utils/dateUtils';
@@ -52,6 +54,49 @@ import { syncService } from '../../services/SyncService';
 
 // const { width } = Dimensions.get('window');
 
+// Adapter functions to convert database models to calendar types
+const convertCalendarEventToType = (event: CalendarEvent): CalendarEventType => {
+  return {
+    id: event.id,
+    title: event.title,
+    description: event.description,
+    start_time: event.startTime?.toISOString(),
+    end_time: event.endTime?.toISOString(),
+    is_all_day: event.isAllDay,
+    location: event.location,
+    task_id: event.taskId,
+    goal_id: event.goalId,
+    created_at: event.createdAt?.toISOString(),
+    updated_at: event.updatedAt?.toISOString(),
+    user_id: event.userId,
+    google_calendar_id: event.googleCalendarId,
+    event_type: event.taskId ? 'task' : 'event',
+  };
+};
+
+const convertTaskToType = (task: Task): TaskType => {
+  const priority = (task.priority as 'low' | 'medium' | 'high') || 'medium';
+  const status = (task.status as 'not_started' | 'in_progress' | 'completed') || 'not_started';
+  
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    priority,
+    status,
+    due_date: task.dueDate?.toISOString(),
+    category: task.category,
+    goal_id: task.goalId,
+    estimated_duration_minutes: task.estimatedDurationMinutes,
+    created_at: task.createdAt?.toISOString(),
+    updated_at: task.updatedAt?.toISOString(),
+    goal: task.goal ? {
+      id: task.goal.id,
+      title: task.goal.title,
+      description: task.goal.description,
+    } : undefined,
+  };
+};
 interface CalendarScreenProps {
   events: CalendarEvent[];
   tasks: Task[];
@@ -98,23 +143,50 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   const [_hasMoreEvents, setHasMoreEvents] = useState(true);
   const [_loadingMore, setLoadingMore] = useState(false);
 
-  // Filtered state for search and filtering
-  const [filteredEvents, setFilteredEvents] = useState<CalendarEvent[]>([]);
-  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
-
-  useEffect(() => {
-    setFilteredEvents(events);
+  // Convert database models to calendar types (memoized to prevent infinite loops)
+  const convertedEvents = useMemo(() => {
+    return events.map(convertCalendarEventToType);
   }, [events]);
 
-  useEffect(() => {
-    setFilteredTasks(tasks);
+  const convertedTasks = useMemo(() => {
+    return tasks.map(convertTaskToType);
   }, [tasks]);
 
-  // Handle filter changes
-  const handleFilterChange = useCallback((nextFilteredEvents: CalendarEvent[], nextFilteredTasks: Task[]) => {
-    // This will need to be adapted for WatermelonDB models
-    // setFilteredEvents(nextFilteredEvents);
-    // setFilteredTasks(nextFilteredTasks);
+  // Filtered state for search and filtering (using calendar types for component compatibility)
+  // Initialize with converted data, but let SearchAndFilter manage updates to prevent loops
+  const [filteredEvents, setFilteredEvents] = useState<CalendarEventType[]>(convertedEvents);
+  const [filteredTasks, setFilteredTasks] = useState<TaskType[]>(convertedTasks);
+
+  // Only update filtered state from source data if SearchAndFilter hasn't applied filters yet
+  // Use a ref to track if we need to sync with source data
+  const hasActiveFiltersRef = useRef(false);
+  
+  useEffect(() => {
+    // If SearchAndFilter hasn't called handleFilterChange yet, sync with source data
+    if (!hasActiveFiltersRef.current) {
+      setFilteredEvents(convertedEvents);
+      setFilteredTasks(convertedTasks);
+    }
+  }, [convertedEvents, convertedTasks]);
+
+  // Handle filter changes from SearchAndFilter component
+  const handleFilterChange = useCallback((nextFilteredEvents: CalendarEventType[], nextFilteredTasks: TaskType[]) => {
+    hasActiveFiltersRef.current = true;
+    // Only update if the arrays are actually different to prevent infinite loops
+    setFilteredEvents(prev => {
+      if (prev.length !== nextFilteredEvents.length || 
+          prev.some((e, i) => e.id !== nextFilteredEvents[i]?.id)) {
+        return nextFilteredEvents;
+      }
+      return prev;
+    });
+    setFilteredTasks(prev => {
+      if (prev.length !== nextFilteredTasks.length || 
+          prev.some((t, i) => t.id !== nextFilteredTasks[i]?.id)) {
+        return nextFilteredTasks;
+      }
+      return prev;
+    });
   }, []);
 
   // Load calendar data - now a no-op as data is reactive
@@ -215,21 +287,39 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     setState(prev => ({ ...prev, viewType }));
   }, []);
 
-  // Handle event edit
-  const handleEventEdit = useCallback((event: CalendarEvent | Task) => {
+  // Handle event edit - convert calendar types to database models
+  const handleEventEdit = useCallback(async (event: CalendarEventType | TaskType) => {
     hapticFeedback.medium();
-    setEditingEvent(event);
-    setFormModalVisible(true);
-  }, []);
+    try {
+      // Check if it's a calendar event or task by looking for event-specific fields
+      const isCalendarEvent = 'start_time' in event || 'start' in event;
+      
+      if (isCalendarEvent) {
+        // Look up the database model
+        const dbEvent = (await database.get('calendar_events').find(event.id)) as CalendarEvent;
+        setEditingEvent(dbEvent);
+      } else {
+        // Look up the database model for task
+        const dbTask = (await database.get('tasks').find(event.id)) as Task;
+        setEditingEvent(dbTask);
+      }
+      setFormModalVisible(true);
+    } catch (error) {
+      // Fallback: if we can't find the DB model, still allow editing with calendar type
+      // EventFormModal will need to handle this case
+      setEditingEvent(event as any);
+      setFormModalVisible(true);
+    }
+  }, [database]);
 
   // Handle event delete with optimistic updates
   const handleEventDelete = useCallback(async (eventId: string) => {
     try {
       hapticFeedback.medium();
-      const eventToDelete = await database.get<CalendarEvent>('calendar_events').find(eventId);
+      const eventToDelete = (await database.get('calendar_events').find(eventId)) as CalendarEvent;
       
       await database.write(async () => {
-        await eventToDelete.update(e => {
+        await eventToDelete.update((e: CalendarEvent) => {
           e.status = 'pending_delete';
         });
       });
@@ -376,15 +466,18 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     // Add calendar events
     filteredEvents.forEach((event) => {
       try {
-        const eventDate = new Date(event.startTime);
-        const eventDateStr = getLocalDateKey(eventDate);
+        const startTime = event.start_time ? new Date(event.start_time) : (event.start?.dateTime ? new Date(event.start.dateTime) : null);
+        if (!startTime) return;
+        
+        const eventDateStr = getLocalDateKey(startTime);
         
         if (eventDateStr === selectedDateStr) {
-          const dayEvent = {
+          const endTime = event.end_time ? new Date(event.end_time) : (event.end?.dateTime ? new Date(event.end.dateTime) : startTime);
+          const dayEvent: DayViewEvent = {
             id: event.id,
             title: event.title || 'Untitled Event',
-            startTime: new Date(event.startTime),
-            endTime: new Date(event.endTime),
+            startTime,
+            endTime,
             type: 'event' as const,
             data: event,
             color: colors.info,
@@ -453,12 +546,12 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     // Events
     filteredEvents.forEach(event => {
       try {
-        const eventStartTime = event.startTime;
-        if (!eventStartTime) {return;}
-        const date = getLocalDateKey(new Date(eventStartTime));
+        const startTime = event.start_time ? new Date(event.start_time) : (event.start?.dateTime ? new Date(event.start.dateTime) : null);
+        if (!startTime) {return;}
+        const date = getLocalDateKey(startTime);
         const entry = ensureEntry(date);
 
-        const dotColor = event.taskId ? colors.success : colors.info;
+        const dotColor = event.task_id ? colors.success : colors.info;
 
         if (!entry.dots.some(d => d.color === dotColor)) {
           entry.dots.push({ color: dotColor });
@@ -664,17 +757,20 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     filteredEvents.forEach(event => {
       try {
         // Handle both database format and Google Calendar API format
-        const eventDate = new Date(event.startTime);
-        const eventDateStr = getLocalDateKey(eventDate);
+        const startTime = event.start_time ? new Date(event.start_time) : (event.start?.dateTime ? new Date(event.start.dateTime) : null);
+        if (!startTime) return;
+        
+        const eventDateStr = getLocalDateKey(startTime);
+        const endTime = event.end_time ? new Date(event.end_time) : (event.end?.dateTime ? new Date(event.end.dateTime) : startTime);
         
         const group = dateGroups.find(g => g.dateString === eventDateStr);
         if (group) {
           group.events.push({
             id: event.id,
-            title: event.title,
-            startTime: eventDate,
-            endTime: new Date(event.endTime),
-            day: eventDate.getDay(),
+            title: event.title || 'Untitled Event',
+            startTime,
+            endTime,
+            day: startTime.getDay(),
             type: 'event' as const,
             data: event,
             color: colors.primary,
@@ -950,7 +1046,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     }
 
     await database.write(async () => {
-      const newEvent = await database.get('calendar_events').create(e => {
+      const newEvent = (await database.get('calendar_events').create((e: CalendarEvent) => {
         const now = new Date();
         e.userId = user.id;
         e.title = `Debug Event @ ${now.toLocaleTimeString()}`;
@@ -958,7 +1054,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
         e.endTime = new Date(now.getTime() + 60 * 60 * 1000);
         e.isAllDay = false;
         e.status = 'synced'; // Will be 'pending_create' in Milestone 3
-      });
+      })) as CalendarEvent;
       return newEvent;
     });
     Alert.alert('Success', 'Debug event created locally.');
@@ -968,7 +1064,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     Alert.alert('Syncing...', 'Manual sync has been initiated.');
     await syncService.sync();
     Alert.alert('Sync Complete', 'Manual sync has finished.');
-  }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -1002,12 +1098,16 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
         title="Calendar"
         rightActions={(
           <>
-            <TouchableOpacity onPress={addDebugEvent} style={{marginRight: 10}}>
-              <Icon name="bug" size={18} color={colors.text.secondary} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleSync} style={{marginRight: 10}}>
-              <Icon name="sync" size={18} color={colors.text.secondary} />
-            </TouchableOpacity>
+            {__DEV__ && (
+              <TouchableOpacity onPress={addDebugEvent} style={{marginRight: 10}}>
+                <Icon name="bug" size={18} color={colors.text.secondary} />
+              </TouchableOpacity>
+            )}
+            {__DEV__ && (
+              <TouchableOpacity onPress={handleSync} style={{marginRight: 10}}>
+                <Icon name="sync" size={18} color={colors.text.secondary} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity 
               onPress={() => setShowImportModal(true)} 
               style={styles.importButton}
@@ -1105,8 +1205,8 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
 
       {/* Search and Filter */}
       <SearchAndFilter
-        events={filteredEvents}
-        tasks={filteredTasks}
+        events={convertedEvents}
+        tasks={convertedTasks}
         onFilterChange={handleFilterChange}
         viewType={state.viewType}
       />
