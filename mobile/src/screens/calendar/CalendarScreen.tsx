@@ -75,8 +75,8 @@ const convertCalendarEventToType = (event: CalendarEvent): CalendarEventType => 
 };
 
 const convertTaskToType = (task: Task): TaskType => {
-  const priority = task.priority as 'low' | 'medium' | 'high' || 'medium';
-  const status = task.status as 'not_started' | 'in_progress' | 'completed' || 'not_started';
+  const priority = (task.priority as 'low' | 'medium' | 'high') || 'medium';
+  const status = (task.status as 'not_started' | 'in_progress' | 'completed') || 'not_started';
   
   return {
     id: task.id,
@@ -97,7 +97,6 @@ const convertTaskToType = (task: Task): TaskType => {
     } : undefined,
   };
 };
-
 interface CalendarScreenProps {
   events: CalendarEvent[];
   tasks: Task[];
