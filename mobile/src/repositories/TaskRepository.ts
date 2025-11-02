@@ -22,6 +22,34 @@ export class TaskRepository {
     return user.id;
   }
 
+  private extractLifecycleStatus(statusStr: string): 'not_started' | 'in_progress' | 'completed' {
+    const lifecycleStatuses = ['not_started', 'in_progress', 'completed'] as const;
+    type LifecycleStatus = typeof lifecycleStatuses[number];
+    const lifecycleStatusesSet = new Set<string>(lifecycleStatuses);
+    const syncStatuses = new Set(['pending_create', 'pending_update', 'pending_delete', 'synced']);
+
+    if (!statusStr) {
+      return 'not_started';
+    }
+
+    if (lifecycleStatusesSet.has(statusStr)) {
+      return statusStr as LifecycleStatus;
+    }
+
+    if (statusStr.includes(':')) {
+      const [, lifecycleStatus] = statusStr.split(':');
+      if (lifecycleStatus && lifecycleStatusesSet.has(lifecycleStatus)) {
+        return lifecycleStatus as LifecycleStatus;
+      }
+    }
+
+    if (syncStatuses.has(statusStr)) {
+      return 'not_started';
+    }
+
+    return 'not_started';
+  }
+
   async getAllTasks(): Promise<Task[]> {
     try {
       const database = getDatabase();
@@ -110,31 +138,7 @@ export class TaskRepository {
     const task = await this.getTaskById(id);
     if (!task) throw new Error('Task not found');
     
-    // Extract current lifecycle status if it exists, or default to 'not_started'
-    // Status field can contain either lifecycle status or sync status or combined format
-    const lifecycleStatuses = ['not_started', 'in_progress', 'completed'];
-    const syncStatuses = ['pending_create', 'pending_update', 'pending_delete', 'synced'];
-    
-    // Determine current lifecycle status from task.status
-    // Handle combined format like "pending_update:completed"
-    let currentLifecycleStatus: 'not_started' | 'in_progress' | 'completed' = 'not_started';
-    const statusStr = task.status as string;
-    
-    if (lifecycleStatuses.includes(statusStr)) {
-      // Direct lifecycle status
-      currentLifecycleStatus = statusStr as 'not_started' | 'in_progress' | 'completed';
-    } else if (statusStr.includes(':')) {
-      // Combined format: "pending_update:completed" or "pending_create:not_started"
-      const parts = statusStr.split(':');
-      if (parts.length > 1 && lifecycleStatuses.includes(parts[1])) {
-        currentLifecycleStatus = parts[1] as 'not_started' | 'in_progress' | 'completed';
-      }
-    } else if (syncStatuses.includes(statusStr)) {
-      // Pure sync status without lifecycle info, use default
-      currentLifecycleStatus = 'not_started';
-    }
-    
-    // Use provided status or preserve current
+    const currentLifecycleStatus = this.extractLifecycleStatus(task.status as string);
     const newLifecycleStatus = data.status || currentLifecycleStatus;
     
     return await database.write(async () => {
@@ -223,11 +227,22 @@ export class TaskRepository {
    * @throws Error - Throws "Task not found" if the task doesn't exist
    */
   async setTaskAsFocus(taskId: string): Promise<Task> {
-    // First unset all focus tasks
-    await this.unsetFocusTasks();
-    
-    // Then set this task as focus
-    return await this.updateTask(taskId, { isTodayFocus: true });
+    try {
+      // First unset all focus tasks
+      await this.unsetFocusTasks();
+
+      // Then set this task as focus
+      return await this.updateTask(taskId, { isTodayFocus: true });
+    } catch (error) {
+      logger.error('Failed to set task as focus', {
+        context: 'TaskRepository.setTaskAsFocus',
+        taskId,
+        error: error instanceof Error
+          ? { message: error.message, stack: error.stack }
+          : { message: 'Unknown error type' }
+      });
+      throw error;
+    }
   }
 
   /**
@@ -238,37 +253,39 @@ export class TaskRepository {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     
-    const focusTasks = await database.get<Task>('tasks')
-      .query(
-        Q.where('user_id', userId),
-        Q.where('is_today_focus', true),
-        Q.where('status', Q.notEq('pending_delete'))
-      )
-      .fetch();
-    
-    await database.write(async () => {
-      for (const task of focusTasks) {
-        // Extract lifecycle status before updating
-        const lifecycleStatuses = ['not_started', 'in_progress', 'completed'];
-        let currentLifecycleStatus = 'not_started';
-        const statusStr = task.status as string;
-        if (lifecycleStatuses.includes(statusStr)) {
-          currentLifecycleStatus = statusStr;
-        } else if (statusStr.includes(':')) {
-          const parts = statusStr.split(':');
-          if (parts.length > 1 && lifecycleStatuses.includes(parts[1])) {
-            currentLifecycleStatus = parts[1];
-          }
-        }
-        
-        await task.update(t => {
-          t.isTodayFocus = false;
-          // Preserve lifecycle status while marking for sync
-          t.status = `pending_update:${currentLifecycleStatus}`;
-          t.updatedAt = new Date();
-        });
+    try {
+      const focusTasks = await database.get<Task>('tasks')
+        .query(
+          Q.where('user_id', userId),
+          Q.where('is_today_focus', true),
+          Q.where('status', Q.notEq('pending_delete'))
+        )
+        .fetch();
+
+      if (!focusTasks.length) {
+        return;
       }
-    });
+
+      await database.write(async () => {
+        for (const task of focusTasks) {
+          const currentLifecycleStatus = this.extractLifecycleStatus(task.status as string);
+
+          await task.update(t => {
+            t.isTodayFocus = false;
+            // Preserve lifecycle status while marking for sync
+            t.status = `pending_update:${currentLifecycleStatus}`;
+            t.updatedAt = new Date();
+          });
+        }
+      });
+    } catch (error) {
+      logger.error('[TaskRepository] Failed to unset focus tasks', {
+        operation: 'unsetFocusTasks',
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
   }
 
   // Observable query helpers for use with withObservables

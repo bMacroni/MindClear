@@ -2,6 +2,7 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import TasksScreen from '../TasksScreen';
+import { getLifecycleStatus } from '../utils/statusUtils';
 import { taskRepository } from '../../../repositories/TaskRepository';
 import { syncService } from '../../../services/SyncService';
 
@@ -100,7 +101,6 @@ describe('TasksScreen Task Operations', () => {
       description: 'Description 1',
       priority: 'medium',
       status: 'pending_update:not_started',
-      isTodayFocus: false,
       goalId: undefined,
       isTodayFocus: false,
     },
@@ -114,7 +114,6 @@ describe('TasksScreen Task Operations', () => {
       goalId: undefined,
     },
   ];
-
   const mockGoals: any[] = [];
 
   beforeEach(() => {
@@ -129,9 +128,19 @@ describe('TasksScreen Task Operations', () => {
         status: 'pending_update:completed',
       });
 
+      const tasksWithInProgress = [
+        {
+          ...mockTasks[0],
+          status: 'pending_update:in_progress',
+        },
+        {
+          ...mockTasks[1],
+        },
+      ];
+
       const { getByTestId } = render(
         <NavigationContainer>
-          <TasksScreen tasks={mockTasks} goals={mockGoals} />
+          <TasksScreen tasks={tasksWithInProgress} goals={mockGoals} />
         </NavigationContainer>
       );
 
@@ -151,9 +160,19 @@ describe('TasksScreen Task Operations', () => {
         status: 'pending_update:in_progress',
       });
 
+      const tasksWithCompleted = [
+        {
+          ...mockTasks[0],
+          status: 'pending_update:completed',
+        },
+        {
+          ...mockTasks[1],
+        },
+      ];
+
       const { getByTestId } = render(
         <NavigationContainer>
-          <TasksScreen tasks={mockTasks} goals={mockGoals} />
+          <TasksScreen tasks={tasksWithCompleted} goals={mockGoals} />
         </NavigationContainer>
       );
 
@@ -220,21 +239,34 @@ describe('TasksScreen Task Operations', () => {
         status: 'pending_create:completed',
       });
 
-      // Test that createTask is called with correct status
-      expect(mockCreateTask).not.toHaveBeenCalled(); // Before creation
-
-      // Simulate task creation
-      await taskRepository.createTask({
-        title: 'New Task',
-        status: 'completed',
-      });
-
-      expect(mockCreateTask).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'New Task',
-          status: 'completed',
-        })
+      const utils = render(
+        <NavigationContainer>
+          <TasksScreen tasks={mockTasks} goals={mockGoals} />
+        </NavigationContainer>
       );
+
+      const { getByText, getByPlaceholderText } = utils;
+
+      const createButton = getByText('+');
+      fireEvent.press(createButton);
+
+      const titleInput = await waitFor(() => getByPlaceholderText('Enter task title'));
+      fireEvent.changeText(titleInput, 'New Task');
+
+      const completedStatus = getByText('Completed');
+      fireEvent.press(completedStatus);
+
+      const saveButton = await waitFor(() => (utils as any).getByLabelText('Save task'));
+      fireEvent.press(saveButton);
+
+      await waitFor(() => {
+        expect(mockCreateTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: 'New Task',
+            status: 'completed',
+          })
+        );
+      });
     });
   });
 
@@ -287,7 +319,6 @@ describe('TasksScreen Task Operations', () => {
 
   describe('Status Format Handling', () => {
     test('correctly extracts lifecycle status from combined format', () => {
-      // Test getLifecycleStatus helper function behavior
       const testCases = [
         { status: 'pending_update:completed', expected: 'completed' },
         { status: 'pending_update:in_progress', expected: 'in_progress' },
@@ -298,18 +329,51 @@ describe('TasksScreen Task Operations', () => {
         { status: 'not_started', expected: 'not_started' },
       ];
 
-      // This would test the getLifecycleStatus function
-      // Implementation depends on how it's exported/accessible
+      testCases.forEach(({ status, expected }) => {
+        expect(getLifecycleStatus(status)).toBe(expected);
+      });
     });
 
-    test('filters tasks correctly based on lifecycle status', () => {
+    test('filters tasks correctly based on lifecycle status', async () => {
       const tasks = [
-        { ...mockTasks[0], status: 'pending_update:completed' },
-        { ...mockTasks[1], status: 'pending_update:not_started' },
+        {
+          ...mockTasks[0],
+          id: 'task-completed-1',
+          title: 'Completed Combined',
+          status: 'pending_update:completed',
+          isTodayFocus: false,
+        },
+        {
+          ...mockTasks[0],
+          id: 'task-completed-2',
+          title: 'Completed Direct',
+          status: 'completed',
+          isTodayFocus: false,
+        },
+        {
+          ...mockTasks[0],
+          id: 'task-active-1',
+          title: 'Active Task',
+          status: 'pending_update:not_started',
+          isTodayFocus: false,
+        },
       ];
 
-      // This would test that completed tasks are filtered correctly
-      // Implementation depends on component filtering logic
+      const { getByTestId, queryByTestId } = render(
+        <NavigationContainer>
+          <TasksScreen tasks={tasks} goals={mockGoals} />
+        </NavigationContainer>
+      );
+
+      const inboxToggle = getByTestId('inboxToggle');
+      fireEvent.press(inboxToggle);
+
+      await waitFor(() => {
+        expect(getByTestId('completed-task-task-completed-1')).toBeTruthy();
+        expect(getByTestId('completed-task-task-completed-2')).toBeTruthy();
+      });
+
+      expect(queryByTestId('completed-task-task-active-1')).toBeNull();
     });
   });
 });

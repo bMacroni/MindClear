@@ -118,32 +118,8 @@ class SyncService {
               continue;
           }
         } else if (record instanceof Task) {
-          // Extract lifecycle status from status field
-          // Status can be: lifecycle status ('not_started', 'in_progress', 'completed')
-          // or combined format ('pending_update:<lifecycle_status>')
-          // or sync status ('pending_create', 'pending_delete', 'synced')
-          let lifecycleStatus = 'not_started';
-          let syncStatus = record.status;
-          
-          if (record.status.startsWith('pending_update:')) {
-            // Combined format: extract lifecycle status
-            const parts = record.status.split(':');
-            lifecycleStatus = parts[1] || 'not_started';
-            syncStatus = 'pending_update';
-          } else if (record.status.startsWith('pending_create:')) {
-            // Combined format for create
-            const parts = record.status.split(':');
-            lifecycleStatus = parts[1] || 'not_started';
-            syncStatus = 'pending_create';
-          } else if (['not_started', 'in_progress', 'completed'].includes(record.status)) {
-            // Direct lifecycle status
-            lifecycleStatus = record.status;
-            syncStatus = 'pending_update'; // Assume needs update if lifecycle status present
-          } else {
-            // Sync status only, extract lifecycle from default or preserved value
-            lifecycleStatus = 'not_started';
-          }
-          
+          const { lifecycleStatus, syncStatus } = this.extractLifecycleStatus(record.status);
+
           recordData = {
             title: record.title,
             description: record.description,
@@ -256,25 +232,14 @@ class SyncService {
             let finalStatus: string;
             if (record instanceof Task) {
               // Extract lifecycle status from server response or preserve from current status
-              const serverLifecycleStatus = serverResponse?.status &&
-                ['not_started', 'in_progress', 'completed'].includes(serverResponse.status)
-                ? serverResponse.status
-                : null;
-              
-              // Extract from current combined format if present
-              let currentLifecycleStatus: string | null = null;
-              if (typeof record.status === 'string') {
-                if (record.status.startsWith('pending_update:')) {
-                  const parts = record.status.split(':');
-                  currentLifecycleStatus = parts[1] || null;
-                } else if (record.status.startsWith('pending_create:')) {
-                  const parts = record.status.split(':');
-                  currentLifecycleStatus = parts[1] || null;
-                } else if (['not_started', 'in_progress', 'completed'].includes(record.status)) {
-                  currentLifecycleStatus = record.status;
-                }
-              }
-              
+              const serverStatus = serverResponse?.status;
+              const serverLifecycleStatus =
+                serverStatus === 'not_started' || serverStatus === 'in_progress' || serverStatus === 'completed'
+                  ? serverStatus
+                  : null;
+
+              const currentLifecycleStatus = this.extractLifecycleStatus(record.status as string | undefined | null);
+
               // Use server status if available, otherwise preserve current
               finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';
             } else {
@@ -778,39 +743,58 @@ class SyncService {
   }
 
   /**
-   * Extracts the lifecycle status from a status string.
-   * Handles direct lifecycle status, combined format (pending_update:completed), or sync status.
-   * @param status - The status string to extract lifecycle status from
-   * @returns The lifecycle status: 'not_started', 'in_progress', or 'completed'
+   * Extracts lifecycle and sync status information from a status string.
+   * Handles direct lifecycle status, combined formats (pending_update:completed), and pure sync statuses.
+   * @param status - The status string to extract information from
+   * @returns An object containing lifecycleStatus and syncStatus values
    */
-  private extractLifecycleStatus(status: string | undefined | null): 'not_started' | 'in_progress' | 'completed' {
-    if (!status) return 'not_started';
-    
-    const lifecycleStatuses = ['not_started', 'in_progress', 'completed'];
+  private extractLifecycleStatus(status: string | undefined | null): {
+    lifecycleStatus: 'not_started' | 'in_progress' | 'completed';
+    syncStatus: string | undefined;
+  } {
+    const lifecycleStatuses: Array<'not_started' | 'in_progress' | 'completed'> = ['not_started', 'in_progress', 'completed'];
     const syncStatuses = ['pending_create', 'pending_update', 'pending_delete', 'synced'];
-    
-    const statusStr = String(status);
-    
-    // Check if it's a direct lifecycle status
-    if (lifecycleStatuses.includes(statusStr)) {
-      return statusStr as 'not_started' | 'in_progress' | 'completed';
+    const defaultLifecycleStatus: 'not_started' | 'in_progress' | 'completed' = 'not_started';
+    const isLifecycleStatus = (value: string): value is 'not_started' | 'in_progress' | 'completed' =>
+      (lifecycleStatuses as string[]).includes(value);
+
+    if (!status) {
+      return {
+        lifecycleStatus: defaultLifecycleStatus,
+        syncStatus: undefined,
+      };
     }
-    
-    // Check if it's a combined format: "pending_update:completed" or "pending_create:not_started"
+
+    const statusStr = String(status);
+
     if (statusStr.includes(':')) {
-      const parts = statusStr.split(':');
-      if (parts.length > 1 && lifecycleStatuses.includes(parts[1])) {
-        return parts[1] as 'not_started' | 'in_progress' | 'completed';
+      const [syncPart, lifecyclePart] = statusStr.split(':');
+      if (lifecyclePart && isLifecycleStatus(lifecyclePart) && syncStatuses.includes(syncPart)) {
+        return {
+          lifecycleStatus: lifecyclePart,
+          syncStatus: syncPart,
+        };
       }
     }
-    
-    // If it's a pure sync status without lifecycle info, use default
-    if (syncStatuses.includes(statusStr)) {
-      return 'not_started';
+
+    if (isLifecycleStatus(statusStr)) {
+      return {
+        lifecycleStatus: statusStr,
+        syncStatus: 'pending_update',
+      };
     }
-    
-    // Default fallback
-    return 'not_started';
+
+    if (syncStatuses.includes(statusStr)) {
+      return {
+        lifecycleStatus: defaultLifecycleStatus,
+        syncStatus: statusStr,
+      };
+    }
+
+    return {
+      lifecycleStatus: defaultLifecycleStatus,
+      syncStatus: statusStr,
+    };
   }
 
   private async processTaskChange(taskData: TaskPayload, database: Database) {
@@ -828,12 +812,14 @@ class SyncService {
     // Valid lifecycle statuses: 'not_started', 'in_progress', 'completed'
     // Sync statuses: 'pending_create', 'pending_update', 'pending_delete', 'synced'
     // Extract lifecycle status from combined format if needed
-    const serverLifecycleStatus = taskData.status 
+    const serverStatusInfo = taskData.status 
       ? this.extractLifecycleStatus(taskData.status)
       : null;
-    const localLifecycleStatus = localTask 
+    const serverLifecycleStatus = serverStatusInfo?.lifecycleStatus ?? null;
+    const localStatusInfo = localTask 
       ? this.extractLifecycleStatus(localTask.status as string)
       : null;
+    const localLifecycleStatus = localStatusInfo?.lifecycleStatus ?? null;
     
     // Prefer server status if provided, otherwise preserve local lifecycle status, default to 'not_started'
     const lifecycleStatus = serverLifecycleStatus !== null
@@ -1046,3 +1032,4 @@ class SyncService {
 }
 
 export const syncService = new SyncService();
+

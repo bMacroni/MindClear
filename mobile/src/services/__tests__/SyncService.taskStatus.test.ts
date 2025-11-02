@@ -22,6 +22,7 @@ jest.mock('../auth', () => ({
 const mockCreateTask = jest.fn();
 const mockUpdateTask = jest.fn();
 const mockDeleteTask = jest.fn();
+const mockShowInAppNotification = jest.fn();
 
 jest.mock('../enhancedApi', () => ({
   enhancedAPI: {
@@ -35,6 +36,12 @@ jest.mock('../enhancedApi', () => ({
     getEventsForDate: jest.fn(() => Promise.resolve([])),
     getEventsForTask: jest.fn(() => Promise.resolve([])),
     scheduleTaskOnCalendar: jest.fn(),
+  },
+}));
+
+jest.mock('../notificationService', () => ({
+  notificationService: {
+    showInAppNotification: mockShowInAppNotification,
   },
 }));
 
@@ -56,6 +63,7 @@ describe('SyncService Task Status Handling', () => {
     mockCreateTask.mockClear();
     mockUpdateTask.mockClear();
     mockDeleteTask.mockClear();
+    mockShowInAppNotification.mockClear();
   });
 
   describe('Push Data - Combined Status Format', () => {
@@ -176,7 +184,7 @@ describe('SyncService Task Status Handling', () => {
       );
     });
 
-    test('does not send null values for optional fields', async () => {
+    test('does not send undefined optional fields', async () => {
       const task = await taskRepository.createTask({
         title: 'Task without goal',
         goalId: undefined,
@@ -198,7 +206,6 @@ describe('SyncService Task Status Handling', () => {
       // is_today_focus should be included if explicitly set to false
       expect(callArgs).toHaveProperty('is_today_focus', false);
     });
-
     test('sends goal_id only when task has goal', async () => {
       const task = await taskRepository.createTask({
         title: 'Task with goal',
@@ -249,12 +256,9 @@ describe('SyncService Task Status Handling', () => {
 
       await syncService.pushData();
 
-      // Verify task status after sync
       const syncedTask = await taskRepository.getTaskById(task.id);
-      
-      // Status should be restored to lifecycle status from server or preserved
-      // The exact format depends on SyncService implementation
-      expect(syncedTask?.status).toBeDefined();
+
+      expect(syncedTask?.status).toBe('completed');
     });
 
     test('marks task as sync_failed on push error', async () => {
@@ -262,25 +266,23 @@ describe('SyncService Task Status Handling', () => {
         title: 'Task that Fails',
       });
 
-      mockCreateTask.mockRejectedValue(new Error('API Error'));
+      const apiError = new Error('API Error');
+      mockCreateTask.mockRejectedValue(apiError);
 
       await syncService.pushData();
 
       const failedTask = await taskRepository.getTaskById(task.id);
-      // Status should indicate failure (implementation dependent)
-      expect(failedTask?.status).toBeDefined();
+
+      expect(failedTask?.status).toBe('sync_failed');
+      expect(mockShowInAppNotification).toHaveBeenCalledWith(
+        'Push Incomplete',
+        expect.stringContaining('Failed to push'),
+      );
     });
   });
 
   describe('Pull Data - Processing Server Responses', () => {
-    test('processes server response with lifecycle status', async () => {
-      // Mock pull data response
-      const mockPullData = jest.spyOn(syncService as any, 'pullData');
-      
-      // This test would verify that when server sends status: 'completed',
-      // it's properly stored in the combined format or handled correctly
-      // Implementation depends on SyncService.pullData details
-    });
+    test.todo('processes server response with lifecycle status');
 
     test('preserves local lifecycle status during conflict resolution', async () => {
       // Create task locally with completed status
@@ -296,8 +298,11 @@ describe('SyncService Task Status Handling', () => {
         status: 'in_progress', // Different from local
       });
 
-      // This test would verify conflict resolution preserves lifecycle status
-      // Implementation depends on SyncService conflict resolution logic
+      await syncService.pushData();
+
+      const resolvedTask = await taskRepository.getTaskById(task.id);
+      // Verify conflict resolution behavior
+      expect(resolvedTask?.status).toBe('completed'); // Or 'in_progress' based on resolution strategy
     });
   });
 
@@ -307,17 +312,30 @@ describe('SyncService Task Status Handling', () => {
         title: 'Task Changing Status',
       });
 
-      // Start sync
-      const syncPromise = syncService.pushData();
+      let releaseServerResponse: (() => void) | undefined;
+      const serverCallStarted = new Promise<void>(resolve => {
+        mockUpdateTask.mockImplementation(() => {
+          resolve();
+          return new Promise(resolveServer => {
+            releaseServerResponse = () =>
+              resolveServer({
+                id: task.id,
+                status: 'completed',
+              });
+          });
+        });
+      });
 
-      // Change status during sync
+      const syncPromise = syncService.pushData();
+      await serverCallStarted;
+
       await taskRepository.updateTaskStatus(task.id, 'completed');
 
+      releaseServerResponse?.();
       await syncPromise;
 
-      // Verify final state
       const finalTask = await taskRepository.getTaskById(task.id);
-      expect(finalTask?.status).toBeDefined();
+      expect(finalTask?.status).toBe('completed');
     });
 
     test('handles multiple status updates before sync', async () => {

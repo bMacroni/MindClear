@@ -37,9 +37,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import { Q, Database } from '@nozbe/watermelondb';
+import type { Observable } from 'rxjs';
 import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
+import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
 
 // Development-only logging for EOD prompt debugging
 const EOD_DEBUG = true; // set false to silence
@@ -56,12 +58,10 @@ interface InternalTasksScreenProps {
   goals: Goal[];
 }
 
-// External props interface - what the HOC/wrapper provides
-interface ExternalTasksScreenProps {
-  tasks: Task[];
-  goals: Goal[];
-  database: Database;
-}
+type TasksScreenObservableProps = {
+  tasks: Observable<Task[]>;
+  goals: Observable<Goal[]>;
+};
 
 const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
   const navigation = useNavigation<any>();
@@ -122,38 +122,24 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   // Status can be: lifecycle status ('not_started', 'in_progress', 'completed')
   // or combined format ('pending_update:<lifecycle_status>' or 'pending_create:<lifecycle_status>')
   // or sync status ('pending_create', 'pending_update', 'pending_delete', 'synced')
-  const getLifecycleStatus = React.useCallback((status: string): 'not_started' | 'in_progress' | 'completed' => {
-    const lifecycleStatuses = ['not_started', 'in_progress', 'completed'];
-    if (lifecycleStatuses.includes(status)) {
-      return status as 'not_started' | 'in_progress' | 'completed';
-    }
-    if (status.includes(':')) {
-      const parts = status.split(':');
-      if (parts.length > 1 && lifecycleStatuses.includes(parts[1])) {
-        return parts[1] as 'not_started' | 'in_progress' | 'completed';
-      }
-    }
-    // Default to 'not_started' if can't determine
-    return 'not_started';
-  }, []);
+  const getLifecycleStatus = React.useCallback(extractLifecycleStatus, []);
 
   // Debug: Log when observable tasks change
   useEffect(() => {
-    console.log('[TasksScreen] Tasks changed', { 
-      count: tasks.length,
-      tasksArray: tasks,
-      taskIds: tasks.map(t => t.id.substring(0, 8)),
-      sampleStatuses: tasks.slice(0, 5).map(t => ({ 
-        id: t.id.substring(0, 8), 
-        title: t.title.substring(0, 20), 
-        status: t.status, 
-        lifecycle: getLifecycleStatus(t.status) 
-      })),
-      // Check if the specific task we're updating is in the list
-      updatedTaskInList: tasks.find(t => t.id === 'c12a9022-edbf-4bad-a204-2038689aa0bb')?.status
-    });
-  }, [tasks, getLifecycleStatus]);
-  const [showEodPrompt, setShowEodPrompt] = useState(false);
+    if (__DEV__) {
+      console.log('[TasksScreen] Tasks changed', { 
+        count: tasks.length,
+        tasksArray: tasks,
+        taskIds: tasks.map(t => t.id.substring(0, 8)),
+        sampleStatuses: tasks.slice(0, 5).map(t => ({ 
+          id: t.id.substring(0, 8), 
+          title: t.title.substring(0, 20), 
+          status: t.status, 
+          lifecycle: getLifecycleStatus(t.status) 
+        }))
+      });
+    }
+  }, [tasks, getLifecycleStatus]);  const [showEodPrompt, setShowEodPrompt] = useState(false);
   const [quickMenuVisible, setQuickMenuVisible] = useState(false);
   const [quickAnchor, setQuickAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
   const [quickOpenedAt, setQuickOpenedAt] = useState<number | undefined>(undefined);
@@ -2148,41 +2134,24 @@ const styles = StyleSheet.create({
 
 // Create the enhanced component with WatermelonDB observables
 // Note: withObservables automatically subscribes and re-renders when data changes
-const enhance = withObservables(['database'], ({database}: {database: Database}) => {
+const enhance = withObservables<{ database: Database }, TasksScreenObservableProps>(
+  ['database'],
+  ({ database }) => {
   console.log('[TasksScreen] withObservables factory called');
-  const tasksQuery = database.collections.get('tasks').query(
+  const tasksQuery = database.collections.get<Task>('tasks').query(
     Q.where('status', Q.notEq('pending_delete'))
   );
   // Observe the query - WatermelonDB automatically detects all field changes
-  const tasksObs = tasksQuery.observe();
-  
-  // Subscribe manually to debug
-  // NOTE: This creates a double subscription, but it's for debugging only
-  // withObservables will also subscribe to the same observable
-  const subscription = tasksObs.subscribe({
-    next: (tasks) => {
-      console.log('[TasksScreen] Observable emitted', { 
-        count: tasks.length, 
-        ids: tasks.map(t => t.id.substring(0, 8)),
-        statuses: tasks.map(t => ({ id: t.id.substring(0, 8), status: (t as Task).status }))
-      });
-    },
-    error: (err) => {
-      console.error('[TasksScreen] Observable error', err);
-    },
-    complete: () => {
-      console.log('[TasksScreen] Observable completed');
-    }
-  });
-  
-  // Store subscription for cleanup (though withObservables should handle this)
-  (tasksObs as any)._debugSubscription = subscription;
-  
+  const tasks: Observable<Task[]> = tasksQuery.observe();
+
+  const goalsQuery = database.collections.get<Goal>('goals').query(
+    Q.where('status', Q.notEq('pending_delete'))
+  );
+  const goals: Observable<Goal[]> = goalsQuery.observe();
+
   return {
-    tasks: tasksObs as any, // Cast to Task[] for type compatibility
-    goals: database.collections.get('goals').query(
-      Q.where('status', Q.notEq('pending_delete'))
-    ).observe() as any, // Cast to Goal[] for type compatibility
+    tasks,
+    goals,
   };
 });
 
