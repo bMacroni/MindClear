@@ -39,6 +39,7 @@ import { useDatabase } from '../../contexts/DatabaseContext';
 import { Q, Database } from '@nozbe/watermelondb';
 import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
+import { extractCalendarEvents } from './utils/calendarEventUtils';
 
 // Development-only logging for EOD prompt debugging
 const EOD_DEBUG = true; // set false to silence
@@ -68,8 +69,41 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const _insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
+  
+  // Use observable tasks directly but also maintain local state for forcing updates
+  // This is a workaround for WatermelonDB observable not emitting on field changes
+  const [tasksVersion, setTasksVersion] = React.useState(0);
+  const tasksFromObservable = observableTasks || [];
+  const tasks = React.useMemo(() => {
+    // Force a new array reference when tasksVersion changes
+    return tasksFromObservable.map(t => t);
+  }, [tasksFromObservable, tasksVersion]);
+  const goals = observableGoals || [];
+  
+  // Debug: Log component render and check if tasks reference changed
+  const tasksRef = React.useRef<Task[]>(tasks);
+  React.useEffect(() => {
+    const tasksChanged = tasksRef.current !== tasks;
+    const taskIdsChanged = tasksRef.current.length !== tasks.length || 
+      tasksRef.current.some((t, i) => t.id !== tasks[i]?.id);
+    const statusChanged = tasks.some(t => {
+      const oldTask = tasksRef.current.find(ot => ot.id === t.id);
+      return oldTask && oldTask.status !== t.status;
+    });
+    
+    console.log('[TasksScreen] Component rendered/re-rendered', {
+      tasksCount: tasks.length,
+      observableTasksType: typeof observableTasks,
+      isArray: Array.isArray(observableTasks),
+      tasksRefChanged: tasksChanged,
+      taskIdsChanged,
+      statusChanged,
+      tasksVersion,
+      sampleStatuses: tasks.slice(0, 3).map(t => ({ id: t.id.substring(0, 8), status: t.status }))
+    });
+    
+    tasksRef.current = tasks;
+  }, [tasks, observableTasks, tasksVersion]);
   const [loading, setLoading] = useState(false); // Start with false since we have observable data
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -84,18 +118,41 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [showInbox, setShowInbox] = useState(false);
   const [selectingFocus, setSelectingFocus] = useState(false);
 
-  // Sync observable data with local state
-  useEffect(() => {
-    if (observableTasks) {
-      setTasks(observableTasks);
+  // Helper function to extract lifecycle status from combined format
+  // Status can be: lifecycle status ('not_started', 'in_progress', 'completed')
+  // or combined format ('pending_update:<lifecycle_status>' or 'pending_create:<lifecycle_status>')
+  // or sync status ('pending_create', 'pending_update', 'pending_delete', 'synced')
+  const getLifecycleStatus = React.useCallback((status: string): 'not_started' | 'in_progress' | 'completed' => {
+    const lifecycleStatuses = ['not_started', 'in_progress', 'completed'];
+    if (lifecycleStatuses.includes(status)) {
+      return status as 'not_started' | 'in_progress' | 'completed';
     }
-  }, [observableTasks]);
+    if (status.includes(':')) {
+      const parts = status.split(':');
+      if (parts.length > 1 && lifecycleStatuses.includes(parts[1])) {
+        return parts[1] as 'not_started' | 'in_progress' | 'completed';
+      }
+    }
+    // Default to 'not_started' if can't determine
+    return 'not_started';
+  }, []);
 
+  // Debug: Log when observable tasks change
   useEffect(() => {
-    if (observableGoals) {
-      setGoals(observableGoals);
-    }
-  }, [observableGoals]);
+    console.log('[TasksScreen] Tasks changed', { 
+      count: tasks.length,
+      tasksArray: tasks,
+      taskIds: tasks.map(t => t.id.substring(0, 8)),
+      sampleStatuses: tasks.slice(0, 5).map(t => ({ 
+        id: t.id.substring(0, 8), 
+        title: t.title.substring(0, 20), 
+        status: t.status, 
+        lifecycle: getLifecycleStatus(t.status) 
+      })),
+      // Check if the specific task we're updating is in the list
+      updatedTaskInList: tasks.find(t => t.id === 'c12a9022-edbf-4bad-a204-2038689aa0bb')?.status
+    });
+  }, [tasks, getLifecycleStatus]);
   const [showEodPrompt, setShowEodPrompt] = useState(false);
   const [quickMenuVisible, setQuickMenuVisible] = useState(false);
   const [quickAnchor, setQuickAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
@@ -129,11 +186,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     loadSchedulingPreferences();
   }, []);
 
-  // Track screen view
+      // Track screen view
   useEffect(() => {
     analyticsService.trackScreenView('tasks', {
       taskCount: tasks.length,
-      completedCount: tasks.filter(t => t.status === 'completed').length,
+      completedCount: tasks.filter(t => getLifecycleStatus(t.status) === 'completed').length,
       focusTaskCount: tasks.filter(t => t.isTodayFocus).length
     }).catch(error => {
       console.warn('Failed to track screen view analytics:', error);
@@ -234,6 +291,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     setShowModal(true);
   }, []);
 
+
   // Helper function to convert WatermelonDB Task to TaskForm's expected format
   const convertTaskForTaskForm = (task: Task | undefined) => {
     if (!task) return undefined;
@@ -242,7 +300,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       title: task.title,
       description: task.description,
       priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
-      status: task.status as 'not_started' | 'in_progress' | 'completed',
+      status: getLifecycleStatus(task.status),
       due_date: task.dueDate?.toISOString(),
       category: task.category,
       goal_id: task.goalId,
@@ -261,7 +319,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       title: task.title,
       description: task.description,
       priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
-      status: task.status as 'not_started' | 'in_progress' | 'completed',
+      status: getLifecycleStatus(task.status),
       due_date: task.dueDate?.toISOString(),
       category: task.category,
       goal: task.goal ? {
@@ -290,25 +348,32 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     return apiData;
   };
 
-  const handleSaveTask = useCallback(async (taskData: Partial<Task>) => {
+  const handleSaveTask = useCallback(async (taskData: any) => {
     try {
       setSaving(true);
       
+      // Convert TaskForm's snake_case format to repository's camelCase format
+      const repositoryData: any = {
+        title: taskData.title,
+        description: taskData.description,
+        priority: taskData.priority,
+        estimatedDurationMinutes: taskData.estimated_duration_minutes,
+        dueDate: taskData.due_date ? new Date(taskData.due_date) : undefined,
+        goalId: taskData.goal_id,
+        isTodayFocus: taskData.is_today_focus,
+        status: taskData.status || 'not_started', // Lifecycle status
+      };
+      
       if (editingTask) {
-        // Update existing task
-        const updatedTask = await tasksAPI.updateTask(editingTask.id, convertTaskDataToApiFormat(taskData));
+        // Update existing task using repository (local-first)
+        await taskRepository.updateTask(editingTask.id, repositoryData);
       } else {
-        // Create new task
-        const newTask = await tasksAPI.createTask(convertTaskDataToApiFormat(taskData));
+        // Create new task using repository (local-first)
+        await taskRepository.createTask(repositoryData);
       }
       
-      // Trigger silent sync to push changes to server
-      try {
-        await syncService.silentSync();
-      } catch (error) {
-        // Silent sync failure - don't show alerts to user
-        console.warn('Silent sync failed:', error);
-      }
+      // Background sync will happen automatically, no need for immediate sync
+      // SyncService will pick up pending changes on next sync
       
       setShowModal(false);
       setEditingTask(undefined);
@@ -323,13 +388,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const handleDeleteTask = useCallback(async (taskId: string) => {
     try {
       await taskRepository.deleteTask(taskId);
-      // Trigger silent sync to push changes to server
-      try {
-        await syncService.silentSync();
-      } catch (error) {
-        // Silent sync failure - don't show alerts to user
-        console.warn('Silent sync failed:', error);
-      }
+      // Background sync will happen automatically
     } catch (error) {
       console.error('Error deleting task:', error);
       Alert.alert('Error', 'Failed to delete task');
@@ -338,17 +397,55 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   const handleToggleStatus = useCallback(async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
     try {
-      await tasksAPI.updateTask(taskId, { status: newStatus });
+      console.log('[TasksScreen] handleToggleStatus called', { taskId, newStatus });
       
-      // Trigger silent sync to push changes to server
-      try {
-        await syncService.silentSync();
-      } catch (error) {
-        // Silent sync failure - don't show alerts to user
-        console.warn('Silent sync failed:', error);
-      }
-
-      // Track analytics for completed tasks
+      // Find the task before update to compare
+      const taskBefore = tasks.find(t => t.id === taskId);
+      console.log('[TasksScreen] Task before update', { 
+        taskId, 
+        oldStatus: taskBefore?.status,
+        found: !!taskBefore
+      });
+      
+      // Update using repository (local-first)
+      const updatedTask = await taskRepository.updateTaskStatus(taskId, newStatus);
+      console.log('[TasksScreen] Task updated in repository', { taskId, newStatus, updatedStatus: updatedTask.status });
+      
+      // Force a small delay to allow WatermelonDB to process the update
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
+      
+      // Verify the update by checking the task again
+      const verifyTask = await taskRepository.getTaskById(taskId);
+      console.log('[TasksScreen] Verified task status', { 
+        taskId, 
+        status: verifyTask?.status, 
+        lifecycleStatus: verifyTask ? getLifecycleStatus(verifyTask.status) : 'not found' 
+      });
+      
+      // Force a re-render by incrementing tasksVersion
+      // This is a workaround for WatermelonDB observable not emitting on field changes
+      // The observable should emit automatically, but it doesn't detect text field changes
+      setTasksVersion(prev => {
+        const next = prev + 1;
+        console.log('[TasksScreen] Forcing re-render by incrementing tasksVersion', { prev, next });
+        return next;
+      });
+      
+      // Give React a moment to process the state update
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
+      
+      // Log current tasks state after forced update
+      // Re-read from observable to get the latest data
+      const currentTasks = observableTasks || [];
+      console.log('[TasksScreen] Tasks state after forced update', {
+        taskInObservable: currentTasks.find(t => t.id === taskId)?.status,
+        taskInState: tasks.find(t => t.id === taskId)?.status,
+        allStatuses: currentTasks.map(t => ({ id: t.id.substring(0, 8), status: t.status }))
+      });
+      
+      // Background sync will happen automatically
+      
+      // Track analytics for completed tasks (don't await to avoid blocking)
       if (newStatus === 'completed') {
         const task = tasks.find(t => t.id === taskId);
         if (task) {
@@ -366,35 +463,42 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         }
       }
     } catch (error) {
-      console.error('Error updating task status:', error);
+      console.error('[TasksScreen] Error updating task status:', error);
       Alert.alert('Error', 'Failed to update task status');
     }
-  }, [tasks]);
+  }, [tasks, getLifecycleStatus]);
 
   const handleResetCompletedTask = useCallback(async (taskId: string) => {
-    const prevTasks = tasks;
     try {
-      const updatedTask = await tasksAPI.updateTask(taskId, { status: 'not_started' });
+      // Update using repository (local-first)
+      await taskRepository.updateTaskStatus(taskId, 'not_started');
       
       // Handle calendar event - remove any associated calendar events since task is no longer completed
       try {
-        const events = await enhancedAPI.getEventsForTask(taskId);
+        const eventsResponse = await enhancedAPI.getEventsForTask(taskId);
+        const events = extractCalendarEvents(eventsResponse);
         for (const event of events) {
-          await enhancedAPI.deleteEvent(event.id);
+          const eventId = (event as any)?.id ?? (event as any)?.event_id ?? (event as any)?.eventId;
+          if (!eventId) {
+            continue;
+          }
+          await enhancedAPI.deleteEvent(eventId);
         }
       } catch (error) {
         console.warn('Failed to remove calendar event:', error);
       }
       
+      // Force a UI refresh since WatermelonDB may not emit on status change
+      setTasksVersion(prev => prev + 1);
+
       setToastMessage('Task marked as incomplete');
       setToastCalendarEvent(false);
       setShowToast(true);
     } catch (error) {
       console.error('Error resetting task status:', error);
-      setTasks(prevTasks);
       Alert.alert('Error', 'Failed to reset task status');
     }
-  }, [tasks]);
+  }, []);
 
   // Helper function to format due date for display
   const formatDueDate = (dueDate: Date | string | undefined): string => {
@@ -646,8 +750,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       const endTime = new Date(target.getTime() + durationMinutes * 60 * 1000);
 
       // Check if a calendar event already exists for this task
-      const allEvents = await enhancedAPI.getEvents(500); // Get a large number to find existing events
-      const existingEvent = allEvents.find((event: any) => event.task_id === taskId);
+      const allEventsResponse = await enhancedAPI.getEvents(500); // Get a large number to find existing events
+      const allEvents = extractCalendarEvents(allEventsResponse);
+      const existingEvent = allEvents.find((event: any) => {
+        if (!event) {
+          return false;
+        }
+        const taskIdFromEvent = (event as any).task_id ?? (event as any).taskId;
+        return taskIdFromEvent === taskId;
+      });
 
       let wasRescheduled = false;
 
@@ -805,19 +916,19 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const _getActiveTasks = () => {
-    return tasks.filter(task => task.status !== 'completed');
+    return tasks.filter(task => getLifecycleStatus(task.status) !== 'completed');
   };
 
   const getCompletedTasks = () => {
-    return tasks.filter(task => task.status === 'completed');
+    return tasks.filter(task => getLifecycleStatus(task.status) === 'completed');
   };
 
   const getFocusTask = useCallback((): Task | undefined => {
-    return tasks.find(task => task.isTodayFocus && task.status !== 'completed');
+    return tasks.find(task => task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
   }, [tasks]);
 
   const inboxTasks = useMemo(() => {
-    return tasks.filter(task => !task.isTodayFocus && task.status !== 'completed');
+    return tasks.filter(task => !task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
   }, [tasks]);
 
   const getAutoScheduledTasks = () => {
@@ -856,8 +967,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     setShowInbox(false);
 
     try {
-      // Set the task as today's focus (immediate UI feedback)
-      const updated = await tasksAPI.updateTask(task.id, { is_today_focus: true });
+      // Set the task as today's focus using repository (local-first)
+      await taskRepository.setTaskAsFocus(task.id);
 
       // Show immediate feedback
       setToastMessage("Setting as Today's Focus...");
@@ -870,9 +981,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           // Remove any existing focus task's calendar event
           if (currentFocusTask) {
             try {
-              const focusEvents = await enhancedAPI.getEventsForTask(currentFocusTask.id);
+              const focusEventsResponse = await enhancedAPI.getEventsForTask(currentFocusTask.id);
+              const focusEvents = extractCalendarEvents(focusEventsResponse);
               for (const event of focusEvents) {
-                await enhancedAPI.deleteEvent(event.id);
+                const eventId = (event as any)?.id ?? (event as any)?.event_id ?? (event as any)?.eventId;
+                if (!eventId) {
+                  continue;
+                }
+                await enhancedAPI.deleteEvent(eventId);
               }
             } catch (removeError) {
               console.warn('Failed to remove previous focus task calendar event:', removeError);
@@ -1026,7 +1142,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         const lastPrompt = await AsyncStorage.getItem('lastEODPromptDate');
         eodLog('storage check', { lastPrompt, todayStr });
         if (lastPrompt === todayStr) {return;}
-        if (focus.status !== 'completed') {
+        if (getLifecycleStatus(focus.status) !== 'completed') {
           // prevent re-open if already visible
           if (showEodPrompt) { eodLog('prompt already visible, skipping re-open'); return; }
           eodFocusIdRef.current = focus.id;
@@ -1051,8 +1167,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   const handleFocusDone = useCallback(async (task: Task) => {
     try {
-      // Update task status immediately for responsive UI
-      const updated = await tasksAPI.updateTask(task.id, { status: 'completed' });
+      // Update task status immediately using repository (local-first)
+      await taskRepository.updateTaskStatus(task.id, 'completed');
       setToastMessage('Great job! Focus task completed.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1071,9 +1187,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             try {
               // Remove the completed task's calendar event
               try {
-                const completedEvents = await enhancedAPI.getEventsForTask(task.id);
+                const completedEventsResponse = await enhancedAPI.getEventsForTask(task.id);
+                const completedEvents = extractCalendarEvents(completedEventsResponse);
                 for (const event of completedEvents) {
-                  await enhancedAPI.deleteEvent(event.id);
+                  const eventId = (event as any)?.id ?? (event as any)?.event_id ?? (event as any)?.eventId;
+                  if (!eventId) {
+                    continue;
+                  }
+                  await enhancedAPI.deleteEvent(eventId);
                 }
               } catch (removeError) {
                 console.warn('Failed to remove completed focus task calendar event:', removeError);
@@ -1192,9 +1313,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     await markEodPrompted();
 
     try {
+      const tomorrowDate = new Date(yyyy, parseInt(mm) - 1, parseInt(dd));
       eodLog('updating task dueDate -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
-      const updated = await tasksAPI.updateTask(focus.id, { due_date: `${yyyy}-${mm}-${dd}` });
-      eodLog('update success, task updated', { updatedDue: updated?.due_date });
+      // Update using repository (local-first)
+      await taskRepository.updateTask(focus.id, { dueDate: tomorrowDate });
+      eodLog('update success, task updated', { updatedDue: `${yyyy}-${mm}-${dd}` });
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1231,10 +1354,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     try {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const yyyy = tomorrow.getFullYear();
-      const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
-      const dd = String(tomorrow.getDate()).padStart(2, '0');
-      const updated = await tasksAPI.updateTask(task.id, { due_date: `${yyyy}-${mm}-${dd}` });
+      // Update using repository (local-first)
+      await taskRepository.updateTask(task.id, { dueDate: tomorrow });
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
@@ -1287,9 +1408,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         try {
           // Remove the current focus task's calendar event
           try {
-            const currentEvents = await enhancedAPI.getEventsForTask(focus.id);
+            const currentEventsResponse = await enhancedAPI.getEventsForTask(focus.id);
+            const currentEvents = extractCalendarEvents(currentEventsResponse);
             for (const event of currentEvents) {
-              await enhancedAPI.deleteEvent(event.id);
+              const eventId = (event as any)?.id ?? (event as any)?.event_id ?? (event as any)?.eventId;
+              if (!eventId) {
+                continue;
+              }
+              await enhancedAPI.deleteEvent(eventId);
             }
           } catch (removeError) {
             console.warn('Failed to remove current focus task calendar event:', removeError);
@@ -2021,14 +2147,44 @@ const styles = StyleSheet.create({
 });
 
 // Create the enhanced component with WatermelonDB observables
-const enhance = withObservables(['database'], ({database}: {database: Database}) => ({
-  tasks: database.collections.get('tasks').query(
+// Note: withObservables automatically subscribes and re-renders when data changes
+const enhance = withObservables(['database'], ({database}: {database: Database}) => {
+  console.log('[TasksScreen] withObservables factory called');
+  const tasksQuery = database.collections.get('tasks').query(
     Q.where('status', Q.notEq('pending_delete'))
-  ).observe() as any, // Cast to Task[] for type compatibility
-  goals: database.collections.get('goals').query(
-    Q.where('status', Q.notEq('pending_delete'))
-  ).observe() as any, // Cast to Goal[] for type compatibility
-}));
+  );
+  // Observe the query - WatermelonDB automatically detects all field changes
+  const tasksObs = tasksQuery.observe();
+  
+  // Subscribe manually to debug
+  // NOTE: This creates a double subscription, but it's for debugging only
+  // withObservables will also subscribe to the same observable
+  const subscription = tasksObs.subscribe({
+    next: (tasks) => {
+      console.log('[TasksScreen] Observable emitted', { 
+        count: tasks.length, 
+        ids: tasks.map(t => t.id.substring(0, 8)),
+        statuses: tasks.map(t => ({ id: t.id.substring(0, 8), status: (t as Task).status }))
+      });
+    },
+    error: (err) => {
+      console.error('[TasksScreen] Observable error', err);
+    },
+    complete: () => {
+      console.log('[TasksScreen] Observable completed');
+    }
+  });
+  
+  // Store subscription for cleanup (though withObservables should handle this)
+  (tasksObs as any)._debugSubscription = subscription;
+  
+  return {
+    tasks: tasksObs as any, // Cast to Task[] for type compatibility
+    goals: database.collections.get('goals').query(
+      Q.where('status', Q.notEq('pending_delete'))
+    ).observe() as any, // Cast to Goal[] for type compatibility
+  };
+});
 
 const EnhancedTasksScreen = enhance(TasksScreen);
 

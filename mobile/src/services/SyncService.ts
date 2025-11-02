@@ -39,9 +39,29 @@ class SyncService {
       Q.where('status', Q.notEq('synced'))
     ).fetch();
 
-    const dirtyTasks = await database.get<Task>('tasks').query(
-      Q.where('status', Q.notEq('synced'))
-    ).fetch();
+    // Find tasks that need syncing: those with pending_* status or lifecycle status
+    // Tasks with combined format (pending_update:*) or sync statuses need syncing
+    // Query for status NOT 'synced' and NOT a pure lifecycle status (we want pending states)
+    const allTasks = await database.get<Task>('tasks').query().fetch();
+    const dirtyTasks = allTasks.filter(task => {
+      const status = task.status;
+      // Include tasks with sync statuses
+      if (status === 'pending_create' || status === 'pending_update' || status === 'pending_delete') {
+        return true;
+      }
+      // Include tasks with combined format (pending_update:* or pending_create:*)
+      if (typeof status === 'string' && (status.startsWith('pending_update:') || status.startsWith('pending_create:'))) {
+        return true;
+      }
+      // Exclude synced tasks
+      if (status === 'synced') {
+        return false;
+      }
+      // For legacy compatibility: if status is lifecycle-only, it still needs syncing check
+      // Actually, pure lifecycle statuses ('not_started', 'in_progress', 'completed') should be synced,
+      // so we don't include them here unless they're marked as needing sync
+      return false;
+    });
 
     const dirtyGoals = await database.get<Goal>('goals').query(
       Q.where('status', Q.notEq('synced'))
@@ -98,18 +118,46 @@ class SyncService {
               continue;
           }
         } else if (record instanceof Task) {
+          // Extract lifecycle status from status field
+          // Status can be: lifecycle status ('not_started', 'in_progress', 'completed')
+          // or combined format ('pending_update:<lifecycle_status>')
+          // or sync status ('pending_create', 'pending_delete', 'synced')
+          let lifecycleStatus = 'not_started';
+          let syncStatus = record.status;
+          
+          if (record.status.startsWith('pending_update:')) {
+            // Combined format: extract lifecycle status
+            const parts = record.status.split(':');
+            lifecycleStatus = parts[1] || 'not_started';
+            syncStatus = 'pending_update';
+          } else if (record.status.startsWith('pending_create:')) {
+            // Combined format for create
+            const parts = record.status.split(':');
+            lifecycleStatus = parts[1] || 'not_started';
+            syncStatus = 'pending_create';
+          } else if (['not_started', 'in_progress', 'completed'].includes(record.status)) {
+            // Direct lifecycle status
+            lifecycleStatus = record.status;
+            syncStatus = 'pending_update'; // Assume needs update if lifecycle status present
+          } else {
+            // Sync status only, extract lifecycle from default or preserved value
+            lifecycleStatus = 'not_started';
+          }
+          
           recordData = {
             title: record.title,
             description: record.description,
             priority: record.priority,
             estimated_duration_minutes: record.estimatedDurationMinutes,
             due_date: record.dueDate?.toISOString(),
-            goal_id: record.goalId,
-            is_today_focus: record.isTodayFocus,
+            // Only include optional fields if they have values (don't send null)
+            ...(record.goalId ? { goal_id: record.goalId } : {}),
+            ...(record.isTodayFocus !== undefined ? { is_today_focus: record.isTodayFocus } : {}),
+            status: lifecycleStatus, // Include lifecycle status in sync
             client_updated_at: record.updatedAt?.toISOString(),
           };
 
-          switch (record.status) {
+          switch (syncStatus) {
             case 'pending_create':
               serverResponse = await enhancedAPI.createTask(recordData);
               break;
@@ -200,11 +248,42 @@ class SyncService {
 
         // Update local record based on server action
         await database.write(async () => {
-          if (record.status === 'pending_delete') {
+          if (record.status === 'pending_delete' || 
+              (typeof record.status === 'string' && record.status.includes('pending_delete'))) {
             await record.destroyPermanently();
           } else {
+            // For tasks, preserve lifecycle status from server response if provided
+            let finalStatus: string;
+            if (record instanceof Task) {
+              // Extract lifecycle status from server response or preserve from current status
+              const serverLifecycleStatus = serverResponse?.status &&
+                ['not_started', 'in_progress', 'completed'].includes(serverResponse.status)
+                ? serverResponse.status
+                : null;
+              
+              // Extract from current combined format if present
+              let currentLifecycleStatus: string | null = null;
+              if (typeof record.status === 'string') {
+                if (record.status.startsWith('pending_update:')) {
+                  const parts = record.status.split(':');
+                  currentLifecycleStatus = parts[1] || null;
+                } else if (record.status.startsWith('pending_create:')) {
+                  const parts = record.status.split(':');
+                  currentLifecycleStatus = parts[1] || null;
+                } else if (['not_started', 'in_progress', 'completed'].includes(record.status)) {
+                  currentLifecycleStatus = record.status;
+                }
+              }
+              
+              // Use server status if available, otherwise preserve current
+              finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';
+            } else {
+              // Non-task records use 'synced' status
+              finalStatus = 'synced';
+            }
+            
             await record.update(r => {
-              r.status = 'synced';
+              r.status = finalStatus;
               if (serverResponse && serverResponse.updated_at) {
                 const parsedUpdatedAt = safeParseDate(serverResponse.updated_at);
                 if (parsedUpdatedAt) {
@@ -698,6 +777,42 @@ class SyncService {
     }
   }
 
+  /**
+   * Extracts the lifecycle status from a status string.
+   * Handles direct lifecycle status, combined format (pending_update:completed), or sync status.
+   * @param status - The status string to extract lifecycle status from
+   * @returns The lifecycle status: 'not_started', 'in_progress', or 'completed'
+   */
+  private extractLifecycleStatus(status: string | undefined | null): 'not_started' | 'in_progress' | 'completed' {
+    if (!status) return 'not_started';
+    
+    const lifecycleStatuses = ['not_started', 'in_progress', 'completed'];
+    const syncStatuses = ['pending_create', 'pending_update', 'pending_delete', 'synced'];
+    
+    const statusStr = String(status);
+    
+    // Check if it's a direct lifecycle status
+    if (lifecycleStatuses.includes(statusStr)) {
+      return statusStr as 'not_started' | 'in_progress' | 'completed';
+    }
+    
+    // Check if it's a combined format: "pending_update:completed" or "pending_create:not_started"
+    if (statusStr.includes(':')) {
+      const parts = statusStr.split(':');
+      if (parts.length > 1 && lifecycleStatuses.includes(parts[1])) {
+        return parts[1] as 'not_started' | 'in_progress' | 'completed';
+      }
+    }
+    
+    // If it's a pure sync status without lifecycle info, use default
+    if (syncStatuses.includes(statusStr)) {
+      return 'not_started';
+    }
+    
+    // Default fallback
+    return 'not_started';
+  }
+
   private async processTaskChange(taskData: TaskPayload, database: Database) {
     const taskCollection = database.get<Task>('tasks');
     const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
@@ -708,6 +823,22 @@ class SyncService {
     if (taskData.due_date && !parsedDueDate) {
       console.error(`Pull: Failed to parse due_date for task ${taskData.id}:`, taskData.due_date);
     }
+
+    // Determine lifecycle status from server response (preserve if not provided)
+    // Valid lifecycle statuses: 'not_started', 'in_progress', 'completed'
+    // Sync statuses: 'pending_create', 'pending_update', 'pending_delete', 'synced'
+    // Extract lifecycle status from combined format if needed
+    const serverLifecycleStatus = taskData.status 
+      ? this.extractLifecycleStatus(taskData.status)
+      : null;
+    const localLifecycleStatus = localTask 
+      ? this.extractLifecycleStatus(localTask.status as string)
+      : null;
+    
+    // Prefer server status if provided, otherwise preserve local lifecycle status, default to 'not_started'
+    const lifecycleStatus = serverLifecycleStatus !== null
+      ? serverLifecycleStatus
+      : (localLifecycleStatus !== null ? localLifecycleStatus : 'not_started');
 
     if (localTask) {
       // Update existing task
@@ -725,7 +856,8 @@ class SyncService {
         }
         record.goalId = taskData.goal_id;
         record.isTodayFocus = taskData.is_today_focus;
-        record.status = 'synced';
+        // Preserve lifecycle status from server, not sync status
+        record.status = lifecycleStatus;
       });
     } else {
       // Create new task
@@ -745,7 +877,8 @@ class SyncService {
         record.goalId = taskData.goal_id;
         record.isTodayFocus = taskData.is_today_focus;
         record.userId = taskData.user_id || '';
-        record.status = 'synced';
+        // Use lifecycle status from server, not sync status
+        record.status = lifecycleStatus;
       });
     }
   }
