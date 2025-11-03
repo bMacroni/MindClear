@@ -14,22 +14,49 @@ param(
 
 Write-Host "Setting up environment variables for release build..." -ForegroundColor Green
 
-# Set environment variables for the build
-$env:KEYSTORE_PATH = $KeystorePath
-$env:KEYSTORE_PASSWORD = $KeystorePassword
-$env:KEY_ALIAS = $KeyAlias
-$env:KEY_PASSWORD = $KeyPassword
-
-Write-Host "Keystore Path: $KeystorePath" -ForegroundColor Cyan
-Write-Host "Key Alias: $KeyAlias" -ForegroundColor Cyan
+# Convert keystore path to absolute path if it's relative
+# This ensures Gradle can find it regardless of the working directory
+$KeystoreAbsolutePath = if ([System.IO.Path]::IsPathRooted($KeystorePath)) {
+    $KeystorePath
+} else {
+    # Resolve relative path from the mobile directory
+    $mobileDir = if (Test-Path "package.json") { $PWD } else { Join-Path $PWD "mobile" }
+    
+    # First try resolving as-is (in case it's already relative to mobile dir)
+    $testPath = Join-Path $mobileDir $KeystorePath
+    if (Test-Path $testPath) {
+        (Resolve-Path $testPath).Path
+    } else {
+        # Try resolving from android/app directory structure
+        $androidAppPath = Join-Path $mobileDir "android\app\$KeystorePath"
+        if (Test-Path $androidAppPath) {
+            (Resolve-Path $androidAppPath).Path
+        } else {
+            # Fallback: try resolving the path directly
+            try {
+                (Resolve-Path $KeystorePath).Path
+            } catch {
+                $KeystorePath
+            }
+        }
+    }
+}
 
 # Verify keystore file exists
-if (-not (Test-Path $KeystorePath)) {
-    Write-Error "Keystore file not found at: $KeystorePath"
+if (-not (Test-Path $KeystoreAbsolutePath)) {
+    Write-Error "Keystore file not found at: $KeystoreAbsolutePath"
     Write-Host "Please ensure the keystore file exists before running this script." -ForegroundColor Red
     exit 1
 }
 
+# Set environment variables for the build (use absolute path)
+$env:KEYSTORE_PATH = $KeystoreAbsolutePath
+$env:KEYSTORE_PASSWORD = $KeystorePassword
+$env:KEY_ALIAS = $KeyAlias
+$env:KEY_PASSWORD = $KeyPassword
+
+Write-Host "Keystore Path: $KeystoreAbsolutePath" -ForegroundColor Cyan
+Write-Host "Key Alias: $KeyAlias" -ForegroundColor Cyan
 Write-Host "Keystore file found" -ForegroundColor Green
 
 # Navigate to mobile directory if not already there
