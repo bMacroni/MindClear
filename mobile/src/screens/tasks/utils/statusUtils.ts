@@ -9,11 +9,13 @@ export const getLifecycleStatus = (status: string): LifecycleStatus => {
 
   if (status.includes(':')) {
     const parts = status.split(':');
-    if (parts.length > 1 && lifecycleStatuses.includes(parts[1] as LifecycleStatus)) {
-      return parts[1] as LifecycleStatus;
+    for (const part of parts) {
+      const trimmedPart = part.trim();
+      if (lifecycleStatuses.includes(trimmedPart as LifecycleStatus)) {
+        return trimmedPart as LifecycleStatus;
+      }
     }
   }
-
   return 'not_started';
 };
 

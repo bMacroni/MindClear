@@ -58,11 +58,6 @@ interface InternalTasksScreenProps {
   goals: Goal[];
 }
 
-type TasksScreenObservableProps = {
-  tasks: Observable<Task[]>;
-  goals: Observable<Goal[]>;
-};
-
 const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
@@ -80,30 +75,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   }, [tasksFromObservable, tasksVersion]);
   const goals = observableGoals || [];
   
-  // Debug: Log component render and check if tasks reference changed
-  const tasksRef = React.useRef<Task[]>(tasks);
-  React.useEffect(() => {
-    const tasksChanged = tasksRef.current !== tasks;
-    const taskIdsChanged = tasksRef.current.length !== tasks.length || 
-      tasksRef.current.some((t, i) => t.id !== tasks[i]?.id);
-    const statusChanged = tasks.some(t => {
-      const oldTask = tasksRef.current.find(ot => ot.id === t.id);
-      return oldTask && oldTask.status !== t.status;
-    });
-    
-    console.log('[TasksScreen] Component rendered/re-rendered', {
-      tasksCount: tasks.length,
-      observableTasksType: typeof observableTasks,
-      isArray: Array.isArray(observableTasks),
-      tasksRefChanged: tasksChanged,
-      taskIdsChanged,
-      statusChanged,
-      tasksVersion,
-      sampleStatuses: tasks.slice(0, 3).map(t => ({ id: t.id.substring(0, 8), status: t.status }))
-    });
-    
-    tasksRef.current = tasks;
-  }, [tasks, observableTasks, tasksVersion]);
   const [loading, setLoading] = useState(false); // Start with false since we have observable data
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -124,22 +95,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   // or sync status ('pending_create', 'pending_update', 'pending_delete', 'synced')
   const getLifecycleStatus = React.useCallback(extractLifecycleStatus, []);
 
-  // Debug: Log when observable tasks change
-  useEffect(() => {
-    if (__DEV__) {
-      console.log('[TasksScreen] Tasks changed', { 
-        count: tasks.length,
-        tasksArray: tasks,
-        taskIds: tasks.map(t => t.id.substring(0, 8)),
-        sampleStatuses: tasks.slice(0, 5).map(t => ({ 
-          id: t.id.substring(0, 8), 
-          title: t.title.substring(0, 20), 
-          status: t.status, 
-          lifecycle: getLifecycleStatus(t.status) 
-        }))
-      });
-    }
-  }, [tasks, getLifecycleStatus]);  const [showEodPrompt, setShowEodPrompt] = useState(false);
+  const [showEodPrompt, setShowEodPrompt] = useState(false);
   const [quickMenuVisible, setQuickMenuVisible] = useState(false);
   const [quickAnchor, setQuickAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
   const [quickOpenedAt, setQuickOpenedAt] = useState<number | undefined>(undefined);
@@ -383,51 +339,19 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   const handleToggleStatus = useCallback(async (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
     try {
-      console.log('[TasksScreen] handleToggleStatus called', { taskId, newStatus });
-      
-      // Find the task before update to compare
-      const taskBefore = tasks.find(t => t.id === taskId);
-      console.log('[TasksScreen] Task before update', { 
-        taskId, 
-        oldStatus: taskBefore?.status,
-        found: !!taskBefore
-      });
-      
       // Update using repository (local-first)
-      const updatedTask = await taskRepository.updateTaskStatus(taskId, newStatus);
-      console.log('[TasksScreen] Task updated in repository', { taskId, newStatus, updatedStatus: updatedTask.status });
+      await taskRepository.updateTaskStatus(taskId, newStatus);
       
       // Force a small delay to allow WatermelonDB to process the update
       await new Promise<void>(resolve => setTimeout(resolve, 100));
       
-      // Verify the update by checking the task again
-      const verifyTask = await taskRepository.getTaskById(taskId);
-      console.log('[TasksScreen] Verified task status', { 
-        taskId, 
-        status: verifyTask?.status, 
-        lifecycleStatus: verifyTask ? getLifecycleStatus(verifyTask.status) : 'not found' 
-      });
-      
       // Force a re-render by incrementing tasksVersion
       // This is a workaround for WatermelonDB observable not emitting on field changes
       // The observable should emit automatically, but it doesn't detect text field changes
-      setTasksVersion(prev => {
-        const next = prev + 1;
-        console.log('[TasksScreen] Forcing re-render by incrementing tasksVersion', { prev, next });
-        return next;
-      });
+      setTasksVersion(prev => prev + 1);
       
       // Give React a moment to process the state update
       await new Promise<void>(resolve => setTimeout(resolve, 50));
-      
-      // Log current tasks state after forced update
-      // Re-read from observable to get the latest data
-      const currentTasks = observableTasks || [];
-      console.log('[TasksScreen] Tasks state after forced update', {
-        taskInObservable: currentTasks.find(t => t.id === taskId)?.status,
-        taskInState: tasks.find(t => t.id === taskId)?.status,
-        allStatuses: currentTasks.map(t => ({ id: t.id.substring(0, 8), status: t.status }))
-      });
       
       // Background sync will happen automatically
       
@@ -2134,10 +2058,10 @@ const styles = StyleSheet.create({
 
 // Create the enhanced component with WatermelonDB observables
 // Note: withObservables automatically subscribes and re-renders when data changes
-const enhance = withObservables<{ database: Database }, TasksScreenObservableProps>(
+const enhance = withObservables<{ database: Database }, "tasks" | "goals">(
   ['database'],
+  // @ts-expect-error - WatermelonDB's withObservables type definition expects the factory to return the keys, but implementation requires observables object
   ({ database }) => {
-  console.log('[TasksScreen] withObservables factory called');
   const tasksQuery = database.collections.get<Task>('tasks').query(
     Q.where('status', Q.notEq('pending_delete'))
   );

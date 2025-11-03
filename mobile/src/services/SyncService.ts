@@ -78,11 +78,8 @@ class SyncService {
     const allDirtyRecords = [...dirtyEvents, ...dirtyTasks, ...dirtyGoals, ...dirtyMilestones, ...dirtyMilestoneSteps];
 
     if (allDirtyRecords.length === 0) {
-      console.log('Push: No local changes to push.');
       return;
     }
-
-    console.log(`Push: Found ${allDirtyRecords.length} local changes to push.`);
 
     const pushErrors: { recordId: string; error: any }[] = [];
 
@@ -238,11 +235,10 @@ class SyncService {
                   ? serverStatus
                   : null;
 
-              const currentLifecycleStatus = this.extractLifecycleStatus(record.status as string | undefined | null);
+              const { lifecycleStatus: currentLifecycleStatus } = this.extractLifecycleStatus(record.status as string | undefined | null);
 
               // Use server status if available, otherwise preserve current
-              finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';
-            } else {
+              finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';            } else {
               // Non-task records use 'synced' status
               finalStatus = 'synced';
             }
@@ -354,9 +350,6 @@ class SyncService {
               });
             }
           });
-          console.log(
-            `Push: Marked ${recordsToUpdate.length} records as sync_failed.`,
-          );
         } catch (dbError) {
           console.error(
             'Push: Failed to mark records as sync_failed.',
@@ -365,14 +358,11 @@ class SyncService {
         }
       }
     }
-
-    console.log('Push: Finished pushing local changes.');
   }
 
   async pullData() {
     const database = getDatabase();
     const lastSyncedAt = await AsyncStorage.getItem(LAST_SYNCED_AT_KEY);
-    console.log(`Pull: Last synced at: ${lastSyncedAt}`);
 
     const serverTimeBeforePull = new Date().toISOString();
 
@@ -436,7 +426,6 @@ class SyncService {
             } else if (fullGoals && typeof fullGoals === 'object') {
               changedGoals = fullGoals.changed || [];
             }
-            console.log('Pull: Applied fallback full goals fetch to hydrate milestones/steps.');
           }
         }
       } catch (fallbackErr) {
@@ -479,12 +468,9 @@ class SyncService {
       ];
 
       if (allChanges.length === 0 && allDeletedIds.length === 0) {
-        console.log('Pull: No new data from server.');
         await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
         return;
       }
-
-      console.log(`Pull: Received ${allChanges.length} changed and ${allDeletedIds.length} deleted items from the server.`);
 
       await database.write(async () => {
         // Process deletions first
@@ -496,7 +482,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} events`);
           }
           
           // Process task deletions
@@ -506,7 +491,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} tasks`);
           }
           
           // Process goal deletions
@@ -516,7 +500,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} goals`);
           }
 
           // Process milestone deletions
@@ -526,7 +509,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} milestones`);
           }
 
           // Process milestone step deletions
@@ -536,7 +518,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} milestone steps`);
           }
         }
 
@@ -566,7 +547,6 @@ class SyncService {
 
       // After a successful pull, save the server's timestamp
       await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
-      console.log(`Pull: Successfully processed changes. New sync time: ${serverTimeBeforePull}`);
 
     } catch (error: any) {
       let userMessage = 'An unknown error occurred while syncing.';
@@ -609,12 +589,10 @@ class SyncService {
   async sync(silent = false) {
     const user = authService.getCurrentUser();
     if (!user) {
-      console.log('Sync skipped: No authenticated user.');
       return;
     }
 
     if (this.isSyncing) {
-      console.log('Sync already in progress. Skipping.');
       if (!silent) {
         notificationService.showInAppNotification('Sync in Progress', 'A sync is already running.');
       }
@@ -660,14 +638,6 @@ class SyncService {
     const goals = await database.get<Goal>('goals').query().fetch();
     const milestones = await database.get<Milestone>('milestones').query().fetch();
     const steps = await database.get<MilestoneStep>('milestone_steps').query().fetch();
-
-    console.log('Debug DB Contents:', {
-      events: events.length,
-      tasks: tasks.length,
-      goals: goals.length,
-      milestones: milestones.length,
-      steps: steps.length,
-    });
 
     return { events, tasks, goals, milestones, steps };
   }

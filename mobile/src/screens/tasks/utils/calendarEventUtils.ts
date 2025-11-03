@@ -113,7 +113,7 @@ export const extractCalendarEvents = (response: unknown): CalendarEvent[] => {
 
     return validateCalendarEvents(candidates);
   } catch (error) {
-    console.error('Error extracting calendar events:', error);
-    return [];
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    throw new Error(`Failed to extract calendar events: ${message}`);
   }
 };

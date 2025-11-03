@@ -55,5 +55,22 @@ describe('extractCalendarEvents', () => {
 
     warnSpy.mockRestore();
   });
+
+  it('throws error when extraction fails instead of returning empty array', () => {
+    // Create an object with a property that throws when accessed
+    const throwingObject: any = {};
+    const errorMessage = 'Access denied';
+    Object.defineProperty(throwingObject, 'data', {
+      get() {
+        throw new Error(errorMessage);
+      },
+      enumerable: true,
+      configurable: true,
+    });
+
+    // The function should throw an error with a contextual message
+    expect(() => extractCalendarEvents(throwingObject)).toThrow('Failed to extract calendar events');
+    expect(() => extractCalendarEvents(throwingObject)).toThrow(errorMessage);
+  });
 });
 

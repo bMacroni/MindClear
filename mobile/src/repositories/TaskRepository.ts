@@ -153,21 +153,8 @@ export class TaskRepository {
         // Store lifecycle status with sync marker: "pending_update:<lifecycle_status>"
         // SyncService will extract lifecycle status during push
         const newStatus = `pending_update:${newLifecycleStatus}`;
-        console.log('[TaskRepository] Updating task status', { 
-          taskId: task.id, 
-          oldStatus: task.status, 
-          newLifecycleStatus, 
-          newStatus 
-        });
         t.status = newStatus;
         t.updatedAt = new Date();
-      });
-      
-      // Verify the update after the transaction completes
-      console.log('[TaskRepository] Update transaction completed', {
-        taskId: updatedTask.id,
-        newStatus: updatedTask.status,
-        updatedAt: updatedTask.updatedAt
       });
       
       return updatedTask;

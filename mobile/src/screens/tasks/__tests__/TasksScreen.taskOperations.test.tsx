@@ -239,13 +239,11 @@ describe('TasksScreen Task Operations', () => {
         status: 'pending_create:completed',
       });
 
-      const utils = render(
+      const { getByText, getByPlaceholderText, getByLabelText } = render(
         <NavigationContainer>
           <TasksScreen tasks={mockTasks} goals={mockGoals} />
         </NavigationContainer>
       );
-
-      const { getByText, getByPlaceholderText } = utils;
 
       const createButton = getByText('+');
       fireEvent.press(createButton);
@@ -256,7 +254,7 @@ describe('TasksScreen Task Operations', () => {
       const completedStatus = getByText('Completed');
       fireEvent.press(completedStatus);
 
-      const saveButton = await waitFor(() => (utils as any).getByLabelText('Save task'));
+      const saveButton = await waitFor(() => getByLabelText('Save task'));
       fireEvent.press(saveButton);
 
       await waitFor(() => {
@@ -266,8 +264,7 @@ describe('TasksScreen Task Operations', () => {
             status: 'completed',
           })
         );
-      });
-    });
+      });    });
   });
 
   describe('Task Deletion', () => {
