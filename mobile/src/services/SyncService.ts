@@ -346,7 +346,14 @@ class SyncService {
           await database.write(async () => {
             for (const record of recordsToUpdate) {
               await record.update(r => {
-                r.status = 'sync_failed';
+                // For tasks, preserve lifecycle status using combined format
+                if (record instanceof Task) {
+                  const { lifecycleStatus } = this.extractLifecycleStatus(record.status);
+                  r.status = `sync_failed:${lifecycleStatus}`;
+                } else {
+                  // For non-task records, just set sync_failed
+                  r.status = 'sync_failed';
+                }
               });
             }
           });
@@ -723,7 +730,7 @@ class SyncService {
     syncStatus: string | undefined;
   } {
     const lifecycleStatuses: Array<'not_started' | 'in_progress' | 'completed'> = ['not_started', 'in_progress', 'completed'];
-    const syncStatuses = ['pending_create', 'pending_update', 'pending_delete', 'synced'];
+    const syncStatuses = ['pending_create', 'pending_update', 'pending_delete', 'synced', 'sync_failed'];
     const defaultLifecycleStatus: 'not_started' | 'in_progress' | 'completed' = 'not_started';
     const isLifecycleStatus = (value: string): value is 'not_started' | 'in_progress' | 'completed' =>
       (lifecycleStatuses as string[]).includes(value);

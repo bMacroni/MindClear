@@ -273,7 +273,7 @@ describe('SyncService Task Status Handling', () => {
 
       const failedTask = await taskRepository.getTaskById(task.id);
 
-      expect(failedTask?.status).toBe('sync_failed');
+      expect(failedTask?.status).toBe('sync_failed:not_started');
       expect(mockShowInAppNotification).toHaveBeenCalledWith(
         'Push Incomplete',
         expect.stringContaining('Failed to push'),
@@ -284,7 +284,18 @@ describe('SyncService Task Status Handling', () => {
   describe('Pull Data - Processing Server Responses', () => {
     test.todo('processes server response with lifecycle status');
 
-    test('preserves local lifecycle status during conflict resolution', async () => {
+    /**
+     * Conflict Resolution Strategy: Server-Wins
+     * 
+     * When pushing a task and receiving a server response with a different lifecycle status,
+     * the SyncService uses a server-wins strategy. This means:
+     * - If the server response includes a valid lifecycle status, it overrides the local status
+     * - If the server response doesn't include a status, the local status is preserved
+     * 
+     * Reference: SyncService.ts lines 228-241
+     * Implementation: `finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';`
+     */
+    test('uses server lifecycle status when server response differs from local (server-wins strategy)', async () => {
       // Create task locally with completed status
       const task = await taskRepository.createTask({
         title: 'Local Task',
@@ -295,14 +306,35 @@ describe('SyncService Task Status Handling', () => {
       mockCreateTask.mockResolvedValue({
         id: task.id,
         title: 'Local Task',
-        status: 'in_progress', // Different from local
+        status: 'in_progress', // Different from local - server-wins
       });
 
       await syncService.pushData();
 
       const resolvedTask = await taskRepository.getTaskById(task.id);
-      // Verify conflict resolution behavior
-      expect(resolvedTask?.status).toBe('completed'); // Or 'in_progress' based on resolution strategy
+      // Server-wins strategy: server status 'in_progress' overrides local 'completed'
+      expect(resolvedTask?.status).toBe('in_progress');
+    });
+
+    test('preserves local lifecycle status when server response lacks status (local-wins fallback)', async () => {
+      // Create task locally with completed status
+      const task = await taskRepository.createTask({
+        title: 'Local Task',
+        status: 'completed',
+      });
+
+      // Simulate server response without status field
+      mockCreateTask.mockResolvedValue({
+        id: task.id,
+        title: 'Local Task',
+        // No status field - local status should be preserved
+      });
+
+      await syncService.pushData();
+
+      const resolvedTask = await taskRepository.getTaskById(task.id);
+      // Local-wins fallback: when server doesn't provide status, local 'completed' is preserved
+      expect(resolvedTask?.status).toBe('completed');
     });
   });
 

@@ -150,10 +150,14 @@ export class TaskRepository {
         if (data.dueDate !== undefined) t.dueDate = data.dueDate;
         if (data.goalId !== undefined) t.goalId = data.goalId;
         if (data.isTodayFocus !== undefined) t.isTodayFocus = data.isTodayFocus;
-        // Store lifecycle status with sync marker: "pending_update:<lifecycle_status>"
+        // Store lifecycle status with sync marker, preserving pending_create for offline-created tasks
         // SyncService will extract lifecycle status during push
-        const newStatus = `pending_update:${newLifecycleStatus}`;
-        t.status = newStatus;
+        const currentStatus = t.status as string;
+        if (currentStatus && currentStatus.startsWith('pending_create:')) {
+          t.status = `pending_create:${newLifecycleStatus}`;
+        } else {
+          t.status = `pending_update:${newLifecycleStatus}`;
+        }
         t.updatedAt = new Date();
       });
       
@@ -259,8 +263,13 @@ export class TaskRepository {
 
           await task.update(t => {
             t.isTodayFocus = false;
-            // Preserve lifecycle status while marking for sync
-            t.status = `pending_update:${currentLifecycleStatus}`;
+            // Preserve lifecycle status while marking for sync, preserving pending_create for offline-created tasks
+            const currentStatus = t.status as string;
+            if (currentStatus && currentStatus.startsWith('pending_create:')) {
+              t.status = `pending_create:${currentLifecycleStatus}`;
+            } else {
+              t.status = `pending_update:${currentLifecycleStatus}`;
+            }
             t.updatedAt = new Date();
           });
         }
