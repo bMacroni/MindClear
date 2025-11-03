@@ -39,9 +39,29 @@ class SyncService {
       Q.where('status', Q.notEq('synced'))
     ).fetch();
 
-    const dirtyTasks = await database.get<Task>('tasks').query(
-      Q.where('status', Q.notEq('synced'))
-    ).fetch();
+    // Find tasks that need syncing: those with pending_* status or lifecycle status
+    // Tasks with combined format (pending_update:*) or sync statuses need syncing
+    // Query for status NOT 'synced' and NOT a pure lifecycle status (we want pending states)
+    const allTasks = await database.get<Task>('tasks').query().fetch();
+    const dirtyTasks = allTasks.filter(task => {
+      const status = task.status;
+      // Include tasks with sync statuses
+      if (status === 'pending_create' || status === 'pending_update' || status === 'pending_delete') {
+        return true;
+      }
+      // Include tasks with combined format (pending_update:* or pending_create:*)
+      if (typeof status === 'string' && (status.startsWith('pending_update:') || status.startsWith('pending_create:'))) {
+        return true;
+      }
+      // Exclude synced tasks
+      if (status === 'synced') {
+        return false;
+      }
+      // For legacy compatibility: if status is lifecycle-only, it still needs syncing check
+      // Actually, pure lifecycle statuses ('not_started', 'in_progress', 'completed') should be synced,
+      // so we don't include them here unless they're marked as needing sync
+      return false;
+    });
 
     const dirtyGoals = await database.get<Goal>('goals').query(
       Q.where('status', Q.notEq('synced'))
@@ -58,11 +78,8 @@ class SyncService {
     const allDirtyRecords = [...dirtyEvents, ...dirtyTasks, ...dirtyGoals, ...dirtyMilestones, ...dirtyMilestoneSteps];
 
     if (allDirtyRecords.length === 0) {
-      console.log('Push: No local changes to push.');
       return;
     }
-
-    console.log(`Push: Found ${allDirtyRecords.length} local changes to push.`);
 
     const pushErrors: { recordId: string; error: any }[] = [];
 
@@ -98,18 +115,22 @@ class SyncService {
               continue;
           }
         } else if (record instanceof Task) {
+          const { lifecycleStatus, syncStatus } = this.extractLifecycleStatus(record.status);
+
           recordData = {
             title: record.title,
             description: record.description,
             priority: record.priority,
             estimated_duration_minutes: record.estimatedDurationMinutes,
             due_date: record.dueDate?.toISOString(),
-            goal_id: record.goalId,
-            is_today_focus: record.isTodayFocus,
+            // Only include optional fields if they have values (don't send null)
+            ...(record.goalId ? { goal_id: record.goalId } : {}),
+            ...(record.isTodayFocus !== undefined ? { is_today_focus: record.isTodayFocus } : {}),
+            status: lifecycleStatus, // Include lifecycle status in sync
             client_updated_at: record.updatedAt?.toISOString(),
           };
 
-          switch (record.status) {
+          switch (syncStatus) {
             case 'pending_create':
               serverResponse = await enhancedAPI.createTask(recordData);
               break;
@@ -200,11 +221,30 @@ class SyncService {
 
         // Update local record based on server action
         await database.write(async () => {
-          if (record.status === 'pending_delete') {
+          if (record.status === 'pending_delete' || 
+              (typeof record.status === 'string' && record.status.includes('pending_delete'))) {
             await record.destroyPermanently();
           } else {
+            // For tasks, preserve lifecycle status from server response if provided
+            let finalStatus: string;
+            if (record instanceof Task) {
+              // Extract lifecycle status from server response or preserve from current status
+              const serverStatus = serverResponse?.status;
+              const serverLifecycleStatus =
+                serverStatus === 'not_started' || serverStatus === 'in_progress' || serverStatus === 'completed'
+                  ? serverStatus
+                  : null;
+
+              const { lifecycleStatus: currentLifecycleStatus } = this.extractLifecycleStatus(record.status as string | undefined | null);
+
+              // Use server status if available, otherwise preserve current
+              finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';            } else {
+              // Non-task records use 'synced' status
+              finalStatus = 'synced';
+            }
+            
             await record.update(r => {
-              r.status = 'synced';
+              r.status = finalStatus;
               if (serverResponse && serverResponse.updated_at) {
                 const parsedUpdatedAt = safeParseDate(serverResponse.updated_at);
                 if (parsedUpdatedAt) {
@@ -306,13 +346,17 @@ class SyncService {
           await database.write(async () => {
             for (const record of recordsToUpdate) {
               await record.update(r => {
-                r.status = 'sync_failed';
+                // For tasks, preserve lifecycle status using combined format
+                if (record instanceof Task) {
+                  const { lifecycleStatus } = this.extractLifecycleStatus(record.status);
+                  r.status = `sync_failed:${lifecycleStatus}`;
+                } else {
+                  // For non-task records, just set sync_failed
+                  r.status = 'sync_failed';
+                }
               });
             }
           });
-          console.log(
-            `Push: Marked ${recordsToUpdate.length} records as sync_failed.`,
-          );
         } catch (dbError) {
           console.error(
             'Push: Failed to mark records as sync_failed.',
@@ -321,14 +365,11 @@ class SyncService {
         }
       }
     }
-
-    console.log('Push: Finished pushing local changes.');
   }
 
   async pullData() {
     const database = getDatabase();
     const lastSyncedAt = await AsyncStorage.getItem(LAST_SYNCED_AT_KEY);
-    console.log(`Pull: Last synced at: ${lastSyncedAt}`);
 
     const serverTimeBeforePull = new Date().toISOString();
 
@@ -392,7 +433,6 @@ class SyncService {
             } else if (fullGoals && typeof fullGoals === 'object') {
               changedGoals = fullGoals.changed || [];
             }
-            console.log('Pull: Applied fallback full goals fetch to hydrate milestones/steps.');
           }
         }
       } catch (fallbackErr) {
@@ -435,12 +475,9 @@ class SyncService {
       ];
 
       if (allChanges.length === 0 && allDeletedIds.length === 0) {
-        console.log('Pull: No new data from server.');
         await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
         return;
       }
-
-      console.log(`Pull: Received ${allChanges.length} changed and ${allDeletedIds.length} deleted items from the server.`);
 
       await database.write(async () => {
         // Process deletions first
@@ -452,7 +489,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} events`);
           }
           
           // Process task deletions
@@ -462,7 +498,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} tasks`);
           }
           
           // Process goal deletions
@@ -472,7 +507,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} goals`);
           }
 
           // Process milestone deletions
@@ -482,7 +516,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} milestones`);
           }
 
           // Process milestone step deletions
@@ -492,7 +525,6 @@ class SyncService {
             for (const record of recordsToDelete) {
               await record.destroyPermanently();
             }
-            console.log(`Pull: Deleted ${recordsToDelete.length} milestone steps`);
           }
         }
 
@@ -522,7 +554,6 @@ class SyncService {
 
       // After a successful pull, save the server's timestamp
       await AsyncStorage.setItem(LAST_SYNCED_AT_KEY, serverTimeBeforePull);
-      console.log(`Pull: Successfully processed changes. New sync time: ${serverTimeBeforePull}`);
 
     } catch (error: any) {
       let userMessage = 'An unknown error occurred while syncing.';
@@ -565,12 +596,10 @@ class SyncService {
   async sync(silent = false) {
     const user = authService.getCurrentUser();
     if (!user) {
-      console.log('Sync skipped: No authenticated user.');
       return;
     }
 
     if (this.isSyncing) {
-      console.log('Sync already in progress. Skipping.');
       if (!silent) {
         notificationService.showInAppNotification('Sync in Progress', 'A sync is already running.');
       }
@@ -616,14 +645,6 @@ class SyncService {
     const goals = await database.get<Goal>('goals').query().fetch();
     const milestones = await database.get<Milestone>('milestones').query().fetch();
     const steps = await database.get<MilestoneStep>('milestone_steps').query().fetch();
-
-    console.log('Debug DB Contents:', {
-      events: events.length,
-      tasks: tasks.length,
-      goals: goals.length,
-      milestones: milestones.length,
-      steps: steps.length,
-    });
 
     return { events, tasks, goals, milestones, steps };
   }
@@ -698,6 +719,61 @@ class SyncService {
     }
   }
 
+  /**
+   * Extracts lifecycle and sync status information from a status string.
+   * Handles direct lifecycle status, combined formats (pending_update:completed), and pure sync statuses.
+   * @param status - The status string to extract information from
+   * @returns An object containing lifecycleStatus and syncStatus values
+   */
+  private extractLifecycleStatus(status: string | undefined | null): {
+    lifecycleStatus: 'not_started' | 'in_progress' | 'completed';
+    syncStatus: string | undefined;
+  } {
+    const lifecycleStatuses: Array<'not_started' | 'in_progress' | 'completed'> = ['not_started', 'in_progress', 'completed'];
+    const syncStatuses = ['pending_create', 'pending_update', 'pending_delete', 'synced', 'sync_failed'];
+    const defaultLifecycleStatus: 'not_started' | 'in_progress' | 'completed' = 'not_started';
+    const isLifecycleStatus = (value: string): value is 'not_started' | 'in_progress' | 'completed' =>
+      (lifecycleStatuses as string[]).includes(value);
+
+    if (!status) {
+      return {
+        lifecycleStatus: defaultLifecycleStatus,
+        syncStatus: undefined,
+      };
+    }
+
+    const statusStr = String(status);
+
+    if (statusStr.includes(':')) {
+      const [syncPart, lifecyclePart] = statusStr.split(':');
+      if (lifecyclePart && isLifecycleStatus(lifecyclePart) && syncStatuses.includes(syncPart)) {
+        return {
+          lifecycleStatus: lifecyclePart,
+          syncStatus: syncPart,
+        };
+      }
+    }
+
+    if (isLifecycleStatus(statusStr)) {
+      return {
+        lifecycleStatus: statusStr,
+        syncStatus: 'pending_update',
+      };
+    }
+
+    if (syncStatuses.includes(statusStr)) {
+      return {
+        lifecycleStatus: defaultLifecycleStatus,
+        syncStatus: statusStr,
+      };
+    }
+
+    return {
+      lifecycleStatus: defaultLifecycleStatus,
+      syncStatus: statusStr,
+    };
+  }
+
   private async processTaskChange(taskData: TaskPayload, database: Database) {
     const taskCollection = database.get<Task>('tasks');
     const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
@@ -708,6 +784,24 @@ class SyncService {
     if (taskData.due_date && !parsedDueDate) {
       console.error(`Pull: Failed to parse due_date for task ${taskData.id}:`, taskData.due_date);
     }
+
+    // Determine lifecycle status from server response (preserve if not provided)
+    // Valid lifecycle statuses: 'not_started', 'in_progress', 'completed'
+    // Sync statuses: 'pending_create', 'pending_update', 'pending_delete', 'synced'
+    // Extract lifecycle status from combined format if needed
+    const serverStatusInfo = taskData.status 
+      ? this.extractLifecycleStatus(taskData.status)
+      : null;
+    const serverLifecycleStatus = serverStatusInfo?.lifecycleStatus ?? null;
+    const localStatusInfo = localTask 
+      ? this.extractLifecycleStatus(localTask.status as string)
+      : null;
+    const localLifecycleStatus = localStatusInfo?.lifecycleStatus ?? null;
+    
+    // Prefer server status if provided, otherwise preserve local lifecycle status, default to 'not_started'
+    const lifecycleStatus = serverLifecycleStatus !== null
+      ? serverLifecycleStatus
+      : (localLifecycleStatus !== null ? localLifecycleStatus : 'not_started');
 
     if (localTask) {
       // Update existing task
@@ -725,7 +819,8 @@ class SyncService {
         }
         record.goalId = taskData.goal_id;
         record.isTodayFocus = taskData.is_today_focus;
-        record.status = 'synced';
+        // Preserve lifecycle status from server, not sync status
+        record.status = lifecycleStatus;
       });
     } else {
       // Create new task
@@ -745,7 +840,8 @@ class SyncService {
         record.goalId = taskData.goal_id;
         record.isTodayFocus = taskData.is_today_focus;
         record.userId = taskData.user_id || '';
-        record.status = 'synced';
+        // Use lifecycle status from server, not sync status
+        record.status = lifecycleStatus;
       });
     }
   }
@@ -913,3 +1009,4 @@ class SyncService {
 }
 
 export const syncService = new SyncService();
+

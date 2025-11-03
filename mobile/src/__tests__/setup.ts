@@ -17,27 +17,122 @@ jest.mock('@react-native-community/netinfo', () => ({
 }));
 
 // Mock WatermelonDB database
-jest.mock('../db', () => ({
-  getDatabase: jest.fn(() => ({
-    write: jest.fn(),
-    collections: {
-      get: jest.fn(() => ({
-        query: jest.fn(() => ({
-          fetch: jest.fn(() => Promise.resolve([])),
-          observe: jest.fn(() => ({
-            subscribe: jest.fn(),
-            unsubscribe: jest.fn(),
-          })),
-        })),
-        findAndObserve: jest.fn(() => ({
+// Create a mock collection factory that returns a collection with all needed methods
+const createMockCollection = () => {
+  const mockTasks: any[] = [];
+  let taskIdCounter = 1;
+  
+  // Helper to add update method to a task
+  const addUpdateMethod = (task: any) => {
+    task.update = jest.fn(async (callback: (t: any) => void) => {
+      callback(task);
+      task.updatedAt = new Date();
+      return task;
+    });
+    return task;
+  };
+  
+  return {
+    query: jest.fn((...queryArgs: any[]) => {
+      // Simulate query filtering based on where clauses
+      let filtered = [...mockTasks];
+      
+      // Apply basic filtering (simplified - real WatermelonDB is more complex)
+      if (queryArgs.length > 0) {
+        // Check for status filtering
+        const statusFilter = queryArgs.find((arg: any) => 
+          arg && typeof arg === 'object' && arg.column === 'status'
+        );
+        if (statusFilter) {
+          if (statusFilter.value === 'not_eq') {
+            filtered = filtered.filter((t: any) => 
+              !t.status.startsWith(statusFilter.notEqValue)
+            );
+          }
+        }
+        
+        // Check for user_id filtering
+        const userIdFilter = queryArgs.find((arg: any) => 
+          arg && typeof arg === 'object' && arg.column === 'user_id'
+        );
+        if (userIdFilter) {
+          filtered = filtered.filter((t: any) => 
+            t.userId === userIdFilter.value
+          );
+        }
+        
+        // Check for is_today_focus filtering
+        const focusFilter = queryArgs.find((arg: any) => 
+          arg && typeof arg === 'object' && arg.column === 'is_today_focus'
+        );
+        if (focusFilter && focusFilter.value === true) {
+          filtered = filtered.filter((t: any) => t.isTodayFocus === true);
+        }
+      }
+      
+      return {
+        fetch: jest.fn(async () => filtered.map(addUpdateMethod)),
+        observe: jest.fn(() => ({
           subscribe: jest.fn(),
           unsubscribe: jest.fn(),
+          next: jest.fn(),
         })),
-        create: jest.fn(),
-        find: jest.fn(),
-      })),
-    },
-  })),
+      };
+    }),
+    findAndObserve: jest.fn(() => ({
+      subscribe: jest.fn(),
+      unsubscribe: jest.fn(),
+    })),
+    create: jest.fn(async (callback: (task: any) => void) => {
+      const newTask: any = {
+        id: `task_${taskIdCounter++}`,
+        title: '',
+        description: undefined,
+        priority: undefined,
+        estimatedDurationMinutes: undefined,
+        dueDate: undefined,
+        goalId: undefined,
+        isTodayFocus: undefined,
+        status: 'pending_create:not_started',
+        userId: 'test-user-id',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      callback(newTask);
+      addUpdateMethod(newTask);
+      mockTasks.push(newTask);
+      return newTask;
+    }),
+    find: jest.fn(async (id: string) => {
+      const task = mockTasks.find(t => t.id === id);
+      if (task) {
+        return addUpdateMethod(task);
+      }
+      throw new Error('Task not found');
+    }),
+    _mockTasks: mockTasks,
+  };
+};
+
+const mockCollection = createMockCollection();
+
+jest.mock('../db', () => ({
+  getDatabase: jest.fn(() => {
+    const database = {
+      write: jest.fn(async (callback: () => Promise<any>) => {
+        return await callback();
+      }),
+      collections: {
+        get: jest.fn(() => mockCollection),
+      },
+      // Add get() method as alias for collections.get()
+      get: jest.fn(() => mockCollection),
+    };
+    return database;
+  }),
+  initializeDatabase: jest.fn(async () => {
+    return require('../db').getDatabase();
+  }),
 }));
 
 // Mock navigation
