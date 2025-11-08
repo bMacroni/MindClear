@@ -421,6 +421,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     padding: spacing.md,
     alignItems: 'center',
+    height: 44,
   },
   saveButtonText: {
     color: colors.secondary,
