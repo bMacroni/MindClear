@@ -50,7 +50,9 @@ class SyncService {
     let goal: Goal | null = null;
     try {
       goal = await database.get<Goal>('goals').find(localGoalId);
-    } catch {}
+    } catch (error) {
+      console.warn(`ensureServerGoalId: Failed to find local goal ${localGoalId}`, error);
+    }
     if (!goal) {
       // If not found, just return original; downstream will fail and be retried
       return localGoalId;
@@ -359,7 +361,13 @@ class SyncService {
           try {
             const freshStep = await database.get<MilestoneStep>('milestone_steps').find(record.id);
             milestoneIdForPush = freshStep.milestoneId;
-          } catch {}
+          } catch (error) {
+            this.logger.error(
+              `Failed to re-fetch milestone step ${record.id} for milestoneId migration:`,
+              error instanceof Error ? error.message : String(error),
+              error
+            );
+          }
 
           // Ensure the milestone exists on server and we have a UUID
           const serverMilestoneId = await this.ensureServerMilestoneId(milestoneIdForPush, database);
@@ -450,10 +458,20 @@ class SyncService {
                   }
                 }
               } catch (checkError: any) {
-                // If we can't determine, assume it's a create and retry
-                serverResponse = await conversationService.createThread(record.title, record.summary);
-                if (serverResponse && serverResponse.id !== record.id) {
-                  await conversationRepository.updateThreadServerId(record.id, serverResponse.id);
+                // Only create thread if error indicates 404 (thread not found)
+                // For other errors (network, auth, server errors), log and skip
+                const is404 = checkError?.status === 404 || checkError?.response?.status === 404;
+                if (is404) {
+                  // Thread not found, so this was likely a failed create - retry as create
+                  serverResponse = await conversationService.createThread(record.title, record.summary);
+                  if (serverResponse && serverResponse.id !== record.id) {
+                    await conversationRepository.updateThreadServerId(record.id, serverResponse.id);
+                    continue;
+                  }
+                } else {
+                  // For non-404 errors (network, auth, server errors), log and skip this record
+                  console.warn(`Sync: Failed to check thread existence for ${record.id}:`, checkError);
+                  // Continue to next record instead of retrying create
                   continue;
                 }
               }
@@ -600,144 +618,9 @@ class SyncService {
     // First, ensure all threads are synced before processing messages
     for (const message of dirtyMessages) {
       try {
-        // Ensure thread exists - try original threadId first
-        let thread = await conversationRepository.getThreadById(message.threadId);
-        
-        // If thread not found, it might have been migrated to a new ID during sync
-        // Try to find it by checking all synced threads and matching by userId and timestamp
-        if (!thread) {
-          console.log(`Push: Thread ${message.threadId} not found, checking for migrated thread`);
-          const userId = authService.getCurrentUser()?.id;
-          if (userId) {
-            const allSyncedThreads = await database.get<ConversationThread>('conversation_threads')
-              .query(
-                Q.where('user_id', userId),
-                Q.where('status', 'synced')
-              )
-              .fetch();
-            
-            // Try to find thread by checking messages in synced threads
-            for (const candidateThread of allSyncedThreads) {
-              const threadMessages = await conversationRepository.getMessagesByThreadId(candidateThread.id);
-              const matchingMessage = threadMessages.find(m => m.id === message.id);
-              if (matchingMessage) {
-                console.log(`Push: Found migrated thread ${candidateThread.id} for message ${message.id}`);
-                thread = candidateThread;
-                // Update message's threadId to correct one
-                await database.write(async () => {
-                  await message.update(m => {
-                    m.threadId = candidateThread.id;
-                  });
-                });
-                break;
-              }
-            }
-          }
-          
-          if (!thread) {
-            console.warn(`Push: Thread ${message.threadId} not found for message ${message.id} after migration check`);
-            messagePushErrors.push({ recordId: message.id, error: new Error('Thread not found') });
-            continue;
-          }
-        }
-
-        // If thread is not synced yet, sync it first
-        if (thread.status !== 'synced') {
-          console.log(`Push: Thread ${thread.id} not synced yet, syncing thread first`);
-          try {
-            // Sync the thread
-            const threadData = {
-              title: thread.title,
-              summary: thread.summary,
-            };
-            
-            let serverResponse: any;
-            if (thread.status === 'pending_create') {
-              serverResponse = await conversationService.createThread(thread.title, thread.summary);
-              // Handle ID migration if server returned different ID
-              if (serverResponse && serverResponse.id !== thread.id) {
-                await conversationRepository.updateThreadServerId(thread.id, serverResponse.id);
-                // Update message's threadId to new ID
-                await database.write(async () => {
-                  await message.update(m => {
-                    m.threadId = serverResponse.id;
-                  });
-                });
-                // Re-fetch thread with new ID
-                thread = await conversationRepository.getThreadById(serverResponse.id);
-              } else {
-                await conversationRepository.markThreadAsSynced(thread.id, {
-                  createdAt: serverResponse?.created_at ? safeParseDate(serverResponse.created_at) : undefined,
-                  updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
-                });
-              }
-            } else if (thread.status === 'pending_update') {
-              serverResponse = await conversationService.updateThread(thread.id, threadData);
-              await conversationRepository.markThreadAsSynced(thread.id, {
-                updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
-              });
-            }
-            
-            // Re-fetch thread to get updated status (use server ID if it changed)
-            const finalThreadId = serverResponse?.id || message.threadId;
-            thread = await conversationRepository.getThreadById(finalThreadId);
-            if (!thread || thread.status !== 'synced') {
-              console.log(`Push: Thread ${finalThreadId} still not synced after sync attempt, skipping message`);
-              continue;
-            }
-            
-            // Update message's threadId if it changed
-            if (serverResponse?.id && serverResponse.id !== message.threadId) {
-              await database.write(async () => {
-                await message.update(m => {
-                  m.threadId = serverResponse.id;
-                });
-              });
-            }
-          } catch (threadSyncError) {
-            console.error(`Push: Failed to sync thread ${message.threadId}:`, threadSyncError);
-            // Skip this message, will retry on next sync
-            continue;
-          }
-        }
-
-        // Use the thread's current ID (may have changed during sync)
-        const finalThreadId = thread.id;
-        
-        // Call AI chat endpoint with the user message
-        const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
-        
-        // Mark user message as synced
-        await conversationRepository.markMessageAsSynced(message.id, {
-          createdAt: safeParseDate(chatResponse.userMessage.created_at) || message.createdAt,
-          updatedAt: safeParseDate(chatResponse.userMessage.updated_at) || new Date(),
-        });
-
-        // Create assistant message locally if it doesn't exist
-        if (chatResponse.assistantMessage) {
-          const existingAssistantMessage = await database.get<ConversationMessage>('conversation_messages')
-            .query(
-              Q.where('thread_id', finalThreadId),
-              Q.where('role', 'assistant'),
-              Q.where('content', chatResponse.assistantMessage.content)
-            )
-            .fetch();
-
-          if (existingAssistantMessage.length === 0) {
-            const createdMessage = await conversationRepository.createMessage(
-              finalThreadId,
-              chatResponse.assistantMessage.content,
-              'assistant',
-              chatResponse.assistantMessage.metadata
-            );
-            
-            // Mark it as synced immediately since it came from server
-            await conversationRepository.markMessageAsSynced(createdMessage.id, {
-              createdAt: safeParseDate(chatResponse.assistantMessage.created_at) || new Date(),
-              updatedAt: safeParseDate(chatResponse.assistantMessage.updated_at) || new Date(),
-            });
-          }
-        }
+        const thread = await this.findOrMigrateThread(message, database);
+        const finalThreadId = await this.ensureThreadSynced(thread, message, database);
+        await this.sendMessageAndCreateResponse(message, finalThreadId, database);
       } catch (error: any) {
         console.error(`Push: Failed to sync message ${message.id}`, JSON.stringify(error, null, 2));
         messagePushErrors.push({ recordId: message.id, error });
@@ -802,6 +685,196 @@ class SyncService {
             'Push: Failed to mark records as sync_failed.',
             dbError,
           );
+        }
+      }
+    }
+  }
+
+  /**
+   * Finds a thread by ID or migrates it if it was moved during sync.
+   * Updates message.threadId inside database.write if migration is found.
+   * @returns The resolved thread or throws an error if not found
+   */
+  private async findOrMigrateThread(
+    message: ConversationMessage,
+    database: Database
+  ): Promise<ConversationThread> {
+    // Ensure thread exists - try original threadId first
+    let thread = await conversationRepository.getThreadById(message.threadId);
+    
+    // If thread not found, it might have been migrated to a new ID during sync
+    // Try to find it by checking all synced threads and matching by userId and timestamp
+    if (!thread) {
+      const userId = authService.getCurrentUser()?.id;
+      if (userId) {
+        const allSyncedThreads = await database.get<ConversationThread>('conversation_threads')
+          .query(
+            Q.where('user_id', userId),
+            Q.where('status', 'synced')
+          )
+          .fetch();
+        
+        // Try to find thread by checking messages in synced threads
+        for (const candidateThread of allSyncedThreads) {
+          const threadMessages = await conversationRepository.getMessagesByThreadId(candidateThread.id);
+          const matchingMessage = threadMessages.find(m => m.id === message.id);
+          if (matchingMessage) {
+            thread = candidateThread;
+            // Update message's threadId to correct one
+            await database.write(async () => {
+              await message.update(m => {
+                m.threadId = candidateThread.id;
+              });
+            });
+            break;
+          }
+        }
+      }
+      
+      if (!thread) {
+        console.warn(`Push: Thread ${message.threadId} not found for message ${message.id} after migration check`);
+        throw new Error('Thread not found');
+      }
+    }
+
+    return thread;
+  }
+
+  /**
+   * Ensures a thread is synced, handling pending_create and pending_update flows.
+   * Handles server ID migration by updating thread and message IDs inside database.write.
+   * Marks thread as synced, re-fetches and throws on failure.
+   * @returns The final thread ID after syncing
+   */
+  private async ensureThreadSynced(
+    thread: ConversationThread,
+    message: ConversationMessage,
+    database: Database
+  ): Promise<string> {
+    // If thread is not synced yet, sync it first
+    if (thread.status !== 'synced') {
+      // Sync the thread
+      const threadData = {
+        title: thread.title,
+        summary: thread.summary,
+      };
+      
+      let serverResponse: any;
+      if (thread.status === 'pending_create') {
+        serverResponse = await conversationService.createThread(thread.title, thread.summary);
+        // Handle ID migration if server returned different ID
+        if (serverResponse && serverResponse.id !== thread.id) {
+          await conversationRepository.updateThreadServerId(thread.id, serverResponse.id);
+          // Update message's threadId to new ID
+          await database.write(async () => {
+            await message.update(m => {
+              m.threadId = serverResponse.id;
+            });
+          });
+          // Re-fetch thread with new ID
+          const refetchedThread = await conversationRepository.getThreadById(serverResponse.id);
+          if (!refetchedThread) {
+            throw new Error(`Thread ${serverResponse.id} not found after ID migration`);
+          }
+          thread = refetchedThread;
+        } else {
+          await conversationRepository.markThreadAsSynced(thread.id, {
+            createdAt: serverResponse?.created_at ? safeParseDate(serverResponse.created_at) : undefined,
+            updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
+          });
+        }
+      } else if (thread.status === 'pending_update') {
+        serverResponse = await conversationService.updateThread(thread.id, threadData);
+        await conversationRepository.markThreadAsSynced(thread.id, {
+          updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
+        });
+      }
+      
+      // Re-fetch thread to get updated status (use server ID if it changed)
+      const finalThreadId = serverResponse?.id || message.threadId;
+      const refetchedThread = await conversationRepository.getThreadById(finalThreadId);
+      if (!refetchedThread || refetchedThread.status !== 'synced') {
+        throw new Error(`Thread ${finalThreadId} still not synced after sync attempt`);
+      }
+      thread = refetchedThread;
+      
+      // Update message's threadId if it changed
+      if (serverResponse?.id && serverResponse.id !== message.threadId) {
+        await database.write(async () => {
+          await message.update(m => {
+            m.threadId = serverResponse.id;
+          });
+        });
+      }
+
+      return finalThreadId;
+    }
+
+    // Thread is already synced, return its current ID
+    return thread.id;
+  }
+
+  /**
+   * Sends a message and creates the assistant response.
+   * Calls conversationService.syncSendMessage, marks the user message as synced,
+   * creates assistant message if missing and marks it synced.
+   */
+  private async sendMessageAndCreateResponse(
+    message: ConversationMessage,
+    finalThreadId: string,
+    database: Database
+  ): Promise<void> {
+    // Call AI chat endpoint with the user message
+    const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
+    
+    // Mark user message as synced
+    await conversationRepository.markMessageAsSynced(message.id, {
+      createdAt: safeParseDate(chatResponse.userMessage.created_at) || message.createdAt,
+      updatedAt: safeParseDate(chatResponse.userMessage.updated_at) || new Date(),
+    });
+
+    // Create assistant message locally if it doesn't exist
+    if (chatResponse.assistantMessage) {
+      // Check if message with this ID already exists
+      let existingMessage = null;
+      try {
+        existingMessage = await database.get<ConversationMessage>('conversation_messages')
+          .find(chatResponse.assistantMessage.id);
+      } catch {
+        // Message doesn't exist, will create it below
+      }
+      
+      if (!existingMessage) {
+        // Create message with server ID
+        const userId = authService.getCurrentUser()?.id;
+        if (!userId) {
+          throw new Error('User not authenticated');
+        }
+        
+        const createdMessage = await database.write(async () => {
+          return await database.get<ConversationMessage>('conversation_messages').create(message => {
+            message._raw.id = chatResponse.assistantMessage.id;
+            message.threadId = finalThreadId;
+            message.userId = userId;
+            message.role = 'assistant';
+            message.content = chatResponse.assistantMessage.content;
+            if (chatResponse.assistantMessage.metadata) {
+              message.metadata = typeof chatResponse.assistantMessage.metadata === 'string' 
+                ? chatResponse.assistantMessage.metadata 
+                : JSON.stringify(chatResponse.assistantMessage.metadata);
+            }
+            message.status = 'synced'; // Already synced since it came from server
+            message.createdAt = safeParseDate(chatResponse.assistantMessage.created_at) || new Date();
+            message.updatedAt = safeParseDate(chatResponse.assistantMessage.updated_at) || new Date();
+          });
+        });
+      } else {
+        // Message already exists, ensure it's marked as synced
+        if (existingMessage.status !== 'synced') {
+          await conversationRepository.markMessageAsSynced(existingMessage.id, {
+            createdAt: safeParseDate(chatResponse.assistantMessage.created_at) || existingMessage.createdAt,
+            updatedAt: safeParseDate(chatResponse.assistantMessage.updated_at) || existingMessage.updatedAt,
+          });
         }
       }
     }
@@ -1571,7 +1644,9 @@ class SyncService {
         record.content = messageData.content;
         record.role = messageData.role;
         if (messageData.metadata) {
-          record.setMetadata(messageData.metadata);
+          record.metadata = typeof messageData.metadata === 'string' 
+            ? messageData.metadata 
+            : JSON.stringify(messageData.metadata);
         }
         record.status = 'synced';
         if (parsedUpdatedAt) {
@@ -1586,7 +1661,9 @@ class SyncService {
         record.content = messageData.content;
         record.role = messageData.role;
         if (messageData.metadata) {
-          record.setMetadata(messageData.metadata);
+          record.metadata = typeof messageData.metadata === 'string' 
+            ? messageData.metadata 
+            : JSON.stringify(messageData.metadata);
         }
         record.status = 'synced';
         record.createdAt = parsedCreatedAt || new Date();

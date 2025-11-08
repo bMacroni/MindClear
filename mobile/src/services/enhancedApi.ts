@@ -448,22 +448,17 @@ class EnhancedAPI {
   }
 
   async createGoal(goalData: any): Promise<any> {
-    console.log(`--- DEBUG: createGoal called. Data: ${JSON.stringify(goalData)} ---`);
-    try {
-        return await this.makeRequest(
-        `${getSecureApiBaseUrl()}/goals`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(goalData),
-        },
-        ErrorCategory.GOALS,
-        'createGoal'
-      );
-    } catch (error) {
-        console.log(`--- DEBUG: createGoal error. Full error: ${JSON.stringify(error, null, 2)} ---`);
-        throw error;
-    }
+    logger.debug('Creating goal', { operation: 'createGoal' });
+    return await this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(goalData),
+      },
+      ErrorCategory.GOALS,
+      'createGoal'
+    );
   }
 
   async updateGoal(goalId: string, goalData: any): Promise<any> {
@@ -562,7 +557,6 @@ class EnhancedAPI {
   // Step API methods
   async createStep(milestoneId: string, stepData: any): Promise<any> {
     const url = `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}/steps`;
-    console.log(`--- DEBUG: createStep called. URL: ${url}, Data: ${JSON.stringify(stepData)} ---`);
     return this.makeRequest(
       url,
       {
@@ -577,7 +571,6 @@ class EnhancedAPI {
 
   async updateStep(stepId: string, stepData: any): Promise<any> {
     const url = `${getSecureApiBaseUrl()}/goals/steps/${stepId}`;
-    console.log(`--- DEBUG: updateStep called. URL: ${url}, Data: ${JSON.stringify(stepData)} ---`);
     return this.makeRequest(
       url,
       {

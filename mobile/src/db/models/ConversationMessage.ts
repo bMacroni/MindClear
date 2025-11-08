@@ -42,9 +42,5 @@ export default class ConversationMessage extends Model {
     }
   }
 
-  // Helper to set metadata
-  setMetadata(value: any): void {
-    this.metadata = value ? JSON.stringify(value) : undefined;
-  }
 }
 

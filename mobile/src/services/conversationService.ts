@@ -51,7 +51,12 @@ export const conversationService = {
     const qs = options?.limit ? `?limit=${encodeURIComponent(String(options.limit))}` : '';
     const timeout = options?.timeoutMs ?? 25000;
     const res = await apiFetch<ConversationThreadWithMessages>(`/ai/threads/${threadId}${qs}`, { method: 'GET' }, timeout);
-    if (!res.ok) throw new Error((res.data as any)?.error || 'Failed to load thread');
+    if (!res.ok) {
+      const error = new Error((res.data as any)?.error || 'Failed to load thread');
+      (error as any).status = res.status;
+      (error as any).response = { status: res.status };
+      throw error;
+    }
     return res.data as ConversationThreadWithMessages;
   },
 

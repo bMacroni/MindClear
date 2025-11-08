@@ -244,6 +244,52 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       return [];
     }
   }, [deduplicateMessages]);
+
+  // Helper function to merge real messages from DB with optimistic messages from state
+  // This handles content-based deduplication and filters out temporary "Thinking..." messages
+  const mergeMessagesWithOptimistic = useCallback((
+    realMessages: Message[],
+    optimisticMessages: Message[]
+  ): Message[] => {
+    const merged: Message[] = [];
+    const seenContent = new Set<string>();
+    
+    // First, add all real messages from DB (they're already sorted chronologically)
+    for (const realMsg of realMessages) {
+      const contentKey = `${realMsg.sender}:${realMsg.text}`;
+      if (!seenContent.has(contentKey)) {
+        merged.push(realMsg);
+        seenContent.add(contentKey);
+      }
+    }
+    
+    // Then, add optimistic messages that don't have a real counterpart
+    // These should be newer, so they go at the end
+    for (const optMsg of optimisticMessages) {
+      if (optMsg.id.startsWith('temp-')) {
+        // Skip "Thinking..." messages - they should be replaced by real responses
+        if (optMsg.text === 'Thinking...') {
+          continue;
+        }
+        const contentKey = `${optMsg.sender}:${optMsg.text}`;
+        // Only add if we haven't seen this content yet
+        if (!seenContent.has(contentKey)) {
+          merged.push(optMsg);
+          seenContent.add(contentKey);
+        }
+      } else {
+        // For non-temp messages, check if we already have them from DB
+        const contentKey = `${optMsg.sender}:${optMsg.text}`;
+        if (!seenContent.has(contentKey)) {
+          merged.push(optMsg);
+          seenContent.add(contentKey);
+        }
+      }
+    }
+    
+    // Final deduplication by ID to handle any edge cases
+    return deduplicateMessages(merged);
+  }, [deduplicateMessages]);
   
   // Load messages for current thread and subscribe to changes
   useEffect(() => {
@@ -257,48 +303,14 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     // Initial load - always load from DB to ensure we have persisted messages
     getMessagesForThread(currentConversationId).then(msgs => {
       // Messages from getMessagesForThread are already sorted by createdAt
-      // Filter out temp messages and deduplicate
+      // Filter out temp messages from DB
       const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
       const deduplicated = deduplicateMessages(realMsgs);
+      
       setMessagesByThread(prev => {
         const existing = prev[currentConversationId] || [];
-        // Use content-based deduplication to prevent duplicates
-        const merged: Message[] = [];
-        const seenContent = new Set<string>();
-        
-        // First, add all real messages from DB (they're already sorted chronologically)
-        for (const realMsg of deduplicated) {
-          const contentKey = `${realMsg.sender}:${realMsg.text}`;
-          if (!seenContent.has(contentKey)) {
-            merged.push(realMsg);
-            seenContent.add(contentKey);
-          }
-        }
-        
-        // Then, add optimistic messages that don't have a real counterpart
-        // These should be newer, so they go at the end
-        for (const optMsg of existing) {
-          if (optMsg.id.startsWith('temp-')) {
-            // Skip "Thinking..." messages
-            if (optMsg.text === 'Thinking...') {
-              continue;
-            }
-            const contentKey = `${optMsg.sender}:${optMsg.text}`;
-            if (!seenContent.has(contentKey)) {
-              merged.push(optMsg);
-              seenContent.add(contentKey);
-            }
-          } else {
-            // For non-temp messages, check if we already have them
-            const contentKey = `${optMsg.sender}:${optMsg.text}`;
-            if (!seenContent.has(contentKey)) {
-              merged.push(optMsg);
-              seenContent.add(contentKey);
-            }
-          }
-        }
-        // Final deduplication by ID
-        return { ...prev, [currentConversationId]: deduplicateMessages(merged) };
+        const merged = mergeMessagesWithOptimistic(deduplicated, existing);
+        return { ...prev, [currentConversationId]: merged };
       });
     });
     
@@ -315,49 +327,13 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       
       setMessagesByThread(prev => {
         const existing = prev[currentConversationId] || [];
-        // Start with existing messages (they may have been updated IDs from sync)
-        // But prioritize real messages from DB when they exist
-        const merged: Message[] = [];
-        const seenContent = new Set<string>();
-        
-        // First, add all real messages from DB (they have proper IDs)
-        for (const realMsg of deduplicated) {
-          const contentKey = `${realMsg.sender}:${realMsg.text}`;
-          if (!seenContent.has(contentKey)) {
-            merged.push(realMsg);
-            seenContent.add(contentKey);
-          }
-        }
-        
-        // Then, add optimistic messages that don't have a real counterpart
-        for (const optMsg of existing) {
-          if (optMsg.id.startsWith('temp-')) {
-            // Skip "Thinking..." messages - they should be replaced
-            if (optMsg.text === 'Thinking...') {
-              continue;
-            }
-            const contentKey = `${optMsg.sender}:${optMsg.text}`;
-            // Only add if we haven't seen this content yet
-            if (!seenContent.has(contentKey)) {
-              merged.push(optMsg);
-              seenContent.add(contentKey);
-            }
-          } else {
-            // For non-temp messages, check if we already have them from DB
-            const contentKey = `${optMsg.sender}:${optMsg.text}`;
-            if (!seenContent.has(contentKey)) {
-              merged.push(optMsg);
-              seenContent.add(contentKey);
-            }
-          }
-        }
-        
-        return { ...prev, [currentConversationId]: deduplicateMessages(merged) };
+        const merged = mergeMessagesWithOptimistic(deduplicated, existing);
+        return { ...prev, [currentConversationId]: merged };
       });
     });
     
     return () => subscription.unsubscribe();
-  }, [currentConversationId, getMessagesForThread, database, deduplicateMessages]);
+  }, [currentConversationId, getMessagesForThread, database, deduplicateMessages, mergeMessagesWithOptimistic]);
 
   // Get current conversation with messages
   const currentConversation = useMemo(() => {
@@ -695,41 +671,38 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
   // Detect if a message contains goal breakdown content
   const isGoalBreakdownContent = (text: string): boolean => {
-    // Look for patterns that indicate goal breakdown with milestones and steps
-    const goalBreakdownPatterns = [
-      /(?:\*\*goal\*\*|goal):/i,
-      /(?:\*\*description\*\*|description):/i,
-      /(?:\*\*milestones\*\*|milestones):/i,
-      /milestone\s+\d+/i,
-      /\*\*milestone\s+\d+/i,
-      /break.*down.*into/i,
-      /structured.*plan/i,
-      /milestone.*steps/i,
-    ];
-    
-    // Check if the text contains milestone patterns
-    const hasMilestonePatterns = goalBreakdownPatterns.some(pattern => pattern.test(text));
-    
-    // Check if it contains bullet points (indicating steps)
-    const hasBulletPoints = /\n[•\-\*]\s*.+$/im.test(text);
-    
-    // Check for goal-related keywords
-    const hasGoalKeywords = /goal|milestone|step|breakdown|plan/i.test(text);
-    
-    // Check for the specific format with **Goal:** and **Milestones:**
-    const hasGoalFormat = /(?:\*\*goal\*\*|goal):.*(?:\*\*milestones\*\*|milestones):/is.test(text);
-    
-    // Check for standardized JSON format
+    // Check for standardized JSON format first (most reliable)
     const hasJsonGoalFormat = /"category":\s*"goal"/i.test(text);
     // Treat titles-only payloads differently so we render a list component
     const isTitlesOnly = /"category"\s*:\s*"goal"[\s\S]*"goals"\s*:\s*\[\s*"/.test(text);
     
-    const hasExplicitMilestoneHeaders = /milestone\s+\d+/i.test(text);
-    // Strict: only JSON goal formats OR explicit textual sections qualify
+    // If it's JSON format and not titles-only, it's definitely a goal breakdown
+    if (hasJsonGoalFormat && !isTitlesOnly) {
+      // Additional check: must have milestones array in JSON
+      const hasMilestonesInJson = /"milestones"\s*:\s*\[/i.test(text);
+      return hasMilestonesInJson;
+    }
+    
+    // Check for explicit milestone headers (e.g., "Milestone 1:", "**Milestone 2:**")
+    // This is more reliable than generic patterns
+    const hasExplicitMilestoneHeaders = /(?:^|\n)\s*(?:\*\*)?milestone\s+\d+\s*(?:\*\*)?\s*:/im.test(text);
+    
+    // Check for the specific format with **Goal:** and **Milestones:**
+    const hasGoalFormat = /(?:\*\*goal\*\*|goal):\s*.+?(?:\*\*milestones\*\*|milestones):/is.test(text);
+    
+    // Only use lenient detection if we have clear structural indicators
+    // Require: milestone headers + multiple bullet points (indicating steps)
+    const hasMilestoneHeaders = /milestone\s+\d+/i.test(text);
+    const bulletPointMatches = text.match(/\n[•\-\*]\s+/g);
+    const hasMultipleBulletPoints = (bulletPointMatches?.length ?? 0) >= 2;
+    
+    // Strict detection: only match if we have clear structural indicators
+    // This prevents matching conversational text that just mentions goals/milestones
     return (
-      (hasJsonGoalFormat || hasGoalFormat || hasExplicitMilestoneHeaders)
-      && !isTitlesOnly
-    );
+      hasExplicitMilestoneHeaders || 
+      hasGoalFormat ||
+      (hasMilestoneHeaders && hasMultipleBulletPoints && /"category":\s*"goal"/i.test(text))
+    ) && !isTitlesOnly;
   };
 
   // Detect if message contains a titles-only goal list
@@ -961,6 +934,153 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     return 'Conversation';
   };
 
+  // Extract message migration logic
+  const migrateTempMessagesToServerThread = useCallback((
+    tempThreadId: string,
+    serverThreadId: string,
+    tempAiMessageId: string,
+    tempUserMessageId: string,
+    tempAiMsgId: string,
+    tempUserMsgId: string,
+    response: { message: string },
+    userMessage: string
+  ) => {
+    setMessagesByThread(prev => {
+      const optimisticMsgs = prev[tempThreadId] || [];
+      // Remove temp messages from old key
+      const newState = { ...prev };
+      if (tempThreadId !== serverThreadId) {
+        delete newState[tempThreadId];
+      }
+      // Get existing messages for server thread (if any)
+      const existingMsgs = newState[serverThreadId] || [];
+      // Merge optimistic messages with existing, replacing "Thinking..." with real response
+      const mergedMsgs = [...existingMsgs];
+      for (const optMsg of optimisticMsgs) {
+        // Replace "Thinking..." with real AI response
+        if (optMsg.id === tempAiMessageId || (optMsg.sender === 'ai' && optMsg.text === 'Thinking...')) {
+          // Check if AI response already exists (by content)
+          const aiExists = mergedMsgs.some(m => 
+            m.sender === 'ai' && m.text === response.message
+          );
+          if (!aiExists) {
+            mergedMsgs.push({
+              id: tempAiMsgId,
+              text: response.message,
+              sender: 'ai' as const,
+              status: 'synced',
+              messageId: tempAiMsgId,
+            });
+          }
+        } else if (optMsg.id === tempUserMessageId) {
+          // Check if user message already exists (by content) before adding
+          const userExists = mergedMsgs.some(m => 
+            m.sender === 'user' && m.text === userMessage
+          );
+          if (!userExists) {
+            mergedMsgs.push({
+              id: tempUserMsgId,
+              text: userMessage,
+              sender: 'user' as const,
+              status: 'synced',
+              messageId: tempUserMsgId,
+            });
+          }
+        } else {
+          // Check if this optimistic message already exists before adding
+          const exists = mergedMsgs.some(m => 
+            m.text === optMsg.text && m.sender === optMsg.sender
+          );
+          if (!exists) {
+            mergedMsgs.push(optMsg);
+          }
+        }
+      }
+      // Deduplicate by ID as well (in case same message has different IDs)
+      return {
+        ...newState,
+        [serverThreadId]: deduplicateMessages(mergedMsgs),
+      };
+    });
+  }, [deduplicateMessages]);
+
+  // Extract DB message creation logic
+  const createMessagesInDatabase = useCallback(async (
+    database: Database,
+    serverThreadId: string,
+    tempUserMsgId: string,
+    tempAiMsgId: string,
+    userId: string,
+    userMessage: string,
+    response: { message: string; actions?: any[] },
+    now: Date
+  ) => {
+    try {
+      await database.write(async () => {
+        // Create user message
+        await database.get<ConversationMessage>('conversation_messages').create(m => {
+          m._raw.id = tempUserMsgId;
+          m.threadId = serverThreadId;
+          m.userId = userId;
+          m.role = 'user';
+          m.content = userMessage;
+          m.status = 'synced'; // Mark as synced since backend already saved it
+          m.createdAt = now;
+          m.updatedAt = now;
+        });
+        
+        // Create AI response message
+        await database.get<ConversationMessage>('conversation_messages').create(m => {
+          m._raw.id = tempAiMsgId;
+          m.threadId = serverThreadId;
+          m.userId = userId;
+          m.role = 'assistant';
+          m.content = response.message;
+          if (response.actions && response.actions.length > 0) {
+            m.metadata = JSON.stringify({ actions: response.actions });
+          }
+          m.status = 'synced'; // Mark as synced since backend already saved it
+          m.createdAt = now;
+          m.updatedAt = now;
+        });
+      });
+    } catch (dbError: any) {
+      // Messages might already exist, continue - UI is already updated
+      logger.warn('Failed to create messages locally:', dbError);
+    }
+  }, []);
+
+  // Extract message merging logic from DB
+  const mergeRealMessagesFromDB = useCallback(async (
+    serverThreadId: string,
+    getMessagesForThread: (threadId: string) => Promise<Message[]>
+  ) => {
+    let msgs: Message[] = [];
+    try {
+      msgs = await getMessagesForThread(serverThreadId);
+      // Filter out temp messages from DB (we already have them in state with temp IDs)
+      const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
+      const deduplicated = deduplicateMessages(realMsgs);
+      
+      // If we got real messages from DB, merge them (they'll have proper IDs from server)
+      if (deduplicated.length > 0) {
+        setMessagesByThread(prev => {
+          const currentMsgs = prev[serverThreadId] || [];
+          const merged = mergeMessagesWithOptimistic(deduplicated, currentMsgs);
+          return {
+            ...prev,
+            [serverThreadId]: merged,
+          };
+        });
+      }
+    } catch (msgError) {
+      // If we can't get messages from DB, use current state for title generation
+      msgs = messagesByThread[serverThreadId] || [];
+      logger.warn('Failed to refresh messages from DB:', msgError);
+    }
+    return msgs;
+  }, [deduplicateMessages, mergeMessagesWithOptimistic]);
+
   const handleSend = useCallback(async (messageOverride?: string) => {
     const candidate = (messageOverride !== undefined ? String(messageOverride) : input).trim();
     if (!candidate || loading || isSendingRef.current) return;
@@ -1042,7 +1162,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         try {
           await database.write(async () => {
             await database.get<ConversationThread>('conversation_threads').create(t => {
-              t._raw.id = serverThreadId;
+              t._raw.id = serverThreadId!; // Non-null assertion: we throw if serverThreadId is null above
               t.userId = authService.getCurrentUser()?.id || '';
               t.title = threadTitle;
               t.summary = null;
@@ -1053,12 +1173,12 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
               t.updatedAt = new Date();
             });
           });
-          localThread = await conversationRepository.getThreadById(serverThreadId);
+          localThread = await conversationRepository.getThreadById(serverThreadId!);
         } catch (threadError: any) {
           logger.warn('Failed to create thread locally, will retry:', threadError);
           // Thread might already exist, try to fetch it
           try {
-            localThread = await conversationRepository.getThreadById(serverThreadId);
+            localThread = await conversationRepository.getThreadById(serverThreadId!);
           } catch (fetchError) {
             logger.error('Thread not found locally or on server:', fetchError);
             throw new Error('Thread not found');
@@ -1087,101 +1207,28 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       const tempAiMsgId = `temp-${Date.now()}-ai`;
 
       // Migrate optimistic messages from tempThreadId to serverThreadId and replace "Thinking..."
-      // This ensures messages are visible immediately with the real AI response
-      setMessagesByThread(prev => {
-        const optimisticMsgs = prev[tempThreadId] || [];
-        // Remove temp messages from old key
-        const newState = { ...prev };
-        if (tempThreadId !== serverThreadId) {
-          delete newState[tempThreadId];
-        }
-        // Get existing messages for server thread (if any)
-        const existingMsgs = newState[serverThreadId] || [];
-        // Merge optimistic messages with existing, replacing "Thinking..." with real response
-        const mergedMsgs = [...existingMsgs];
-        for (const optMsg of optimisticMsgs) {
-          // Replace "Thinking..." with real AI response
-          if (optMsg.id === tempAiMessageId || (optMsg.sender === 'ai' && optMsg.text === 'Thinking...')) {
-            // Check if AI response already exists (by content)
-            const aiExists = mergedMsgs.some(m => 
-              m.sender === 'ai' && m.text === response.message
-            );
-            if (!aiExists) {
-              mergedMsgs.push({
-                id: tempAiMsgId,
-                text: response.message,
-                sender: 'ai' as const,
-                status: 'synced',
-                messageId: tempAiMsgId,
-              });
-            }
-          } else if (optMsg.id === tempUserMessageId) {
-            // Check if user message already exists (by content) before adding
-            const userExists = mergedMsgs.some(m => 
-              m.sender === 'user' && m.text === userMessage
-            );
-            if (!userExists) {
-              mergedMsgs.push({
-                id: tempUserMsgId,
-                text: userMessage,
-                sender: 'user' as const,
-                status: 'synced',
-                messageId: tempUserMsgId,
-              });
-            }
-          } else {
-            // Check if this optimistic message already exists before adding
-            const exists = mergedMsgs.some(m => 
-              m.text === optMsg.text && m.sender === optMsg.sender
-            );
-            if (!exists) {
-              mergedMsgs.push(optMsg);
-            }
-          }
-        }
-        // Deduplicate by ID as well (in case same message has different IDs)
-        return {
-          ...newState,
-          [serverThreadId]: deduplicateMessages(mergedMsgs),
-        };
-      });
+      migrateTempMessagesToServerThread(
+        tempThreadId,
+        serverThreadId,
+        tempAiMessageId,
+        tempUserMessageId,
+        tempAiMsgId,
+        tempUserMsgId,
+        response,
+        userMessage
+      );
 
       // Create messages locally directly from API response
-      // We have the user message and AI response, so we don't need to fetch the thread
-      // Background sync will handle matching/updating message IDs later
-      try {
-        await database.write(async () => {
-          // Create user message
-          await database.get<ConversationMessage>('conversation_messages').create(m => {
-            m._raw.id = tempUserMsgId;
-            m.threadId = serverThreadId;
-            m.userId = userId;
-            m.role = 'user';
-            m.content = userMessage;
-            m.status = 'synced'; // Mark as synced since backend already saved it
-            m.createdAt = now;
-            m.updatedAt = now;
-          });
-          
-          // Create AI response message
-          await database.get<ConversationMessage>('conversation_messages').create(m => {
-            m._raw.id = tempAiMsgId;
-            m.threadId = serverThreadId;
-            m.userId = userId;
-            m.role = 'assistant';
-            m.content = response.message;
-            if (response.actions && response.actions.length > 0) {
-              m.setMetadata({ actions: response.actions });
-            }
-            m.status = 'synced'; // Mark as synced since backend already saved it
-            m.createdAt = now;
-            m.updatedAt = now;
-          });
-        });
-      } catch (dbError: any) {
-        // Messages might already exist, continue - UI is already updated
-        logger.warn('Failed to create messages locally:', dbError);
-      }
+      await createMessagesInDatabase(
+        database,
+        serverThreadId,
+        tempUserMsgId,
+        tempAiMsgId,
+        userId,
+        userMessage,
+        response,
+        now
+      );
       
       // Trigger background sync to fetch actual message IDs and handle any updates
       syncService.silentSync().catch(err => {
@@ -1189,65 +1236,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       });
 
       // Also update from database to get any messages that might have been created by sync
-      // This ensures we have the latest state and real message IDs when available
-      let msgs: Message[] = [];
-      try {
-        msgs = await getMessagesForThread(serverThreadId);
-        // Filter out temp messages from DB (we already have them in state with temp IDs)
-        const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
-        
-        // If we got real messages from DB, merge them (they'll have proper IDs from server)
-        if (realMsgs.length > 0) {
-          setMessagesByThread(prev => {
-            const currentMsgs = prev[serverThreadId] || [];
-            // Use content-based deduplication to prevent duplicates
-            const merged: Message[] = [];
-            const seenContent = new Set<string>();
-            
-            // First, add all real messages from DB (they have proper IDs)
-            for (const realMsg of realMsgs) {
-              const contentKey = `${realMsg.sender}:${realMsg.text}`;
-              if (!seenContent.has(contentKey)) {
-                merged.push(realMsg);
-                seenContent.add(contentKey);
-              }
-            }
-            
-            // Then, add temp messages that don't have a real counterpart
-            for (const optMsg of currentMsgs) {
-              if (optMsg.id.startsWith('temp-')) {
-                // Skip "Thinking..." messages - they should be replaced
-                if (optMsg.text === 'Thinking...') {
-                  continue;
-                }
-                const contentKey = `${optMsg.sender}:${optMsg.text}`;
-                // Only add if we haven't seen this content yet
-                if (!seenContent.has(contentKey)) {
-                  merged.push(optMsg);
-                  seenContent.add(contentKey);
-                }
-              } else {
-                // For non-temp messages, check if we already have them from DB
-                const contentKey = `${optMsg.sender}:${optMsg.text}`;
-                if (!seenContent.has(contentKey)) {
-                  merged.push(optMsg);
-                  seenContent.add(contentKey);
-                }
-              }
-            }
-            
-            // Deduplicate by ID as well (in case same message has different IDs)
-            return {
-              ...prev,
-              [serverThreadId]: deduplicateMessages(merged),
-            };
-          });
-        }
-      } catch (msgError) {
-        // If we can't get messages from DB, use current state for title generation
-        msgs = messagesByThread[serverThreadId] || [];
-        logger.warn('Failed to refresh messages from DB:', msgError);
-      }
+      const msgs = serverThreadId 
+        ? await mergeRealMessagesFromDB(serverThreadId, getMessagesForThread)
+        : [];
 
       // Update thread title if needed (only if it's still generic)
       // This handles cases where the thread was created on the server with a generic title
@@ -1279,16 +1270,17 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       // If so, preserve it and the user message
       if (serverThreadId) {
         // Thread was created, preserve it and the user message
-        setCurrentConversationId(serverThreadId);
+        const threadId = serverThreadId; // Type narrowing
+        setCurrentConversationId(threadId);
         setMessagesByThread(prev => {
-          const currentMsgs = prev[serverThreadId] || [];
+          const currentMsgs = prev[threadId] || [];
           // Keep user message but remove "Thinking..."
           const filtered = currentMsgs.filter(
-            msg => msg.id !== tempAiMessageId && msg.text !== 'Thinking...'
+            (msg: Message) => msg.id !== tempAiMessageId && msg.text !== 'Thinking...'
           );
           return {
             ...prev,
-            [serverThreadId]: filtered,
+            [threadId]: filtered,
           };
         });
       } else {
@@ -1318,9 +1310,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       }
       
       let errorMessage = 'Failed to send message. Please try again.';
-      if (err.message?.includes('not authenticated')) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes('not authenticated')) {
         errorMessage = 'Authentication failed. Please log in again.';
-      } else if (err.message?.includes('Thread not found')) {
+      } else if (errorMsg.includes('Thread not found')) {
         errorMessage = 'Failed to create conversation. Please try again.';
       }
       
@@ -1329,7 +1322,19 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       setLoading(false);
       isSendingRef.current = false; // Reset sending flag
     }
-  }, [currentConversationId, input, loading, threads, getMessagesForThread, database]);
+  }, [
+    currentConversationId,
+    input,
+    loading,
+    threads,
+    getMessagesForThread,
+    database,
+    migrateTempMessagesToServerThread,
+    createMessagesInDatabase,
+    mergeRealMessagesFromDB,
+    extractTitleFromMessage,
+    generateConversationTitle,
+  ]);
 
   // After help reset completes rendering, send the pending help message once
   useEffect(() => {
@@ -1386,10 +1391,13 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             setCurrentConversationId(thread.id);
           } else {
             // Use existing thread
-            setCurrentConversationId(threadIdToUse);
-            // Load messages for existing thread
-            const msgs = await getMessagesForThread(threadIdToUse);
-            setMessagesByThread(prev => ({ ...prev, [threadIdToUse!]: msgs }));
+            if (threadIdToUse) {
+              const threadId = threadIdToUse; // Type narrowing
+              setCurrentConversationId(threadId);
+              // Load messages for existing thread
+              const msgs = await getMessagesForThread(threadId);
+              setMessagesByThread(prev => ({ ...prev, [threadId]: msgs }));
+            }
           }
 
           // Clear the route params to prevent re-triggering
@@ -1484,12 +1492,6 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     const hasGoalTitlesContent = isGoalTitlesContent(msg.text);
     const hasTaskContent = isTaskContent(msg.text);
     
-    // Debug: Log AI messages to see what format they're in
-    // Optional debug retained for development; commented to keep console clean
-    // if (msg.sender === 'ai' && msg.text.includes('schedule')) {
-    
-    // }
-    
     // Remove JSON code blocks and (when present) the goal breakdown section
     // from AI text for conversational display, then simplify redundant lines
     const baseConversational = hasGoalBreakdownContent
@@ -1509,10 +1511,13 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       return text.trim();
     })();
 
+    // Use full width for structured content to prevent truncation
+    const shouldUseFullWidth = hasGoalBreakdownContent || hasScheduleContent || hasTaskContent || hasGoalTitlesContent;
+    
     return (
-      <View key={msg.id} style={styles.aiMsg}>
-        {/* Show conversational text with proper padding */}
-        {!hasGoalBreakdownContent && conversationalText && (
+      <View key={msg.id} style={[styles.aiMsg, shouldUseFullWidth && styles.aiMsgFullWidth]}>
+        {/* Show conversational text - show it even with goal breakdown so user sees context */}
+        {conversationalText && conversationalText.trim() && (
           <View style={styles.conversationalTextContainer}>
             <Markdown
               style={markdownStyles}
@@ -1527,6 +1532,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         )}
         {hasGoalBreakdownContent && (
           <GoalBreakdownDisplay 
+            key={`goal-breakdown-${msg.id}`}
             text={msg.text} 
             onSaveGoal={handleSaveGoal} 
             conversationalText={conversationalText}
@@ -1801,6 +1807,11 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.sm,
     maxWidth: '80%',
+  },
+  aiMsgFullWidth: {
+    maxWidth: '95%', // Slightly less than 100% to avoid edge issues
+    width: '95%',
+    alignSelf: 'stretch', // Allow it to expand
   },
   aiMsgText: {
     color: colors.text.primary,

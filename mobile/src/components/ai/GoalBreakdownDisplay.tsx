@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -13,12 +13,8 @@ interface GoalBreakdownDisplayProps {
   conversationTitle?: string;
 }
 
-export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalText, conversationTitle }: GoalBreakdownDisplayProps) {
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [isSaved, setIsSaved] = React.useState(false);
-
-  // Parse goal breakdown from text
-  const parseGoalBreakdown = (breakdownText: string): GoalData => {
+// Parse goal breakdown from text - extracted to avoid recreating on every render
+const parseGoalBreakdown = (breakdownText: string, conversationalText?: string, conversationTitle?: string): GoalData => {
     try {
       // First try to parse standardized JSON format
       const jsonMatch = breakdownText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
@@ -138,7 +134,12 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
       // Extract goal description
       const goalDescMatch = trimmedLine.match(/^(?:\*\*description\*\*|description):\s*(.+)/i);
       if (goalDescMatch) {
-        goalData.description = goalDescMatch[1].trim();
+        const descText = goalDescMatch[1].trim();
+        // Only set description if it's not obviously conversational text
+        // Skip if it starts with conversational phrases
+        if (!descText.toLowerCase().match(/^(that's|it's|this is|i've|i'm|you're)/i)) {
+          goalData.description = descText;
+        }
         continue;
       }
 
@@ -235,9 +236,64 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
     // Fallback for title if not found in structured data
     if (!goalData.title) {
       if (conversationalText) {
-        const quoteMatch = conversationalText.match(/['"](.+?)['"]/);
-        if (quoteMatch && quoteMatch[1]) {
-          goalData.title = quoteMatch[1];
+        // Try to find goal title in conversational text using multiple patterns
+        // Pattern 1: "I've created the goal [title]" or "the goal [title]"
+        const goalPattern1 = conversationalText.match(/(?:I['']ve\s+created\s+)?(?:the\s+)?goal\s+['"]([^'"]+)['"]/i);
+        if (goalPattern1 && goalPattern1[1]) {
+          goalData.title = goalPattern1[1].trim();
+        }
+        
+        // Pattern 2: "goal '[title]'" (without "the" or "created")
+        if (!goalData.title) {
+          const goalPattern2 = conversationalText.match(/goal\s+['"]([^'"]+)['"]/i);
+          if (goalPattern2 && goalPattern2[1]) {
+            goalData.title = goalPattern2[1].trim();
+          }
+        }
+        
+        // Pattern 3: Look for quoted text near goal-related keywords
+        if (!goalData.title) {
+          const goalContextPattern = conversationalText.match(/(?:goal|created|planning)[^'"]*['"]([^'"]{1,100})['"]/i);
+          if (goalContextPattern && goalContextPattern[1]) {
+            const candidate = goalContextPattern[1].trim();
+            // Only use if it's a reasonable length (not too long, likely a title)
+            if (candidate.length > 0 && candidate.length < 100 && !candidate.includes('awesome') && !candidate.includes('incredible')) {
+              goalData.title = candidate;
+            }
+          }
+        }
+        
+        // Pattern 4: Last resort - find any quoted text, but prefer shorter ones (likely titles)
+        if (!goalData.title) {
+          const allQuotes = conversationalText.matchAll(/['"]([^'"]+)['"]/g);
+          let bestMatch: string | null = null;
+          let bestLength = Infinity;
+          
+          // Words/phrases that indicate this is NOT a title (description or conversational text)
+          const notTitleIndicators = [
+            'awesome', 'incredible', 'experience', 'sounds like', 'adventurous',
+            'learning to', 'just for fun', 'months', 'ready to', 'explore',
+            'underwater', 'world', 'how about', 'let\'s', 'we start'
+          ];
+          
+          for (const match of allQuotes) {
+            const candidate = match[1].trim();
+            // Prefer shorter quoted strings (likely titles) over longer ones (likely descriptions)
+            if (candidate.length > 0 && candidate.length < 80 && candidate.length < bestLength) {
+              // Skip if it contains common conversational words that aren't titles
+              const lowerCandidate = candidate.toLowerCase();
+              const isNotTitle = notTitleIndicators.some(indicator => lowerCandidate.includes(indicator));
+              
+              if (!isNotTitle) {
+                bestMatch = candidate;
+                bestLength = candidate.length;
+              }
+            }
+          }
+          
+          if (bestMatch) {
+            goalData.title = bestMatch;
+          }
         }
       }
       if (!goalData.title && conversationTitle && conversationTitle !== 'New Conversation' && conversationTitle !== 'Conversation' && conversationTitle !== 'Goal Planning' ) {
@@ -245,10 +301,37 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
       }
     }
     
+    // Final validation: ensure title doesn't contain description-like text
+    if (goalData.title) {
+      const titleLower = goalData.title.toLowerCase();
+      // If title looks like a description (contains conversational phrases), clear it
+      if (titleLower.includes('awesome') && titleLower.includes('adventurous') ||
+          titleLower.includes('sounds like') ||
+          titleLower.includes('incredible experience') ||
+          (titleLower.includes('learning to') && titleLower.includes('months'))) {
+        goalData.title = '';
+        // Try to extract a better title from the description if available
+        if (goalData.description) {
+          // Look for quoted text in description that might be the actual title
+          const descQuoteMatch = goalData.description.match(/['"]([^'"]{1,60})['"]/);
+          if (descQuoteMatch && descQuoteMatch[1]) {
+            goalData.title = descQuoteMatch[1].trim();
+          }
+        }
+      }
+    }
+    
     return goalData;
-  };
+};
 
-  const goalData = parseGoalBreakdown(text);
+export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalText, conversationTitle }: GoalBreakdownDisplayProps) {
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isSaved, setIsSaved] = React.useState(false);
+
+  // Memoize parsing to avoid re-parsing on every render
+  const goalData = useMemo(() => {
+    return parseGoalBreakdown(text, conversationalText, conversationTitle);
+  }, [text, conversationalText, conversationTitle]);
 
   const handleSave = async () => {
     if (isSaving || isSaved) return;
@@ -258,7 +341,11 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
       setIsSaved(true);
     } catch (error) {
       console.error('Failed to save goal:', error);
-      // Optionally show an alert to the user
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while saving the goal.';
+      Alert.alert(
+        'Save Failed',
+        errorMessage
+      );
     } finally {
       setIsSaving(false);
     }
@@ -304,7 +391,7 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
             <View style={styles.leftAccent} />
             <View style={styles.milestoneHeader}>
               <Icon name="milestone" size={16} color={colors.primary} style={styles.milestoneIcon} />
-              <Text style={styles.milestoneTitle} numberOfLines={0}>
+              <Text style={styles.milestoneTitle}>
                 {milestone.title}
               </Text>
             </View>
@@ -314,7 +401,7 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
                   <View style={styles.stepNumber}>
                   <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
                   </View>
-                  <Text style={styles.stepText} numberOfLines={0}>
+                  <Text style={styles.stepText}>
                     {step.text}
                   </Text>
                 </View>
@@ -329,6 +416,9 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
           style={[styles.saveButton, (isSaved || isSaving) && styles.saveButtonDisabled]}
           onPress={handleSave}
           disabled={isSaved || isSaving}
+          accessible={true}
+          accessibilityLabel={isSaved ? 'Goal saved' : 'Save goal'}
+          accessibilityRole="button"
         >
           {isSaving ? (
             <ActivityIndicator color={colors.secondary} size="small" />
@@ -362,9 +452,10 @@ function formatDate(input?: string) {
 const styles = StyleSheet.create({
   container: {
     marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm, // Add some padding for content
     paddingVertical: spacing.sm,
-    maxWidth: '100%',
+    width: '100%',
+    alignSelf: 'stretch', // Ensure it takes full available width
   },
   breakdownTitle: {
     fontSize: typography.fontSize.lg,
@@ -436,11 +527,15 @@ const styles = StyleSheet.create({
   },
   milestoneHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start', // Align to top to allow text wrapping
     marginBottom: spacing.md,
+    flex: 1,
+    minWidth: 0, // Critical for text wrapping in flex containers
   },
   milestoneIcon: {
     marginRight: spacing.sm,
+    marginTop: 2, // Align icon with first line of text
+    flexShrink: 0, // Prevent icon from shrinking
   },
   milestoneTitle: {
     fontSize: typography.fontSize.base,
@@ -448,7 +543,8 @@ const styles = StyleSheet.create({
     color: colors.primary,
     flex: 1,
     flexShrink: 1,
-    minWidth: 0,
+    minWidth: 0, // Critical for text wrapping
+    flexWrap: 'wrap', // Allow text to wrap
   },
   stepsContainer: {
     marginLeft: spacing.md,
@@ -480,10 +576,9 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 0,
     flexShrink: 1,
-    minWidth: 0,
+    minWidth: 0, // Critical for text wrapping
     lineHeight: BASE_LINE_HEIGHT,
     marginTop: 2,
-    flexWrap: 'wrap',
   },
   separator: {
     height: 1,
@@ -503,7 +598,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 120,
-    height: 40,
+    height: 44,
   },
   saveButtonDisabled: {
     backgroundColor: colors.text.disabled,

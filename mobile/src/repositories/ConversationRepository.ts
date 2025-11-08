@@ -49,7 +49,22 @@ export class ConversationRepository {
     const database = getDatabase();
     try {
       return await database.get<ConversationThread>('conversation_threads').find(id);
-    } catch {
+    } catch (err) {
+      // Handle WatermelonDB "not found" errors - this is expected behavior for read operations
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes('not found')) {
+        // Log at debug level since this is expected behavior (thread may not exist)
+        logger.debug('ConversationRepository.getThreadById: Thread not found', {
+          threadId: id
+        });
+      } else {
+        // Log other errors at error level as they indicate actual problems
+        logger.error('ConversationRepository.getThreadById failed', {
+          threadId: id,
+          error: errorMessage,
+          errorDetails: err instanceof Error ? err.stack : String(err)
+        });
+      }
       return null;
     }
   }
@@ -87,18 +102,29 @@ export class ConversationRepository {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     
-    return await database.write(async () => {
-      return await database.get<ConversationThread>('conversation_threads').create(thread => {
-        thread.userId = userId;
-        thread.title = data.title;
-        thread.summary = data.summary ?? null;
-        thread.isActive = data.isActive ?? true;
-        thread.isPinned = data.isPinned ?? false;
-        thread.status = 'pending_create';
-        thread.createdAt = new Date();
-        thread.updatedAt = new Date();
+    try {
+      return await database.write(async () => {
+        return await database.get<ConversationThread>('conversation_threads').create(thread => {
+          thread.userId = userId;
+          thread.title = data.title;
+          thread.summary = data.summary ?? null;
+          thread.isActive = data.isActive ?? true;
+          thread.isPinned = data.isPinned ?? false;
+          thread.status = 'pending_create';
+          thread.createdAt = new Date();
+          thread.updatedAt = new Date();
+        });
       });
-    });
+    } catch (error) {
+      logger.error('Failed to create thread', {
+        userId,
+        title: data.title,
+        summary: data.summary ?? null,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        originalError: error
+      });
+      throw new Error(`Failed to create thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**
@@ -115,23 +141,29 @@ export class ConversationRepository {
     const thread = await this.getThreadById(id);
     if (!thread) throw new Error('Thread not found');
     
-    return await database.write(async () => {
-      return await thread.update(t => {
-        if (data.title !== undefined) t.title = data.title;
-        if (data.summary !== undefined) t.summary = data.summary;
-        if (data.isActive !== undefined) t.isActive = data.isActive;
-        if (data.isPinned !== undefined) t.isPinned = data.isPinned;
-        
-        // Preserve pending_create for offline-created threads, otherwise mark as pending_update
-        const currentStatus = t.status as string;
-        if (currentStatus === 'pending_create') {
-          t.status = 'pending_create';
-        } else {
-          t.status = 'pending_update';
-        }
-        t.updatedAt = new Date();
+    try {
+      return await database.write(async () => {
+        return await thread.update(t => {
+          if (data.title !== undefined) t.title = data.title;
+          if (data.summary !== undefined) t.summary = data.summary;
+          if (data.isActive !== undefined) t.isActive = data.isActive;
+          if (data.isPinned !== undefined) t.isPinned = data.isPinned;
+          
+          // Preserve pending_create for offline-created threads, otherwise mark as pending_update
+          const currentStatus = t.status as string;
+          if (currentStatus !== 'pending_create') {
+            t.status = 'pending_update';
+          }
+          t.updatedAt = new Date();
+        });
       });
-    });
+    } catch (error) {
+      logger.error('Failed to update thread', { 
+        id, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      throw new Error(`Failed to update thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**
@@ -142,12 +174,20 @@ export class ConversationRepository {
     const thread = await this.getThreadById(id);
     if (!thread) return; // No-op for non-existent threads (idempotent)
     
-    await database.write(async () => {
-      await thread.update(t => {
-        t.status = 'pending_delete';
-        t.updatedAt = new Date();
+    try {
+      await database.write(async () => {
+        await thread.update(t => {
+          t.status = 'pending_delete';
+          t.updatedAt = new Date();
+        });
       });
-    });
+    } catch (error) {
+      logger.error('Failed to delete thread', { 
+        id, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      throw error;
+    }
   }
 
   /**
@@ -162,20 +202,31 @@ export class ConversationRepository {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     
-    return await database.write(async () => {
-      return await database.get<ConversationMessage>('conversation_messages').create(message => {
-        message.threadId = threadId;
-        message.userId = userId;
-        message.role = role;
-        message.content = content;
-        if (metadata) {
-          message.setMetadata(metadata);
-        }
-        message.status = 'pending_create';
-        message.createdAt = new Date();
-        message.updatedAt = new Date();
+    try {
+      return await database.write(async () => {
+        return await database.get<ConversationMessage>('conversation_messages').create(message => {
+          message.threadId = threadId;
+          message.userId = userId;
+          message.role = role;
+          message.content = content;
+          if (metadata) {
+            message.metadata = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+          }
+          message.status = 'pending_create';
+          message.createdAt = new Date();
+          message.updatedAt = new Date();
+        });
       });
-    });
+    } catch (error) {
+      logger.error('Failed to create message', {
+        threadId,
+        userId,
+        role,
+        metadata: metadata ? JSON.stringify(metadata) : undefined,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
   }
 
   /**
@@ -194,7 +245,7 @@ export class ConversationRepository {
         return await message.update(m => {
           if (data.content !== undefined) m.content = data.content;
           if (data.metadata !== undefined) {
-            m.setMetadata(data.metadata);
+            m.metadata = typeof data.metadata === 'string' ? data.metadata : JSON.stringify(data.metadata);
           }
           
           // Preserve pending_create for offline-created messages, otherwise mark as pending_update
@@ -333,16 +384,26 @@ export class ConversationRepository {
 
   // Observable query helpers for use with withObservables
   observeAllThreads() {
-    const database = getDatabase();
-    const userId = this.getCurrentUserId();
-    return database.get<ConversationThread>('conversation_threads')
-      .query(
-        Q.where('user_id', userId),
-        Q.where('status', Q.notEq('pending_delete'))
-      )
-      .observe();
+    try {
+      const database = getDatabase();
+      const userId = this.getCurrentUserId();
+      return database.get<ConversationThread>('conversation_threads')
+        .query(
+          Q.where('user_id', userId),
+          Q.where('status', Q.notEq('pending_delete'))
+        )
+        .observe();
+    } catch (error) {
+      logger.error('Failed to observe threads', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      // Return an empty observable to prevent UI crashes
+      const database = getDatabase();
+      return database.get<ConversationThread>('conversation_threads')
+        .query(Q.where('id', '___non_existent___'))
+        .observe();
+    }
   }
-
   observeThreadById(id: string) {
     const database = getDatabase();
     return database.get<ConversationThread>('conversation_threads').findAndObserve(id);

@@ -90,19 +90,21 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
     setItems(taskData?.tasks || []);
   }, [taskData]);
 
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const handleSave = async () => {
     if (!onSaveTasks || !taskData?.tasks) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       await onSaveTasks(taskData.tasks);
       setHasBeenSaved(true);
     } catch (e) {
-      // Parent will show alert
+      setSaveError('Failed to save tasks. Please try again.');
     } finally {
       setIsSaving(false);
     }
   };
-
   // If no task data found, return null to fall back to regular text display
   if (!taskData) {
     return null;
@@ -206,14 +208,19 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
           ))}
         </View>
         {!hasBeenSaved && (
-          <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={isSaving}>
+          <TouchableOpacity 
+            style={styles.saveButton} 
+            onPress={handleSave} 
+            disabled={isSaving}
+            accessibilityLabel="Save all drafted tasks"
+            accessibilityRole="button"
+          >
             {isSaving ? (
               <ActivityIndicator color={colors.secondary} />
             ) : (
               <Text style={styles.saveButtonText}>Save Tasks</Text>
             )}
-          </TouchableOpacity>
-        )}
+          </TouchableOpacity>        )}
         {hasBeenSaved && (
           <View style={styles.savedConfirmation}>
             <Icon name="check-circle-fill" size={16} color={colors.success} />
