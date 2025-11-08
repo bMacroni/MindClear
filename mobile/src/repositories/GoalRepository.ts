@@ -465,8 +465,7 @@ export class GoalRepository {
         Q.where('goal_id', localId)
       ).fetch();
     } catch (error) {
-      console.error('Error fetching child milestones for goal migration:', error);
-      childMilestones = [];
+      throw new Error(`Failed to fetch child milestones: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
     let childTasks: Task[] = [];
@@ -475,8 +474,7 @@ export class GoalRepository {
         Q.where('goal_id', localId)
       ).fetch();
     } catch (error) {
-      console.error('Error fetching child tasks for goal migration:', error);
-      childTasks = [];
+      throw new Error(`Failed to fetch child tasks: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     try {

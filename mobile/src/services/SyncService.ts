@@ -824,6 +824,12 @@ class SyncService {
     finalThreadId: string,
     database: Database
   ): Promise<void> {
+    // Check authentication before making API call
+    const userId = authService.getCurrentUser()?.id;
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
     // Call AI chat endpoint with the user message
     const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
     
@@ -840,34 +846,65 @@ class SyncService {
       try {
         existingMessage = await database.get<ConversationMessage>('conversation_messages')
           .find(chatResponse.assistantMessage.id);
-      } catch {
+      } catch (error: any) {
+        // Only swallow true "not found" errors, rethrow others
+        const errorMessage = error?.message || String(error || '');
+        if (!errorMessage.toLowerCase().includes('not found')) {
+          throw error;
+        }
         // Message doesn't exist, will create it below
       }
       
       if (!existingMessage) {
-        // Create message with server ID
-        const userId = authService.getCurrentUser()?.id;
-        if (!userId) {
-          throw new Error('User not authenticated');
-        }
-        
-        const createdMessage = await database.write(async () => {
-          return await database.get<ConversationMessage>('conversation_messages').create(message => {
-            message._raw.id = chatResponse.assistantMessage.id;
-            message.threadId = finalThreadId;
-            message.userId = userId;
-            message.role = 'assistant';
-            message.content = chatResponse.assistantMessage.content;
-            if (chatResponse.assistantMessage.metadata) {
-              message.metadata = typeof chatResponse.assistantMessage.metadata === 'string' 
-                ? chatResponse.assistantMessage.metadata 
-                : JSON.stringify(chatResponse.assistantMessage.metadata);
-            }
-            message.status = 'synced'; // Already synced since it came from server
-            message.createdAt = safeParseDate(chatResponse.assistantMessage.created_at) || new Date();
-            message.updatedAt = safeParseDate(chatResponse.assistantMessage.updated_at) || new Date();
+        // Create message with server ID - handle duplicate-ID race conditions
+        try {
+          const createdMessage = await database.write(async () => {
+            return await database.get<ConversationMessage>('conversation_messages').create(message => {
+              message._raw.id = chatResponse.assistantMessage.id;
+              message.threadId = finalThreadId;
+              message.userId = userId;
+              message.role = 'assistant';
+              message.content = chatResponse.assistantMessage.content;
+              if (chatResponse.assistantMessage.metadata) {
+                message.metadata = typeof chatResponse.assistantMessage.metadata === 'string' 
+                  ? chatResponse.assistantMessage.metadata 
+                  : JSON.stringify(chatResponse.assistantMessage.metadata);
+              }
+              message.status = 'synced'; // Already synced since it came from server
+              message.createdAt = safeParseDate(chatResponse.assistantMessage.created_at) || new Date();
+              message.updatedAt = safeParseDate(chatResponse.assistantMessage.updated_at) || new Date();
+            });
           });
-        });
+        } catch (createError: any) {
+          // Handle duplicate-ID errors or unique constraint violations
+          const errorMessage = createError?.message || String(createError || '');
+          const isDuplicateError = 
+            errorMessage.toLowerCase().includes('duplicate') ||
+            errorMessage.toLowerCase().includes('unique constraint') ||
+            errorMessage.toLowerCase().includes('already exists');
+          
+          if (isDuplicateError) {
+            // Race condition: message was created by another operation, fetch and update it
+            try {
+              existingMessage = await database.get<ConversationMessage>('conversation_messages')
+                .find(chatResponse.assistantMessage.id);
+              
+              // Mark existing message as synced and update timestamps
+              if (existingMessage.status !== 'synced') {
+                await conversationRepository.markMessageAsSynced(existingMessage.id, {
+                  createdAt: safeParseDate(chatResponse.assistantMessage.created_at) || existingMessage.createdAt,
+                  updatedAt: safeParseDate(chatResponse.assistantMessage.updated_at) || existingMessage.updatedAt,
+                });
+              }
+            } catch (fetchError: any) {
+              // If we can't fetch the existing message, rethrow the original create error
+              throw createError;
+            }
+          } else {
+            // Unexpected error, rethrow
+            throw createError;
+          }
+        }
       } else {
         // Message already exists, ensure it's marked as synced
         if (existingMessage.status !== 'synced') {

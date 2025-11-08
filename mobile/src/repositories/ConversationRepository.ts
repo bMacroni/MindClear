@@ -186,10 +186,8 @@ export class ConversationRepository {
         id, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
-      throw error;
+      throw new Error(`Failed to delete thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
   /**
    * Creates a new message locally with 'pending_create' status.
    */
@@ -204,13 +202,20 @@ export class ConversationRepository {
     
     try {
       return await database.write(async () => {
+    try {
+      return await database.write(async () => {
         return await database.get<ConversationMessage>('conversation_messages').create(message => {
           message.threadId = threadId;
           message.userId = userId;
           message.role = role;
           message.content = content;
           if (metadata) {
-            message.metadata = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+            try {
+              message.metadata = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+            } catch (jsonError) {
+              logger.warn('Failed to stringify metadata, storing as string', { jsonError });
+              message.metadata = String(metadata);
+            }
           }
           message.status = 'pending_create';
           message.createdAt = new Date();
@@ -222,15 +227,10 @@ export class ConversationRepository {
         threadId,
         userId,
         role,
-        metadata: metadata ? JSON.stringify(metadata) : undefined,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
-      throw error;
-    }
-  }
-
-  /**
-   * Updates an existing message locally with 'pending_update' status.
+      throw new Error(`Failed to create message: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }   * Updates an existing message locally with 'pending_update' status.
    * @throws Error - Throws "Message not found" if the message doesn't exist
    */
   async updateMessage(id: string, data: {
