@@ -34,7 +34,7 @@ class EnhancedAPI {
     };
 
     // Declare timeoutId outside try block so it's accessible in catch
-    let timeoutId: NodeJS.Timeout | undefined = undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
     try {
       // Check if external signal is already aborted
@@ -103,7 +103,7 @@ class EnhancedAPI {
         // Check if we should retry
         if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
           const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
           return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
         }
         
@@ -139,12 +139,13 @@ class EnhancedAPI {
       const userError = await errorHandlingService.handleError(error, category, context);
       
       // Don't retry 404 errors - endpoint doesn't exist
-      const is404 = error?.status === 404 || error?.response?.status === 404;
+      const errorWithStatus = error as { status?: number; response?: { status?: number } } | null | undefined;
+      const is404 = errorWithStatus?.status === 404 || errorWithStatus?.response?.status === 404;
       
       // Check if we should retry
       if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
         return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
       }
       

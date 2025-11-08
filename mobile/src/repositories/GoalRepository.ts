@@ -135,6 +135,12 @@ export class GoalRepository {
   }): Promise<Milestone> {
     const database = getDatabase();
     
+    // Verify ownership - ensure the goal belongs to the current user
+    const goal = await this.getGoalById(goalId);
+    if (!goal) {
+      throw new AuthorizationError('You do not have permission to create a milestone for this goal');
+    }
+    
     return await database.write(async () => {
       return await database.get<Milestone>('milestones').create(milestone => {
         milestone.goalId = goalId;
@@ -156,7 +162,12 @@ export class GoalRepository {
     order?: number;
   }): Promise<Milestone> {
     const database = getDatabase();
-    const milestone = await database.get<Milestone>('milestones').find(id);
+    
+    // Verify ownership using getMilestoneById which includes ownership checks
+    const milestone = await this.getMilestoneById(id);
+    if (!milestone) {
+      throw new NotFoundError(`Milestone with id ${id} not found`);
+    }
     
     return await database.write(async () => {
       return await milestone.update(m => {
@@ -274,6 +285,12 @@ export class GoalRepository {
     order: number;
   }): Promise<MilestoneStep> {
     const database = getDatabase();
+    
+    // Verify ownership - ensure the milestone belongs to a goal owned by the current user
+    const milestone = await this.getMilestoneById(milestoneId);
+    if (!milestone) {
+      throw new AuthorizationError('You do not have permission to create a step for this milestone');
+    }
     
     return await database.write(async () => {
       return await database.get<MilestoneStep>('milestone_steps').create(step => {

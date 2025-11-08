@@ -188,6 +188,8 @@ export class ConversationRepository {
       });
       throw new Error(`Failed to delete thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
   /**
    * Creates a new message locally with 'pending_create' status.
    */
@@ -200,8 +202,6 @@ export class ConversationRepository {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     
-    try {
-      return await database.write(async () => {
     try {
       return await database.write(async () => {
         return await database.get<ConversationMessage>('conversation_messages').create(message => {
@@ -230,7 +230,11 @@ export class ConversationRepository {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       throw new Error(`Failed to create message: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }   * Updates an existing message locally with 'pending_update' status.
+    }
+  }
+
+  /**
+   * Updates an existing message locally with 'pending_update' status.
    * @throws Error - Throws "Message not found" if the message doesn't exist
    */
   async updateMessage(id: string, data: {
@@ -250,9 +254,7 @@ export class ConversationRepository {
           
           // Preserve pending_create for offline-created messages, otherwise mark as pending_update
           const currentStatus = m.status as string;
-          if (currentStatus === 'pending_create') {
-            m.status = 'pending_create';
-          } else {
+          if (currentStatus !== 'pending_create') {
             m.status = 'pending_update';
           }
           m.updatedAt = new Date();

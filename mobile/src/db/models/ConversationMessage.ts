@@ -1,6 +1,7 @@
 import {Model} from '@nozbe/watermelondb';
-import {field, date, text, relation} from '@nozbe/watermelondb/decorators';
-import {ConversationThreadType} from './ConversationThread';
+import {date, text, relation} from '@nozbe/watermelondb/decorators';
+import ConversationThread from './ConversationThread';
+import type {ConversationThreadType} from './ConversationThread';
 
 // TypeScript interface for ConversationMessage
 export interface ConversationMessageType {
