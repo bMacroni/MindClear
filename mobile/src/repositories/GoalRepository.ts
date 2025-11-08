@@ -383,6 +383,113 @@ export class GoalRepository {
     }
   }
 
+  /**
+   * Migrates a locally-created milestone to use the server-assigned ID.
+   * Re-creates the milestone with the serverId and re-points all child steps
+   * to the new milestone ID, then deletes the old milestone record.
+   */
+  async updateMilestoneServerId(localId: string, serverId: string, serverGoalId?: string): Promise<void> {
+    const database = getDatabase();
+    // Find the local milestone; if it doesn't exist, nothing to migrate
+    let localMilestone: Milestone | null = null;
+    try {
+      localMilestone = await database.get<Milestone>('milestones').find(localId);
+    } catch {
+      return;
+    }
+
+    // Gather child steps tied to the local milestone
+    const stepCollection = database.get<MilestoneStep>('milestone_steps');
+    const childSteps = await stepCollection.query(
+      Q.where('milestone_id', localId)
+    ).fetch();
+
+    await database.write(async () => {
+      // Create a new milestone record with the server-assigned ID
+      const newMilestone = await database.get<Milestone>('milestones').create(m => {
+        m._raw.id = serverId;
+        m.goalId = serverGoalId || localMilestone!.goalId;
+        m.title = localMilestone!.title;
+        m.description = localMilestone!.description;
+        m.completed = localMilestone!.completed;
+        m.order = localMilestone!.order;
+        m.status = 'synced';
+        m.createdAt = localMilestone!.createdAt;
+        m.updatedAt = localMilestone!.updatedAt;
+      });
+
+      // Re-point all child steps to the new milestone ID
+      for (const step of childSteps) {
+        await step.update(s => {
+          s.milestoneId = newMilestone.id;
+        });
+      }
+
+      // Remove the old milestone record
+      await localMilestone!.destroyPermanently();
+    });
+  }
+
+  /**
+   * Migrates a locally-created goal to use the server-assigned ID.
+   * Creates a new goal with the server ID, re-points all child milestones and tasks
+   * to the new goal ID, then deletes the old goal record.
+   */
+  async updateGoalServerId(localId: string, serverId: string): Promise<void> {
+    const database = getDatabase();
+    // Find the local goal; if it doesn't exist, nothing to migrate
+    let localGoal: Goal | null = null;
+    try {
+      localGoal = await database.get<Goal>('goals').find(localId);
+    } catch {
+      return;
+    }
+
+    // Gather child milestones and tasks tied to the local goal
+    const milestoneCollection = database.get<Milestone>('milestones');
+    const taskCollection = database.get<any>('tasks');
+    const childMilestones = await milestoneCollection.query(
+      Q.where('goal_id', localId)
+    ).fetch();
+    const childTasks = await taskCollection.query(
+      Q.where('goal_id', localId)
+    ).fetch();
+
+    await database.write(async () => {
+      // Create a new goal record with the server-assigned ID
+      const newGoal = await database.get<Goal>('goals').create(g => {
+        g._raw.id = serverId;
+        g.title = localGoal!.title;
+        g.description = localGoal!.description;
+        g.targetCompletionDate = localGoal!.targetCompletionDate;
+        g.progressPercentage = localGoal!.progressPercentage;
+        g.category = localGoal!.category;
+        g.isActive = localGoal!.isActive;
+        g.userId = localGoal!.userId;
+        g.status = 'synced';
+        g.createdAt = localGoal!.createdAt;
+        g.updatedAt = localGoal!.updatedAt;
+      });
+
+      // Re-point all child milestones to the new goal ID
+      for (const ms of childMilestones) {
+        await ms.update(m => {
+          m.goalId = newGoal.id;
+        });
+      }
+
+      // Re-point all child tasks to the new goal ID
+      for (const task of childTasks) {
+        await task.update((t: any) => {
+          t.goalId = newGoal.id;
+        });
+      }
+
+      // Remove the old goal record
+      await localGoal!.destroyPermanently();
+    });
+  }
+
   // Observable query helpers for use with withObservables
   observeAllGoals() {
     const database = getDatabase();

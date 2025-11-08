@@ -21,7 +21,9 @@ import {
   updateStep,
   deleteStep,
   readSteps,
-  lookupStep
+  lookupStep,
+  getMilestones,
+  getMilestoneSteps
 } from '../controllers/goalsController.js';
 
 const router = express.Router();
@@ -36,6 +38,11 @@ router.get('/:id', requireAuth, getGoalById);
 router.put('/:id', requireAuth, updateGoal);
 router.delete('/:id', requireAuth, deleteGoal);
 router.post('/generate-breakdown', requireAuth, generateGoalBreakdown);
+
+// Sync endpoints for milestones and milestone steps
+// These are separate routes to prevent conflicts with nested routes below
+router.get('/milestones', requireAuth, getMilestones);
+router.get('/milestone-steps', requireAuth, getMilestoneSteps);
 
 // Milestone endpoints
 router.post('/:goalId/milestones', requireAuth, createMilestone);

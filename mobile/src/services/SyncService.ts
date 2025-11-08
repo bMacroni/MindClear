@@ -7,9 +7,14 @@ import Task from '../db/models/Task';
 import Goal from '../db/models/Goal';
 import Milestone from '../db/models/Milestone';
 import MilestoneStep from '../db/models/MilestoneStep';
+import ConversationThread from '../db/models/ConversationThread';
+import ConversationMessage from '../db/models/ConversationMessage';
 import { notificationService } from './notificationService';
 import { authService } from './auth';
 import { safeParseDate } from '../utils/dateUtils';
+import { conversationRepository } from '../repositories/ConversationRepository';
+import { goalRepository } from '../repositories/GoalRepository';
+import { conversationService } from './conversationService';
 
 // Interface for task data received from server during sync
 interface TaskPayload {
@@ -30,6 +35,89 @@ const LAST_SYNCED_AT_KEY = 'last_synced_at';
 class SyncService {
   private isSyncing = false;
   private logger = console;
+
+  // Simple UUID v4/v1 checker (relaxed to accept standard UUIDs)
+  private isUUID(value: string | undefined | null): boolean {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
+  }
+
+  private async ensureServerGoalId(localGoalId: string, database: Database): Promise<string> {
+    if (this.isUUID(localGoalId)) {
+      return localGoalId;
+    }
+    // Attempt to find local goal
+    let goal: Goal | null = null;
+    try {
+      goal = await database.get<Goal>('goals').find(localGoalId);
+    } catch {}
+    if (!goal) {
+      // If not found, just return original; downstream will fail and be retried
+      return localGoalId;
+    }
+
+    // Create goal on server using local data
+    const goalData = {
+      title: goal.title,
+      description: goal.description,
+      target_completion_date: goal.targetCompletionDate?.toISOString(),
+      progress_percentage: goal.progressPercentage,
+      category: goal.category,
+      is_active: goal.isActive,
+      client_updated_at: goal.updatedAt?.toISOString(),
+    } as any;
+
+    const created = await enhancedAPI.createGoal(goalData);
+    if (created && created.id && created.id !== localGoalId) {
+      try {
+        await goalRepository.updateGoalServerId(localGoalId, created.id);
+        return created.id;
+      } catch (e) {
+        console.warn('ensureServerGoalId: Failed to migrate local goal id to server id', e);
+        return created.id;
+      }
+    }
+    return localGoalId;
+  }
+
+  private async ensureServerMilestoneId(localMilestoneId: string, database: Database): Promise<string> {
+    if (this.isUUID(localMilestoneId)) {
+      return localMilestoneId;
+    }
+
+    // Load local milestone
+    let milestone: Milestone | null = null;
+    try {
+      milestone = await database.get<Milestone>('milestones').find(localMilestoneId);
+    } catch {}
+    if (!milestone) {
+      return localMilestoneId;
+    }
+
+    // Ensure the parent goal has a server UUID
+    const serverGoalId = await this.ensureServerGoalId(milestone.goalId, database);
+
+    // Create milestone on server
+    const milestoneData = {
+      title: milestone.title,
+      description: milestone.description,
+      completed: milestone.completed,
+      order: milestone.order,
+      client_updated_at: milestone.updatedAt?.toISOString(),
+    } as any;
+
+    const created = await enhancedAPI.createMilestone(serverGoalId, milestoneData);
+    if (created && created.id && created.id !== localMilestoneId) {
+      try {
+        await goalRepository.updateMilestoneServerId(localMilestoneId, created.id, created.goal_id || serverGoalId);
+        return created.id;
+      } catch (e) {
+        console.warn('ensureServerMilestoneId: Failed to migrate local milestone id to server id', e);
+        return created.id;
+      }
+    }
+    return localMilestoneId;
+  }
 
   async pushData() {
     const database = getDatabase();
@@ -75,9 +163,23 @@ class SyncService {
       Q.where('status', Q.notEq('synced'))
     ).fetch();
 
-    const allDirtyRecords = [...dirtyEvents, ...dirtyTasks, ...dirtyGoals, ...dirtyMilestones, ...dirtyMilestoneSteps];
+    const dirtyThreads = await database.get<ConversationThread>('conversation_threads').query(
+      Q.where('status', Q.notEq('synced'))
+    ).fetch();
 
-    if (allDirtyRecords.length === 0) {
+    // Messages need special handling - only sync user messages, assistant messages are created by server
+    const dirtyMessages = await database.get<ConversationMessage>('conversation_messages').query(
+      Q.where('status', Q.notEq('synced')),
+      Q.where('role', 'user') // Only sync user messages
+    ).fetch();
+
+    const allDirtyRecords = [...dirtyEvents, ...dirtyTasks, ...dirtyGoals, ...dirtyMilestones, ...dirtyMilestoneSteps, ...dirtyThreads];
+
+    // Handle messages separately because they require special AI chat endpoint handling
+    // Process messages after other records to ensure threads exist first
+    const messagePushErrors: { recordId: string; error: any }[] = [];
+
+    if (allDirtyRecords.length === 0 && dirtyMessages.length === 0) {
       return;
     }
 
@@ -157,12 +259,29 @@ class SyncService {
 
           switch (record.status) {
             case 'pending_create':
+            case 'sync_failed_create':
               serverResponse = await enhancedAPI.createGoal(recordData);
               break;
             case 'pending_update':
-              serverResponse = await enhancedAPI.updateGoal(record.id, recordData);
+            case 'sync_failed_update':
+            // Fallback for legacy sync_failed, assume update
+            case 'sync_failed':
+              // Check if the record exists on the server before attempting an update
+              try {
+                await enhancedAPI.getGoal(record.id);
+                serverResponse = await enhancedAPI.updateGoal(record.id, recordData);
+              } catch (error: any) {
+                if (error.response && error.response.status === 404) {
+                  // Not found, so it should be a create operation
+                  serverResponse = await enhancedAPI.createGoal(recordData);
+                } else {
+                  // Re-throw other errors
+                  throw error;
+                }
+              }
               break;
             case 'pending_delete':
+            case 'sync_failed_delete':
               serverResponse = await enhancedAPI.deleteGoal(record.id);
               break;
             default:
@@ -180,12 +299,54 @@ class SyncService {
 
           switch (record.status) {
             case 'pending_create':
-              serverResponse = await enhancedAPI.createMilestone(record.goalId, recordData);
+            case 'sync_failed_create':
+              // Ensure goal ID is a server UUID before creating milestone
+              {
+                const serverGoalId = await this.ensureServerGoalId(record.goalId, database);
+                serverResponse = await enhancedAPI.createMilestone(serverGoalId, recordData);
+              }
+              // If server assigned a different ID, migrate local milestone and its steps
+              if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
+                try {
+                  await goalRepository.updateMilestoneServerId(record.id, serverResponse.id, serverResponse.goal_id);
+                  // After migration, skip normal update for this record and continue
+                  continue;
+                } catch (migrationError) {
+                  console.warn('Push: Failed to migrate milestone ID to server ID, will proceed with normal update.', migrationError);
+                }
+              }
               break;
             case 'pending_update':
-              serverResponse = await enhancedAPI.updateMilestone(record.id, recordData);
+            case 'sync_failed_update':
+            // Fallback for legacy sync_failed, assume update
+            case 'sync_failed':
+              // Check if the record exists on the server before attempting an update
+              try {
+                await enhancedAPI.getMilestone(record.id);
+                serverResponse = await enhancedAPI.updateMilestone(record.id, recordData);
+              } catch (error: any) {
+                if (error.response && error.response.status === 404) {
+                  // Not found, so it should be a create operation
+                  {
+                    const serverGoalId = await this.ensureServerGoalId(record.goalId, database);
+                    serverResponse = await enhancedAPI.createMilestone(serverGoalId, recordData);
+                  }
+                  if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
+                    try {
+                      await goalRepository.updateMilestoneServerId(record.id, serverResponse.id, serverResponse.goal_id);
+                      continue;
+                    } catch (migrationError) {
+                      console.warn('Push: Failed to migrate milestone ID after create fallback.', migrationError);
+                    }
+                  }
+                } else {
+                  // Re-throw other errors
+                  throw error;
+                }
+              }
               break;
             case 'pending_delete':
+            case 'sync_failed_delete':
               serverResponse = await enhancedAPI.deleteMilestone(record.id);
               break;
             default:
@@ -193,6 +354,16 @@ class SyncService {
               continue;
           }
         } else if (record instanceof MilestoneStep) {
+          // Re-fetch the latest step to get any migrated milestoneId
+          let milestoneIdForPush = record.milestoneId;
+          try {
+            const freshStep = await database.get<MilestoneStep>('milestone_steps').find(record.id);
+            milestoneIdForPush = freshStep.milestoneId;
+          } catch {}
+
+          // Ensure the milestone exists on server and we have a UUID
+          const serverMilestoneId = await this.ensureServerMilestoneId(milestoneIdForPush, database);
+
           recordData = {
             text: record.text,
             completed: record.completed,
@@ -202,16 +373,93 @@ class SyncService {
 
           switch (record.status) {
             case 'pending_create':
-              serverResponse = await enhancedAPI.createStep(record.milestoneId, recordData);
+            case 'sync_failed_create':
+              serverResponse = await enhancedAPI.createStep(serverMilestoneId, recordData);
               break;
             case 'pending_update':
-              serverResponse = await enhancedAPI.updateStep(record.id, recordData);
+            case 'sync_failed_update':
+              // Fallback for legacy sync_failed, assume update
+            case 'sync_failed':
+              // Check if the record exists on the server before attempting an update
+              try {
+                await enhancedAPI.getStep(record.id);
+                serverResponse = await enhancedAPI.updateStep(record.id, recordData);
+              } catch (error: any) {
+                if (error.response && error.response.status === 404) {
+                  // Not found, so it should be a create operation
+                  serverResponse = await enhancedAPI.createStep(serverMilestoneId, recordData);
+                } else {
+                  // Re-throw other errors
+                  throw error;
+                }
+              }
               break;
             case 'pending_delete':
+            case 'sync_failed_delete':
               serverResponse = await enhancedAPI.deleteStep(record.id);
               break;
             default:
               console.warn(`Push: Unknown status ${record.status} for step ${record.id}`);
+              continue;
+          }
+        } else if (record instanceof ConversationThread) {
+          recordData = {
+            title: record.title,
+            summary: record.summary,
+            client_updated_at: record.updatedAt?.toISOString(),
+          };
+
+          switch (record.status) {
+            case 'pending_create':
+              serverResponse = await conversationService.createThread(record.title, record.summary);
+              // If server returned a different ID, we need to update (server generates UUID)
+              // Note: This is handled by marking as synced - the server ID becomes the canonical ID
+              // If local ID differs, updateThreadServerId will handle migration
+              if (serverResponse && serverResponse.id !== record.id) {
+                await conversationRepository.updateThreadServerId(record.id, serverResponse.id);
+                // Skip the normal update logic since we've migrated to new ID
+                continue;
+              }
+              break;
+            case 'pending_update':
+              serverResponse = await conversationService.updateThread(record.id, {
+                title: record.title,
+                summary: record.summary,
+              });
+              break;
+            case 'pending_delete':
+              await conversationService.deleteThread(record.id);
+              break;
+            case 'sync_failed':
+              // For sync_failed records, try to determine the original operation and retry
+              // Check if thread exists on server to determine if it's a create or update
+              try {
+                const existingThread = await conversationService.getThread(record.id);
+                if (existingThread) {
+                  // Thread exists, so this was likely a failed update - retry as update
+                  serverResponse = await conversationService.updateThread(record.id, {
+                    title: record.title,
+                    summary: record.summary,
+                  });
+                } else {
+                  // Thread doesn't exist, so this was likely a failed create - retry as create
+                  serverResponse = await conversationService.createThread(record.title, record.summary);
+                  if (serverResponse && serverResponse.id !== record.id) {
+                    await conversationRepository.updateThreadServerId(record.id, serverResponse.id);
+                    continue;
+                  }
+                }
+              } catch (checkError: any) {
+                // If we can't determine, assume it's a create and retry
+                serverResponse = await conversationService.createThread(record.title, record.summary);
+                if (serverResponse && serverResponse.id !== record.id) {
+                  await conversationRepository.updateThreadServerId(record.id, serverResponse.id);
+                  continue;
+                }
+              }
+              break;
+            default:
+              console.warn(`Push: Unknown status ${record.status} for thread ${record.id}`);
               continue;
           }
         } else {
@@ -220,44 +468,77 @@ class SyncService {
         }
 
         // Update local record based on server action
-        await database.write(async () => {
-          if (record.status === 'pending_delete' || 
-              (typeof record.status === 'string' && record.status.includes('pending_delete'))) {
-            await record.destroyPermanently();
+        // Handle ConversationThread separately since it uses repository method
+        if (record instanceof ConversationThread) {
+          if (record.status === 'pending_delete') {
+            // Delete handled by repository, just destroy locally
+            await database.write(async () => {
+              await record.destroyPermanently();
+            });
           } else {
-            // For tasks, preserve lifecycle status from server response if provided
-            let finalStatus: string;
-            if (record instanceof Task) {
-              // Extract lifecycle status from server response or preserve from current status
-              const serverStatus = serverResponse?.status;
-              const serverLifecycleStatus =
-                serverStatus === 'not_started' || serverStatus === 'in_progress' || serverStatus === 'completed'
-                  ? serverStatus
-                  : null;
-
-              const { lifecycleStatus: currentLifecycleStatus } = this.extractLifecycleStatus(record.status as string | undefined | null);
-
-              // Use server status if available, otherwise preserve current
-              finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';            } else {
-              // Non-task records use 'synced' status
-              finalStatus = 'synced';
-            }
-            
-            await record.update(r => {
-              r.status = finalStatus;
-              if (serverResponse && serverResponse.updated_at) {
-                const parsedUpdatedAt = safeParseDate(serverResponse.updated_at);
-                if (parsedUpdatedAt) {
-                  r.updatedAt = parsedUpdatedAt;
-                } else {
-                  console.warn(`Push: Failed to parse updated_at for record ${record.id}:`, serverResponse.updated_at);
-                }
-              }
+            await conversationRepository.markThreadAsSynced(record.id, {
+              createdAt: serverResponse?.created_at ? safeParseDate(serverResponse.created_at) : undefined,
+              updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
             });
           }
-        });
+          // Skip the generic update logic below
+        } else {
+          await database.write(async () => {
+            if (record.status === 'pending_delete' || 
+                (typeof record.status === 'string' && record.status.includes('pending_delete'))) {
+              await record.destroyPermanently();
+            } else {
+              // For tasks, preserve lifecycle status from server response if provided
+              let finalStatus: string;
+              if (record instanceof Task) {
+                // Extract lifecycle status from server response or preserve from current status
+                const serverStatus = serverResponse?.status;
+                const serverLifecycleStatus =
+                  serverStatus === 'not_started' || serverStatus === 'in_progress' || serverStatus === 'completed'
+                    ? serverStatus
+                    : null;
+
+                const { lifecycleStatus: currentLifecycleStatus } = this.extractLifecycleStatus(record.status as string | undefined | null);
+
+                // Use server status if available, otherwise preserve current
+                finalStatus = serverLifecycleStatus || currentLifecycleStatus || 'not_started';
+              } else {
+                // Non-task records use 'synced' status
+                finalStatus = 'synced';
+              }
+              
+              await record.update(r => {
+                r.status = finalStatus;
+                if (serverResponse && serverResponse.updated_at) {
+                  const parsedUpdatedAt = safeParseDate(serverResponse.updated_at);
+                  if (parsedUpdatedAt) {
+                    r.updatedAt = parsedUpdatedAt;
+                  } else {
+                    console.warn(`Push: Failed to parse updated_at for record ${record.id}:`, serverResponse.updated_at);
+                  }
+                }
+              });
+            }
+          });
+        }
 
       } catch (error: any) {
+        // Handle idempotent deletes: if server says 404/410 on pending_delete, treat as success
+        try {
+          const isPendingDelete = (record as any).status === 'pending_delete' ||
+            (typeof (record as any).status === 'string' && (record as any).status.includes('pending_delete'));
+          const statusCode = error?.response?.status;
+          if (isPendingDelete && (statusCode === 404 || statusCode === 410)) {
+            await database.write(async () => {
+              await (record as any).destroyPermanently();
+            });
+            // Skip error tracking for idempotent delete
+            continue;
+          }
+        } catch (localDeleteErr) {
+          console.warn('Push: Failed to finalize local delete after server 404/410', localDeleteErr);
+        }
+
         // --- CONFLICT HANDLING ---
         if (error?.response?.status === 409) {
           console.warn(`Push: Conflict detected for record ${record.id}. Overwriting local with server version.`);
@@ -315,8 +596,159 @@ class SyncService {
       }
     }
 
+    // Handle messages separately - they require calling /ai/chat endpoint
+    // First, ensure all threads are synced before processing messages
+    for (const message of dirtyMessages) {
+      try {
+        // Ensure thread exists - try original threadId first
+        let thread = await conversationRepository.getThreadById(message.threadId);
+        
+        // If thread not found, it might have been migrated to a new ID during sync
+        // Try to find it by checking all synced threads and matching by userId and timestamp
+        if (!thread) {
+          console.log(`Push: Thread ${message.threadId} not found, checking for migrated thread`);
+          const userId = authService.getCurrentUser()?.id;
+          if (userId) {
+            const allSyncedThreads = await database.get<ConversationThread>('conversation_threads')
+              .query(
+                Q.where('user_id', userId),
+                Q.where('status', 'synced')
+              )
+              .fetch();
+            
+            // Try to find thread by checking messages in synced threads
+            for (const candidateThread of allSyncedThreads) {
+              const threadMessages = await conversationRepository.getMessagesByThreadId(candidateThread.id);
+              const matchingMessage = threadMessages.find(m => m.id === message.id);
+              if (matchingMessage) {
+                console.log(`Push: Found migrated thread ${candidateThread.id} for message ${message.id}`);
+                thread = candidateThread;
+                // Update message's threadId to correct one
+                await database.write(async () => {
+                  await message.update(m => {
+                    m.threadId = candidateThread.id;
+                  });
+                });
+                break;
+              }
+            }
+          }
+          
+          if (!thread) {
+            console.warn(`Push: Thread ${message.threadId} not found for message ${message.id} after migration check`);
+            messagePushErrors.push({ recordId: message.id, error: new Error('Thread not found') });
+            continue;
+          }
+        }
+
+        // If thread is not synced yet, sync it first
+        if (thread.status !== 'synced') {
+          console.log(`Push: Thread ${thread.id} not synced yet, syncing thread first`);
+          try {
+            // Sync the thread
+            const threadData = {
+              title: thread.title,
+              summary: thread.summary,
+            };
+            
+            let serverResponse: any;
+            if (thread.status === 'pending_create') {
+              serverResponse = await conversationService.createThread(thread.title, thread.summary);
+              // Handle ID migration if server returned different ID
+              if (serverResponse && serverResponse.id !== thread.id) {
+                await conversationRepository.updateThreadServerId(thread.id, serverResponse.id);
+                // Update message's threadId to new ID
+                await database.write(async () => {
+                  await message.update(m => {
+                    m.threadId = serverResponse.id;
+                  });
+                });
+                // Re-fetch thread with new ID
+                thread = await conversationRepository.getThreadById(serverResponse.id);
+              } else {
+                await conversationRepository.markThreadAsSynced(thread.id, {
+                  createdAt: serverResponse?.created_at ? safeParseDate(serverResponse.created_at) : undefined,
+                  updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
+                });
+              }
+            } else if (thread.status === 'pending_update') {
+              serverResponse = await conversationService.updateThread(thread.id, threadData);
+              await conversationRepository.markThreadAsSynced(thread.id, {
+                updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
+              });
+            }
+            
+            // Re-fetch thread to get updated status (use server ID if it changed)
+            const finalThreadId = serverResponse?.id || message.threadId;
+            thread = await conversationRepository.getThreadById(finalThreadId);
+            if (!thread || thread.status !== 'synced') {
+              console.log(`Push: Thread ${finalThreadId} still not synced after sync attempt, skipping message`);
+              continue;
+            }
+            
+            // Update message's threadId if it changed
+            if (serverResponse?.id && serverResponse.id !== message.threadId) {
+              await database.write(async () => {
+                await message.update(m => {
+                  m.threadId = serverResponse.id;
+                });
+              });
+            }
+          } catch (threadSyncError) {
+            console.error(`Push: Failed to sync thread ${message.threadId}:`, threadSyncError);
+            // Skip this message, will retry on next sync
+            continue;
+          }
+        }
+
+        // Use the thread's current ID (may have changed during sync)
+        const finalThreadId = thread.id;
+        
+        // Call AI chat endpoint with the user message
+        const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
+        
+        // Mark user message as synced
+        await conversationRepository.markMessageAsSynced(message.id, {
+          createdAt: safeParseDate(chatResponse.userMessage.created_at) || message.createdAt,
+          updatedAt: safeParseDate(chatResponse.userMessage.updated_at) || new Date(),
+        });
+
+        // Create assistant message locally if it doesn't exist
+        if (chatResponse.assistantMessage) {
+          const existingAssistantMessage = await database.get<ConversationMessage>('conversation_messages')
+            .query(
+              Q.where('thread_id', finalThreadId),
+              Q.where('role', 'assistant'),
+              Q.where('content', chatResponse.assistantMessage.content)
+            )
+            .fetch();
+
+          if (existingAssistantMessage.length === 0) {
+            const createdMessage = await conversationRepository.createMessage(
+              finalThreadId,
+              chatResponse.assistantMessage.content,
+              'assistant',
+              chatResponse.assistantMessage.metadata
+            );
+            
+            // Mark it as synced immediately since it came from server
+            await conversationRepository.markMessageAsSynced(createdMessage.id, {
+              createdAt: safeParseDate(chatResponse.assistantMessage.created_at) || new Date(),
+              updatedAt: safeParseDate(chatResponse.assistantMessage.updated_at) || new Date(),
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error(`Push: Failed to sync message ${message.id}`, JSON.stringify(error, null, 2));
+        messagePushErrors.push({ recordId: message.id, error });
+      }
+    }
+
+    // Combine push errors with message push errors
+    const allPushErrors = [...pushErrors, ...messagePushErrors];
+
     // Check for auth errors after the loop and before other error handling
-    const hasAuthError = pushErrors.some(
+    const hasAuthError = allPushErrors.some(
       e => e.error?.response?.status === 401 || e.error?.response?.status === 403,
     );
 
@@ -328,15 +760,16 @@ class SyncService {
       throw new Error('Authentication failed');
     }
 
-    if (pushErrors.length > 0) {
-      const errorMessage = `Failed to push ${pushErrors.length} of ${allDirtyRecords.length} changes.`;
+    if (allPushErrors.length > 0) {
+      const totalRecords = allDirtyRecords.length + dirtyMessages.length;
+      const errorMessage = `Failed to push ${allPushErrors.length} of ${totalRecords} changes.`;
       notificationService.showInAppNotification(
         'Push Incomplete',
         errorMessage,
       );
 
-      const failedRecordIds = pushErrors.map(e => e.recordId);
-      const recordsToUpdate = allDirtyRecords.filter(r =>
+      const failedRecordIds = allPushErrors.map(e => e.recordId);
+      const recordsToUpdate = [...allDirtyRecords, ...dirtyMessages].filter(r =>
         failedRecordIds.includes(r.id),
       );
 
@@ -351,8 +784,15 @@ class SyncService {
                   const { lifecycleStatus } = this.extractLifecycleStatus(record.status);
                   r.status = `sync_failed:${lifecycleStatus}`;
                 } else {
-                  // For non-task records, just set sync_failed
-                  r.status = 'sync_failed';
+                  // For other records, transition pending states to failed states
+                  if (r.status === 'pending_create') {
+                    r.status = 'sync_failed_create';
+                  } else if (r.status === 'pending_update') {
+                    r.status = 'sync_failed_update';
+                  } else if (r.status === 'pending_delete') {
+                    r.status = 'sync_failed_delete';
+                  }
+                  // If it's already in a failed state, do nothing, it will be retried.
                 }
               });
             }
@@ -392,6 +832,15 @@ class SyncService {
       } catch (stepsErr: any) {
         console.warn('Pull: Failed to fetch milestone steps, continuing without them.', stepsErr);
         milestoneStepsResponse = { changed: [], deleted: [] };
+      }
+
+      // Fetch conversation threads (resilient to errors)
+      let threadsResponse: any = [];
+      try {
+        threadsResponse = await conversationService.listThreads();
+      } catch (threadsErr: any) {
+        console.warn('Pull: Failed to fetch threads, continuing without them.', threadsErr);
+        threadsResponse = [];
       }
 
       const { changed: changedEvents, deleted: deletedEventIds } = syncResponse;
@@ -459,12 +908,33 @@ class SyncService {
         deletedMilestoneStepIds = milestoneStepsResponse.deleted || [];
       }
 
+      // Handle threads response - convert to change format
+      const changedThreads = Array.isArray(threadsResponse) ? threadsResponse : [];
+      
+      // Fetch messages for each thread (this could be optimized with a batch endpoint)
+      const changedMessages: any[] = [];
+      for (const thread of changedThreads) {
+        try {
+          const threadData = await conversationService.getThread(thread.id, { limit: 50, timeoutMs: 60000 });
+          if (threadData.messages) {
+            changedMessages.push(...threadData.messages.map((msg: any) => ({
+              ...msg,
+              thread_id: thread.id, // Ensure thread_id is set
+            })));
+          }
+        } catch (msgErr: any) {
+          console.warn(`Pull: Failed to fetch messages for thread ${thread.id}, continuing without them.`, msgErr);
+        }
+      }
+
       const allChanges = [
         ...changedEvents,
         ...changedTasks,
         ...changedGoals,
         ...changedMilestones,
         ...changedMilestoneSteps,
+        ...changedThreads,
+        ...changedMessages,
       ];
       const allDeletedIds = [
         ...(deletedEventIds || []),
@@ -526,6 +996,9 @@ class SyncService {
               await record.destroyPermanently();
             }
           }
+
+          // Note: Thread deletions are handled via is_active flag, not hard deletes
+          // Messages are cascade deleted when threads are deleted
         }
 
         // Process changed records
@@ -546,6 +1019,12 @@ class SyncService {
           } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
             // This is a milestone step
             await this.processMilestoneStepChange(changeData, database);
+          } else if (changeData.thread_id !== undefined && changeData.role !== undefined) {
+            // This is a conversation message
+            await this.processMessageChange(changeData, database);
+          } else if (changeData.title !== undefined && (changeData.is_active !== undefined || changeData.is_pinned !== undefined)) {
+            // This is a conversation thread (has title and thread-specific fields)
+            await this.processThreadChange(changeData, database);
           } else {
             console.warn(`Pull: Unknown record type for change data:`, changeData);
           }
@@ -1000,6 +1479,115 @@ class SyncService {
         record.milestoneId = stepData.milestone_id;
         record.completed = !!stepData.completed;
         record.order = stepData.order ?? 0;
+        record.status = 'synced';
+        record.createdAt = parsedCreatedAt || new Date();
+        record.updatedAt = parsedUpdatedAt || new Date();
+      });
+    }
+  }
+
+  private async processThreadChange(threadData: any, database: Database) {
+    const threadCollection = database.get<ConversationThread>('conversation_threads');
+    const existing = await threadCollection.query(Q.where('id', threadData.id)).fetch();
+    const local = existing.length > 0 ? existing[0] : null;
+
+    const parsedCreatedAt = threadData.created_at ? safeParseDate(threadData.created_at) : undefined;
+    const parsedUpdatedAt = threadData.updated_at ? safeParseDate(threadData.updated_at) : undefined;
+
+    if (threadData.created_at && !parsedCreatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse created_at for thread ${threadData.id}:`,
+        threadData.created_at
+      );
+    }
+    if (threadData.updated_at && !parsedUpdatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse updated_at for thread ${threadData.id}:`,
+        threadData.updated_at
+      );
+    }
+
+    const userId = authService.getCurrentUser()?.id;
+    if (!userId) {
+      console.warn(`Pull: No user ID available, skipping thread ${threadData.id}`);
+      return;
+    }
+
+    if (local) {
+      await local.update((record: ConversationThread) => {
+        record.title = threadData.title;
+        record.summary = threadData.summary ?? null;
+        record.isActive = threadData.is_active ?? true;
+        record.isPinned = threadData.is_pinned ?? false;
+        record.status = 'synced';
+        if (parsedUpdatedAt) {
+          record.updatedAt = parsedUpdatedAt;
+        }
+      });
+    } else {
+      await threadCollection.create((record: ConversationThread) => {
+        record._raw.id = threadData.id;
+        record.userId = userId;
+        record.title = threadData.title;
+        record.summary = threadData.summary ?? null;
+        record.isActive = threadData.is_active ?? true;
+        record.isPinned = threadData.is_pinned ?? false;
+        record.status = 'synced';
+        record.createdAt = parsedCreatedAt || new Date();
+        record.updatedAt = parsedUpdatedAt || new Date();
+      });
+    }
+  }
+
+  private async processMessageChange(messageData: any, database: Database) {
+    const messageCollection = database.get<ConversationMessage>('conversation_messages');
+    const existing = await messageCollection.query(Q.where('id', messageData.id)).fetch();
+    const local = existing.length > 0 ? existing[0] : null;
+
+    const parsedCreatedAt = messageData.created_at ? safeParseDate(messageData.created_at) : undefined;
+    const parsedUpdatedAt = messageData.updated_at ? safeParseDate(messageData.updated_at) : undefined;
+
+    if (messageData.created_at && !parsedCreatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse created_at for message ${messageData.id}:`,
+        messageData.created_at
+      );
+    }
+    if (messageData.updated_at && !parsedUpdatedAt) {
+      this.logger.error(
+        `Pull: Failed to parse updated_at for message ${messageData.id}:`,
+        messageData.updated_at
+      );
+    }
+
+    const userId = authService.getCurrentUser()?.id;
+    if (!userId) {
+      console.warn(`Pull: No user ID available, skipping message ${messageData.id}`);
+      return;
+    }
+
+    if (local) {
+      await local.update((record: ConversationMessage) => {
+        record.content = messageData.content;
+        record.role = messageData.role;
+        if (messageData.metadata) {
+          record.setMetadata(messageData.metadata);
+        }
+        record.status = 'synced';
+        if (parsedUpdatedAt) {
+          record.updatedAt = parsedUpdatedAt;
+        }
+      });
+    } else {
+      await messageCollection.create((record: ConversationMessage) => {
+        record._raw.id = messageData.id;
+        record.threadId = messageData.thread_id;
+        record.userId = userId;
+        record.content = messageData.content;
+        record.role = messageData.role;
+        if (messageData.metadata) {
+          record.setMetadata(messageData.metadata);
+        }
         record.status = 'synced';
         record.createdAt = parsedCreatedAt || new Date();
         record.updatedAt = parsedUpdatedAt || new Date();

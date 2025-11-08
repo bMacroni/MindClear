@@ -47,8 +47,10 @@ export const conversationService = {
     return res.data as ConversationThread;
     },
 
-  async getThread(threadId: string): Promise<ConversationThreadWithMessages> {
-    const res = await apiFetch<ConversationThreadWithMessages>(`/ai/threads/${threadId}`, { method: 'GET' }, 25000);
+  async getThread(threadId: string, options?: { limit?: number; timeoutMs?: number }): Promise<ConversationThreadWithMessages> {
+    const qs = options?.limit ? `?limit=${encodeURIComponent(String(options.limit))}` : '';
+    const timeout = options?.timeoutMs ?? 25000;
+    const res = await apiFetch<ConversationThreadWithMessages>(`/ai/threads/${threadId}${qs}`, { method: 'GET' }, timeout);
     if (!res.ok) throw new Error((res.data as any)?.error || 'Failed to load thread');
     return res.data as ConversationThreadWithMessages;
   },
@@ -118,7 +120,85 @@ export const conversationService = {
     const workers = Array.from({ length: concurrency }).map(() => worker());
     await Promise.all(workers);
     return { success, failed };
-  }
+  },
+
+  /**
+   * Sends a message directly to AI chat endpoint.
+   * Returns AI response with threadId (created automatically if not provided).
+   * Used by AIChatScreen for immediate chat interaction.
+   */
+  async sendMessage(message: string, threadId?: string | null): Promise<{
+    message: string;
+    actions: any[];
+    threadId: string | null;
+  }> {
+    const res = await apiService.post<{ message: string; actions: any[]; threadId: string | null }>(
+      '/ai/chat',
+      { message, threadId: threadId || undefined },
+      { timeoutMs: 60000 } // Longer timeout for AI responses
+    );
+    
+    if (!res.ok) {
+      throw new Error((res.data as any)?.error || 'Failed to send message');
+    }
+
+    return res.data;
+  },
+
+  /**
+   * Sends a message via AI chat endpoint for sync purposes.
+   * Returns both user and assistant messages as saved by the server.
+   * Used by SyncService to sync pending user messages.
+   */
+  async syncSendMessage(threadId: string, message: string): Promise<{
+    userMessage: { id: string; created_at: string; updated_at: string };
+    assistantMessage: { id: string; content: string; created_at: string; updated_at: string; metadata?: any };
+  }> {
+    const res = await apiService.post<{ message: string; actions: any[]; threadId?: string | null }>(
+      '/ai/chat',
+      { message, threadId },
+      { timeoutMs: 60000 } // Longer timeout for AI responses
+    );
+    
+    if (!res.ok) {
+      throw new Error((res.data as any)?.error || 'Failed to send message');
+    }
+
+    // After sending, fetch the thread to get the messages that were saved
+    const returnedThreadId = (res.data as any).threadId || threadId;
+    if (!returnedThreadId) {
+      throw new Error('No threadId returned from chat endpoint');
+    }
+
+    const threadData = await this.getThread(returnedThreadId);
+    
+    // Find the last user message and assistant message
+    const messages = threadData.messages || [];
+    const userMessages = messages.filter(m => m.role === 'user');
+    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    
+    const lastUserMessage = userMessages[userMessages.length - 1];
+    const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+
+    if (!lastUserMessage || !lastAssistantMessage) {
+      throw new Error('Failed to retrieve messages after sending');
+    }
+
+    return {
+      userMessage: {
+        id: lastUserMessage.id,
+        created_at: lastUserMessage.created_at,
+        updated_at: lastUserMessage.created_at, // Messages don't have updated_at typically
+      },
+      assistantMessage: {
+        id: lastAssistantMessage.id,
+        content: lastAssistantMessage.content,
+        created_at: lastAssistantMessage.created_at,
+        updated_at: lastAssistantMessage.created_at,
+        metadata: lastAssistantMessage.metadata,
+      },
+    };
+  },
 };
 
 

@@ -1,7 +1,7 @@
 import {appSchema, tableSchema} from '@nozbe/watermelondb';
 
 export const mySchema = appSchema({
-  version: 2,
+  version: 3,
   tables: [
     tableSchema({
       name: 'goals',
@@ -76,6 +76,32 @@ export const mySchema = appSchema({
         {name: 'created_at', type: 'number'},
         {name: 'updated_at', type: 'number'},
         {name: 'status', type: 'string'}, // for sync
+      ],
+    }),
+    tableSchema({
+      name: 'conversation_threads',
+      columns: [
+        {name: 'user_id', type: 'string', isIndexed: true},
+        {name: 'title', type: 'string'},
+        {name: 'summary', type: 'string', isOptional: true},
+        {name: 'is_active', type: 'boolean', isOptional: true},
+        {name: 'is_pinned', type: 'boolean', isOptional: true},
+        {name: 'created_at', type: 'number'},
+        {name: 'updated_at', type: 'number'},
+        {name: 'status', type: 'string'}, // for sync: 'synced', 'pending_create', 'pending_update', 'pending_delete'
+      ],
+    }),
+    tableSchema({
+      name: 'conversation_messages',
+      columns: [
+        {name: 'thread_id', type: 'string', isIndexed: true},
+        {name: 'user_id', type: 'string', isIndexed: true},
+        {name: 'role', type: 'string'}, // 'user' or 'assistant'
+        {name: 'content', type: 'string'},
+        {name: 'metadata', type: 'string', isOptional: true}, // JSON stringified
+        {name: 'created_at', type: 'number'},
+        {name: 'updated_at', type: 'number'},
+        {name: 'status', type: 'string'}, // for sync: 'synced', 'pending_create', 'pending_update'
       ],
     }),
   ],

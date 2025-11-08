@@ -220,6 +220,15 @@ app.get('/api/protected', requireAuth, (req, res) => {
 });
 
 app.use('/api/goals', goalsRouter);
+// Sync endpoints for milestones and milestone steps (separate from nested routes)
+app.get('/api/milestones', requireAuth, async (req, res) => {
+  const { getMilestones } = await import('./controllers/goalsController.js');
+  return getMilestones(req, res);
+});
+app.get('/api/milestone-steps', requireAuth, async (req, res) => {
+  const { getMilestoneSteps } = await import('./controllers/goalsController.js');
+  return getMilestoneSteps(req, res);
+});
 
 app.use('/api/tasks', tasksRouter);
 

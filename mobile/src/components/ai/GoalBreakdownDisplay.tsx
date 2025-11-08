@@ -1,32 +1,22 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
-
-interface GoalStep {
-  text: string;
-}
-
-interface GoalMilestone {
-  title: string;
-  steps: GoalStep[];
-}
-
-interface GoalData {
-  title: string;
-  description: string;
-  dueDate?: string;
-  priority?: string;
-  milestones: GoalMilestone[];
-}
+import { GoalData, GoalMilestone, GoalStep } from '../../types/goal';
 
 interface GoalBreakdownDisplayProps {
   text: string;
+  onSaveGoal: (goalData: GoalData) => Promise<void>;
+  conversationalText?: string;
+  conversationTitle?: string;
 }
 
-export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps) {
+export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalText, conversationTitle }: GoalBreakdownDisplayProps) {
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isSaved, setIsSaved] = React.useState(false);
+
   // Parse goal breakdown from text
   const parseGoalBreakdown = (breakdownText: string): GoalData => {
     try {
@@ -40,7 +30,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
             title: jsonData.title || '',
             description: jsonData.description || '',
             dueDate: jsonData.due_date || jsonData.dueDate,
-            priority: jsonData.priority,
+            category: jsonData.category || jsonData.priority,
             milestones: jsonData.milestones
           };
         }
@@ -51,7 +41,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
             title: g.title || jsonData.title || '',
             description: g.description || '',
             dueDate: g.target_completion_date || g.due_date || g.dueDate,
-            priority: g.priority,
+            category: g.category || g.priority,
             milestones: Array.isArray(g.milestones) ? g.milestones : [],
           };
         }
@@ -65,7 +55,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
               title: g.title || '',
               description: g.description || '',
               dueDate: g.target_completion_date || g.due_date || g.dueDate,
-              priority: g.priority,
+              category: g.category || g.priority,
               milestones: Array.isArray(g.milestones) ? g.milestones : [],
             };
           }
@@ -82,7 +72,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
             title: jsonData.title || '',
             description: jsonData.description || '',
             dueDate: jsonData.due_date || jsonData.dueDate,
-            priority: jsonData.priority,
+            category: jsonData.category || jsonData.priority,
             milestones: jsonData.milestones
           };
         }
@@ -92,7 +82,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
             title: g.title || jsonData.title || '',
             description: g.description || '',
             dueDate: g.target_completion_date || g.due_date || g.dueDate,
-            priority: g.priority,
+            category: g.category || g.priority,
             milestones: Array.isArray(g.milestones) ? g.milestones : [],
           };
         }
@@ -105,7 +95,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
               title: g.title || '',
               description: g.description || '',
               dueDate: g.target_completion_date || g.due_date || g.dueDate,
-              priority: g.priority,
+              category: g.category || g.priority,
               milestones: Array.isArray(g.milestones) ? g.milestones : [],
             };
           }
@@ -120,7 +110,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
       title: '',
       description: '',
       dueDate: undefined,
-      priority: undefined,
+      category: undefined,
       milestones: []
     };
     
@@ -132,31 +122,38 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
       const trimmedLine = line.trim();
 
       // Extract goal title
-      const goalTitleMatch = trimmedLine.match(/\*\*goal\*\*:\s*(.+)/i);
+      const goalTitleMatch = trimmedLine.match(/^(?:\*\*goal\*\*|goal):\s*(.+)/i);
       if (goalTitleMatch) {
-        goalData.title = goalTitleMatch[1].trim();
+        let fullTitle = goalTitleMatch[1].trim();
+        // Check for a due date in parentheses and strip it
+        const dueDateInTitle = fullTitle.match(/\((?:due by|due date|due).*?\)/i);
+        if (dueDateInTitle) {
+          goalData.dueDate = dueDateInTitle[0].replace(/\(|\)/g, '').replace(/due by/i, '').trim();
+          fullTitle = fullTitle.replace(dueDateInTitle[0], '').trim();
+        }
+        goalData.title = fullTitle;
         continue;
       }
 
       // Extract goal description
-      const goalDescMatch = trimmedLine.match(/\*\*description\*\*:\s*(.+)/i);
+      const goalDescMatch = trimmedLine.match(/^(?:\*\*description\*\*|description):\s*(.+)/i);
       if (goalDescMatch) {
         goalData.description = goalDescMatch[1].trim();
         continue;
       }
 
       // Extract due date
-      const dueDateMatch = trimmedLine.match(/\*\*due\s*date\*\*:\s*([^\n*]+)/i);
+      const dueDateMatch = trimmedLine.match(/^(?:\*\*due\s*date\*\*|due\s*date):\s*([^\n*]+)/i);
       if (dueDateMatch) {
         goalData.dueDate = dueDateMatch[1].trim();
         continue;
       }
 
-      // Extract priority
-      const priorityMatch = trimmedLine.match(/\*\*priority\*\*:\s*([^\n*]+)/i);
-      if (priorityMatch) {
-        const raw = priorityMatch[1].trim();
-        goalData.priority = raw.split('(')[0].trim();
+      // Extract category or priority
+      const categoryMatch = trimmedLine.match(/^(?:\*\*category\*\*|\*\*priority\*\*|category|priority):\s*([^\n*]+)/i);
+      if (categoryMatch) {
+        const raw = categoryMatch[1].trim();
+        goalData.category = raw.split('(')[0].trim();
         continue;
       }
 
@@ -235,10 +232,37 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
       goalData.milestones.push(currentMilestone);
     }
     
+    // Fallback for title if not found in structured data
+    if (!goalData.title) {
+      if (conversationalText) {
+        const quoteMatch = conversationalText.match(/['"](.+?)['"]/);
+        if (quoteMatch && quoteMatch[1]) {
+          goalData.title = quoteMatch[1];
+        }
+      }
+      if (!goalData.title && conversationTitle && conversationTitle !== 'New Conversation' && conversationTitle !== 'Conversation' && conversationTitle !== 'Goal Planning' ) {
+          goalData.title = conversationTitle;
+      }
+    }
+    
     return goalData;
   };
 
   const goalData = parseGoalBreakdown(text);
+
+  const handleSave = async () => {
+    if (isSaving || isSaved) return;
+    setIsSaving(true);
+    try {
+      await onSaveGoal(goalData);
+      setIsSaved(true);
+    } catch (error) {
+      console.error('Failed to save goal:', error);
+      // Optionally show an alert to the user
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // If no milestones found, return null to fall back to regular text display
   if (goalData.milestones.length === 0) {
@@ -253,7 +277,7 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
           <Text style={styles.goalTitle} numberOfLines={0}>
             {goalData.title}
           </Text>
-          {(goalData.dueDate || goalData.priority) && (
+          {(goalData.dueDate || goalData.category) && (
             <View style={styles.metaRow}>
               {goalData.dueDate && (
                 <View style={styles.metaItem}>
@@ -261,10 +285,10 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
                   <Text style={styles.metaText}>{formatDate(goalData.dueDate)}</Text>
                 </View>
               )}
-              {goalData.priority && (
+              {goalData.category && (
                 <View style={styles.metaItem}>
-                  <Icon name="arrow-up" size={14} color={colors.text.secondary} style={styles.metaIcon} />
-                  <Text style={styles.metaText}>Priority: {goalData.priority}</Text>
+                  <Icon name="tag" size={14} color={colors.text.secondary} style={styles.metaIcon} />
+                  <Text style={styles.metaText}>Category: {goalData.category}</Text>
                 </View>
               )}
             </View>
@@ -299,6 +323,19 @@ export default function GoalBreakdownDisplay({ text }: GoalBreakdownDisplayProps
             {milestoneIndex < goalData.milestones.length - 1 && <View style={styles.separator} />}
           </View>
         ))}
+      </View>
+      <View style={styles.actionsContainer}>
+        <TouchableOpacity
+          style={[styles.saveButton, (isSaved || isSaving) && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={isSaved || isSaving}
+        >
+          {isSaving ? (
+            <ActivityIndicator color={colors.secondary} size="small" />
+          ) : (
+            <Text style={styles.saveButtonText}>{isSaved ? 'Goal Saved' : 'Save Goal'}</Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -452,5 +489,28 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border.light,
     marginHorizontal: -spacing.md,
+  },
+  actionsContainer: {
+    marginTop: spacing.md,
+    alignItems: 'center',
+  },
+  saveButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 120,
+    height: 40,
+  },
+  saveButtonDisabled: {
+    backgroundColor: colors.text.disabled,
+  },
+  saveButtonText: {
+    color: colors.secondary,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
   },
 }); 

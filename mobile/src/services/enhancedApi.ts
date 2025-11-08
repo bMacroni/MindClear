@@ -448,16 +448,22 @@ class EnhancedAPI {
   }
 
   async createGoal(goalData: any): Promise<any> {
-    return this.makeRequest(
-      `${getSecureApiBaseUrl()}/goals`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(goalData),
-      },
-      ErrorCategory.GOALS,
-      'createGoal'
-    );
+    console.log(`--- DEBUG: createGoal called. Data: ${JSON.stringify(goalData)} ---`);
+    try {
+        return await this.makeRequest(
+        `${getSecureApiBaseUrl()}/goals`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(goalData),
+        },
+        ErrorCategory.GOALS,
+        'createGoal'
+      );
+    } catch (error) {
+        console.log(`--- DEBUG: createGoal error. Full error: ${JSON.stringify(error, null, 2)} ---`);
+        throw error;
+    }
   }
 
   async updateGoal(goalId: string, goalData: any): Promise<any> {
@@ -484,6 +490,15 @@ class EnhancedAPI {
     return;
   }
 
+  async getGoal(goalId: string): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/${goalId}`,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getGoal'
+    );
+  }
+
   // Milestone API methods
   async createMilestone(goalId: string, milestoneData: any): Promise<any> {
     return this.makeRequest(
@@ -500,7 +515,7 @@ class EnhancedAPI {
 
   async updateMilestone(milestoneId: string, milestoneData: any): Promise<any> {
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -513,13 +528,22 @@ class EnhancedAPI {
 
   async deleteMilestone(milestoneId: string): Promise<void> {
     const result = await this.makeRequest(
-      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteMilestone'
     );
     // DELETE operations may return undefined for empty responses
     return;
+  }
+
+  async getMilestone(milestoneId: string): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getMilestone'
+    );
   }
 
   async getMilestones(since?: string): Promise<any> {
@@ -537,8 +561,10 @@ class EnhancedAPI {
 
   // Step API methods
   async createStep(milestoneId: string, stepData: any): Promise<any> {
+    const url = `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}/steps`;
+    console.log(`--- DEBUG: createStep called. URL: ${url}, Data: ${JSON.stringify(stepData)} ---`);
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/milestones/${milestoneId}/steps`,
+      url,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -550,8 +576,10 @@ class EnhancedAPI {
   }
 
   async updateStep(stepId: string, stepData: any): Promise<any> {
+    const url = `${getSecureApiBaseUrl()}/goals/steps/${stepId}`;
+    console.log(`--- DEBUG: updateStep called. URL: ${url}, Data: ${JSON.stringify(stepData)} ---`);
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      url,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -564,13 +592,22 @@ class EnhancedAPI {
 
   async deleteStep(stepId: string): Promise<void> {
     const result = await this.makeRequest(
-      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      `${getSecureApiBaseUrl()}/goals/steps/${stepId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteStep'
     );
     // DELETE operations may return undefined for empty responses
     return;
+  }
+
+  async getStep(stepId: string): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/steps/${stepId}`,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getStep'
+    );
   }
 
   async getMilestoneSteps(since?: string): Promise<any> {

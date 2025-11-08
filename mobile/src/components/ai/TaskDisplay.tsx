@@ -6,7 +6,7 @@ import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { tasksAPI } from '../../services/api';
 
-interface Task {
+export interface Task {
   id?: string;
   title: string;
   description?: string;
@@ -23,6 +23,7 @@ interface TaskData {
 
 interface TaskDisplayProps {
   text: string;
+  onSaveTasks: (tasks: Task[]) => Promise<void>;
 }
 
 // Normalize raw payload into TaskData shape expected by the UI
@@ -70,16 +71,37 @@ const parseTaskData = (taskText: string): TaskData | null => {
   }
 };
 
-export default function TaskDisplay({ text }: TaskDisplayProps) {
+export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
   const taskData = useMemo(() => parseTaskData(text), [text]);
   const [items, setItems] = useState<Task[]>(taskData?.tasks || []);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
 
+  // New state for proposal mode
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasBeenSaved, setHasBeenSaved] = useState(false);
+
+  const isProposal = useMemo(() => {
+    return taskData?.tasks && taskData.tasks.length > 0 && taskData.tasks.some(t => !t.id);
+  }, [taskData]);
+
   // When the incoming message changes, sync the local list once
   useEffect(() => {
     setItems(taskData?.tasks || []);
   }, [taskData]);
+
+  const handleSave = async () => {
+    if (!onSaveTasks || !taskData?.tasks) return;
+    setIsSaving(true);
+    try {
+      await onSaveTasks(taskData.tasks);
+      setHasBeenSaved(true);
+    } catch (e) {
+      // Parent will show alert
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // If no task data found, return null to fall back to regular text display
   if (!taskData) {
@@ -159,6 +181,48 @@ export default function TaskDisplay({ text }: TaskDisplayProps) {
   const activeCount = items.filter(t => t.status !== 'completed').length;
   const completedCount = items.length - activeCount;
   const filteredItems = items.filter(t => showCompleted ? t.status === 'completed' : t.status !== 'completed');
+
+  if (isProposal) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.displayTitle}>Here are the tasks I've drafted for you:</Text>
+        <View style={styles.tasksContainer}>
+          {taskData?.tasks.map((task, index) => (
+            <View key={index} style={styles.taskCard}>
+              <View style={styles.taskHeader}>
+                <Icon name="checklist" size={18} color={colors.text.secondary} style={styles.taskIcon} />
+                <Text selectable style={styles.taskTitle} numberOfLines={2}>
+                  {task.title}
+                </Text>
+              </View>
+              {!!task.dueDate && (
+                <View style={styles.dueDateContainer}>
+                  <Icon name="calendar" size={12} color={colors.text.secondary} style={styles.calendarIcon} />
+                  <Text style={styles.dueDateText}>Due: {formatDate(task.dueDate)}</Text>
+                </View>
+              )}
+              {index < (taskData?.tasks.length ?? 0) - 1 && <View style={styles.separator} />}
+            </View>
+          ))}
+        </View>
+        {!hasBeenSaved && (
+          <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={isSaving}>
+            {isSaving ? (
+              <ActivityIndicator color={colors.secondary} />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Tasks</Text>
+            )}
+          </TouchableOpacity>
+        )}
+        {hasBeenSaved && (
+          <View style={styles.savedConfirmation}>
+            <Icon name="check-circle-fill" size={16} color={colors.success} />
+            <Text style={styles.savedConfirmationText}>Tasks have been saved successfully!</Text>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -318,5 +382,31 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border.light,
     marginHorizontal: -spacing.md,
+  },
+  saveButton: {
+    marginTop: spacing.md,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: colors.secondary,
+    fontWeight: typography.fontWeight.bold,
+    fontSize: typography.fontSize.base,
+  },
+  savedConfirmation: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    backgroundColor: colors.success + '1A',
+    borderRadius: borderRadius.md,
+  },
+  savedConfirmationText: {
+    color: colors.success,
+    fontWeight: typography.fontWeight.medium,
+    marginLeft: spacing.sm,
   },
 }); 
