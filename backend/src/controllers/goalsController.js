@@ -779,7 +779,7 @@ export async function createTaskFromNextGoalStep(userId, token, args = {}) {
 }
 
 export async function createGoalFromAI(args, userId, userContext) {
-  const { title, description, due_date, priority, milestones } = args;
+  const { title, description, due_date, priority, category, milestones } = args;
   const token = userContext?.token;
 
   // Track analytics event for AI-created goals
@@ -812,16 +812,20 @@ export async function createGoalFromAI(args, userId, userContext) {
 
   try {
     // Map AI-specific fields to goal data format
+    // Use category if provided, otherwise null (database defaults to 'other')
+    // Note: Do NOT map priority to category - they are different concepts
+    // Priority values ('high', 'medium', 'low') are not valid goal_category enum values
     const goalData = { 
       title, 
       description, 
       target_completion_date: due_date,
-      category: priority // Map priority to category field
+      category: category || null // Use category parameter, fall back to null (defaults to 'other' in DB)
     };
     
     const completeGoal = await createGoalWithMilestones(supabase, userId, goalData, milestones);
     return completeGoal;
   } catch (error) {
+    logger.error('Error creating goal from AI:', error);
     return { error: error.message };
   }
 }
@@ -833,6 +837,7 @@ export async function updateGoalFromAI(args, userId, userContext) {
     description,
     due_date,
     priority,
+    category,
     milestones,
     milestone_behavior = 'add',
     lookup_title      // title to find the goal
@@ -869,7 +874,9 @@ export async function updateGoalFromAI(args, userId, userContext) {
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = description;
     if (due_date !== undefined) updateData.target_completion_date = due_date;
-    if (priority !== undefined) updateData.category = priority;
+    // Use category if provided, but do NOT map priority to category
+    // Priority values ('high', 'medium', 'low') are not valid goal_category enum values
+    if (category !== undefined) updateData.category = category;
 
     // Update the goal if there are changes
     if (Object.keys(updateData).length > 0) {
@@ -1269,6 +1276,45 @@ export async function lookupStep(req, res) {
 
   res.json(step);
 } 
+
+// Sync endpoints for milestones and milestone steps
+// Note: These return empty arrays since milestones/steps are synced via goals
+// These endpoints exist to prevent 404 errors during sync
+export async function getMilestones(req, res) {
+  const user_id = req.user.id;
+  const since = req.query.since; // For delta sync
+  
+  // Validate since parameter if provided
+  if (since && isNaN(Date.parse(since))) {
+    return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
+  }
+  
+  // Milestones are synced via goals endpoint, so return empty arrays
+  // This endpoint exists to prevent 404 errors during sync
+  if (since) {
+    return res.json({ changed: [], deleted: [] });
+  }
+  
+  return res.json([]);
+}
+
+export async function getMilestoneSteps(req, res) {
+  const user_id = req.user.id;
+  const since = req.query.since; // For delta sync
+  
+  // Validate since parameter if provided
+  if (since && isNaN(Date.parse(since))) {
+    return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
+  }
+  
+  // Milestone steps are synced via goals endpoint, so return empty arrays
+  // This endpoint exists to prevent 404 errors during sync
+  if (since) {
+    return res.json({ changed: [], deleted: [] });
+  }
+  
+  return res.json([]);
+}
 
 export async function generateGoalBreakdown(req, res) {
   const { title, description } = req.body;

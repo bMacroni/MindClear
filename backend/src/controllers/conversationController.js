@@ -155,6 +155,31 @@ export const conversationController = {
     }
   },
 
+  async getThreadMeta(threadId, userId) {
+    try {
+      const supabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+      );
+
+      const { data: thread, error: threadError } = await supabase
+        .from('conversation_threads')
+        .select('*')
+        .eq('id', threadId)
+        .eq('user_id', userId)
+        .single();
+
+      if (threadError || !thread) {
+        return null;
+      }
+
+      return thread;
+    } catch (error) {
+      console.error('Error fetching conversation thread meta:', error);
+      throw error;
+    }
+  },
+
   async getRecentMessages(threadId, userId, limit = 10) {
     try {
       const supabase = createClient(
@@ -252,6 +277,65 @@ export const conversationController = {
         throw new Error('Failed to add message');
       }
 
+      const { error: threadUpdateError } = await supabase
+        .from('conversation_threads')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', threadId);
+
+      if (threadUpdateError) {
+        console.error('Failed to update thread timestamp after message insert:', threadUpdateError);
+      }
+
+      return message;
+    } catch (error) {
+      console.error('Error adding message:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Add message to a thread (verifies ownership using userId directly, bypasses RLS)
+   * Used for both new and existing threads to avoid RLS propagation issues
+   */
+  async addMessageToThread(threadId, userId, content, role, metadata = null) {
+    try {
+      // Use service role client directly since we know the thread belongs to this user
+      // (we just created it in the same request)
+      const supabase = createClient(
+        process.env.SUPABASE_URL, 
+        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+      );
+
+      // Verify thread exists and belongs to the user (using service role)
+      const { data: thread, error: threadError } = await supabase
+        .from('conversation_threads')
+        .select('user_id')
+        .eq('id', threadId)
+        .eq('user_id', userId)
+        .single();
+
+      if (threadError || !thread) {
+        throw new Error('Conversation thread not found or access denied');
+      }
+
+      // Insert the message
+      const { data: message, error: messageError } = await supabase
+        .from('conversation_messages')
+        .insert({
+          thread_id: threadId,
+          user_id: userId,
+          role,
+          content,
+          metadata: metadata || null
+        })
+        .select()
+        .single();
+
+      if (messageError) {
+        console.error('Error adding message to thread:', messageError);
+        throw new Error('Failed to add message');
+      }
+
       // Update the thread's updated_at timestamp
       await supabase
         .from('conversation_threads')
@@ -260,9 +344,18 @@ export const conversationController = {
 
       return message;
     } catch (error) {
-      console.error('Error adding message:', error);
+      console.error('Error adding message to thread:', error);
       throw error;
     }
+  },
+
+  /**
+   * Add message to a newly created thread (bypasses RLS check since we know ownership)
+   * Used when thread was just created in the same request
+   * @deprecated Use addMessageToThread instead for better reliability
+   */
+  async addMessageToNewThread(threadId, userId, content, role, metadata = null) {
+    return this.addMessageToThread(threadId, userId, content, role, metadata);
   },
 
   async updateThread(threadId, userId, updates) {

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Platform, Animated, Dimensions } from 'react-native';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Platform, Animated, Dimensions, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native';
@@ -13,9 +13,71 @@ import { OnboardingState, QuickAction } from '../../types/onboarding';
 import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
 import { authService } from '../../services/auth';
-import { secureConfigService } from '../../services/secureConfig';
+import secureConfigService from '../../services/secureConfig';
 import analyticsService from '../../services/analyticsService';
 import logger from '../../utils/logger';
+import withObservables from '@nozbe/watermelondb/react/withObservables';
+import { useDatabase } from '../../contexts/DatabaseContext';
+import { Q, Database } from '@nozbe/watermelondb';
+import type { Observable } from 'rxjs';
+import ConversationThread from '../../db/models/ConversationThread';
+import ConversationMessage from '../../db/models/ConversationMessage';
+import { conversationRepository } from '../../repositories/ConversationRepository';
+import { goalRepository } from '../../repositories/GoalRepository';
+import { syncService } from '../../services/SyncService';
+import { conversationService } from '../../services/conversationService';
+import { safeParseDate } from '../../utils/dateUtils';
+import { GoalData } from '../../types/goal';
+import QuickActions from '../../components/ai/QuickActions';
+import ScheduleDisplay from '../../components/ai/ScheduleDisplay';
+import GoalBreakdownDisplay from '../../components/ai/GoalBreakdownDisplay';
+import GoalTitlesDisplay from '../../components/ai/GoalTitlesDisplay';
+import TaskDisplay, { Task as TaskDataFromDisplay } from '../../components/ai/TaskDisplay';
+import Markdown from 'react-native-markdown-display';
+import { taskRepository } from '../../repositories/TaskRepository';
+
+const validGoalCategories = ['career', 'health', 'personal', 'education', 'finance', 'relationships', 'other'];
+
+function mapToValidCategory(input?: string): string {
+  if (!input) {
+    return 'other';
+  }
+  const lowerInput = input.toLowerCase();
+
+  if (validGoalCategories.includes(lowerInput)) {
+    return lowerInput;
+  }
+
+  const categoryMap: { [key: string]: string } = {
+    work: 'career',
+    business: 'career',
+    job: 'career',
+    fitness: 'health',
+    wellbeing: 'health',
+    wellness: 'health',
+    learn: 'education',
+    study: 'education',
+    school: 'education',
+    money: 'finance',
+    budget: 'finance',
+    family: 'relationships',
+    friends: 'relationships',
+    love: 'relationships',
+  };
+
+  for (const key in categoryMap) {
+    if (lowerInput.includes(key)) {
+      return categoryMap[key];
+    }
+  }
+
+  const priorities = ['low', 'medium', 'high'];
+  if (priorities.includes(lowerInput)) {
+    return 'other';
+  }
+
+  return 'other';
+}
 
 const BULK_DELETE_CONCURRENCY = 3;
 const BULK_DELETE_TIMEOUT_MS = 25000;
@@ -29,18 +91,13 @@ const getSecureApiBaseUrl = (): string => {
     return configService.getBaseUrl();
   }
 };
-import QuickActions from '../../components/ai/QuickActions';
-import ScheduleDisplay from '../../components/ai/ScheduleDisplay';
-import GoalBreakdownDisplay from '../../components/ai/GoalBreakdownDisplay';
-import GoalTitlesDisplay from '../../components/ai/GoalTitlesDisplay';
-import TaskDisplay from '../../components/ai/TaskDisplay';
-import Markdown from 'react-native-markdown-display';
-import { conversationService, ConversationThreadWithMessages, ConversationThread } from '../../services/conversationService';
 
 interface Message {
-  id: number;
+  id: string; // Changed to string to use WatermelonDB IDs directly
   text: string;
   sender: 'user' | 'ai';
+  status?: string; // For sync status: 'synced', 'pending_create', etc.
+  messageId?: string; // WatermelonDB message ID for status lookups (same as id)
 }
 
 interface Conversation {
@@ -52,7 +109,15 @@ interface Conversation {
   lastMessageAt: Date;
 }
 
-export default function AIChatScreen({ navigation, route }: any) {
+// Internal props interface - what the component actually uses
+interface InternalAIChatScreenProps {
+  threads: ConversationThread[];
+  database: Database;
+  navigation: any;
+  route: any;
+}
+
+function AIChatScreen({ navigation, route, threads: observableThreads, database }: InternalAIChatScreenProps) {
   const insets = useSafeAreaInsets();
   const screenWidth = Dimensions.get('window').width;
   
@@ -60,23 +125,60 @@ export default function AIChatScreen({ navigation, route }: any) {
   const sidebarAnimation = useRef(new Animated.Value(-screenWidth * 0.8)).current;
   const overlayAnimation = useRef(new Animated.Value(0)).current;
   
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: '1',
-      title: 'General Chat',
-      messages: [{ id: 1, text: 'Hi there, and welcome to Mind Clear! I\'m here to help you structure your goals and tasks in a way that feels manageable. What would you like to do first?', sender: 'ai' }],
-      isPinned: false,
-      createdAt: new Date(),
-      lastMessageAt: new Date(),
-    },
-  ]);
+  // Convert WatermelonDB threads to Conversation format and sort by most recent
+  const threads = useMemo(() => {
+    const allThreads = observableThreads || [];
+    // Sort: pinned threads first, then by updatedAt descending (most recent first)
+    return [...allThreads].sort((a, b) => {
+      // Pinned threads come first
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      // Then sort by updatedAt descending (most recent first)
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    });
+  }, [observableThreads]);
+  const [currentConversationId, setCurrentConversationId] = useState<string>('');
   
-  const [currentConversationId, setCurrentConversationId] = useState('1');
-  const [threadsLoaded, setThreadsLoaded] = useState(false);
+  // Observe messages for current thread
+  const messagesQuery = useMemo(() => {
+    if (!currentConversationId) return null;
+    return database.collections.get<ConversationMessage>('conversation_messages')
+      .query(
+        Q.where('thread_id', currentConversationId)
+      )
+      .observe();
+  }, [currentConversationId, database]);
+  
+  // Convert threads to Conversation format for display
+  const conversations: Conversation[] = useMemo(() => {
+    return threads.map(thread => ({
+      id: thread.id,
+      title: thread.title,
+      messages: [], // Will be populated from messages query
+      isPinned: thread.isPinned || false,
+      createdAt: thread.createdAt,
+      lastMessageAt: thread.updatedAt,
+    }));
+  }, [threads]);
+  
+  // Set initial conversation ID if not set and threads exist
+  useEffect(() => {
+    if (!currentConversationId && threads.length > 0) {
+      setCurrentConversationId(threads[0].id);
+    }
+  }, [threads, currentConversationId]);
+  
+  // Trigger background sync on mount if needed
+  useEffect(() => {
+    syncService.silentSync().catch(err => {
+      logger.warn('Background sync failed:', err);
+    });
+  }, []);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(false);
+  const isSendingRef = useRef(false); // Prevent duplicate sends
 
   // Onboarding state management
   const [_onboardingState, setOnboardingState] = useState<OnboardingState>({ isCompleted: false });
@@ -106,7 +208,160 @@ export default function AIChatScreen({ navigation, route }: any) {
     }
   ];
 
-  const currentConversation = conversations.find(c => c.id === currentConversationId);
+  // Store messages in state, synced with WatermelonDB
+  const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>({});
+  
+  // Helper to deduplicate messages by ID
+  const deduplicateMessages = useCallback((messages: Message[]): Message[] => {
+    const seen = new Map<string, Message>();
+    for (const msg of messages) {
+      if (!seen.has(msg.id)) {
+        seen.set(msg.id, msg);
+      }
+    }
+    return Array.from(seen.values());
+  }, []);
+
+  // Helper to get messages for a thread
+  const getMessagesForThread = useCallback(async (threadId: string): Promise<Message[]> => {
+    try {
+      const messages = await conversationRepository.getMessagesByThreadId(threadId);
+      // Sort by createdAt ascending (oldest first) to maintain conversation order
+      const sortedMessages = [...messages].sort((a, b) => 
+        a.createdAt.getTime() - b.createdAt.getTime()
+      );
+      const mappedMessages: Message[] = sortedMessages.map(m => ({
+        id: m.id, // Use WatermelonDB ID directly for unique keys
+        text: m.content,
+        sender: (m.role === 'user' ? 'user' : 'ai') as 'user' | 'ai',
+        status: m.status,
+        messageId: m.id,
+      }));
+      // Deduplicate to prevent duplicate keys
+      return deduplicateMessages(mappedMessages);
+    } catch (err) {
+      logger.warn('Failed to get messages for thread:', err);
+      return [];
+    }
+  }, [deduplicateMessages]);
+
+  // Helper function to merge real messages from DB with optimistic messages from state
+  // This handles content-based deduplication and filters out temporary "Thinking..." messages
+  const mergeMessagesWithOptimistic = useCallback((
+    realMessages: Message[],
+    optimisticMessages: Message[]
+  ): Message[] => {
+    const merged: Message[] = [];
+    const seenContent = new Set<string>();
+    
+    // First, add all real messages from DB (they're already sorted chronologically)
+    for (const realMsg of realMessages) {
+      const contentKey = `${realMsg.sender}:${realMsg.text}`;
+      if (!seenContent.has(contentKey)) {
+        merged.push(realMsg);
+        seenContent.add(contentKey);
+      }
+    }
+    
+    // Then, add optimistic messages that don't have a real counterpart
+    // These should be newer, so they go at the end
+    for (const optMsg of optimisticMessages) {
+      if (optMsg.id.startsWith('temp-')) {
+        // Skip "Thinking..." messages - they should be replaced by real responses
+        if (optMsg.text === 'Thinking...') {
+          continue;
+        }
+        const contentKey = `${optMsg.sender}:${optMsg.text}`;
+        // Only add if we haven't seen this content yet
+        if (!seenContent.has(contentKey)) {
+          merged.push(optMsg);
+          seenContent.add(contentKey);
+        }
+      } else {
+        // For non-temp messages, check if we already have them from DB
+        const contentKey = `${optMsg.sender}:${optMsg.text}`;
+        if (!seenContent.has(contentKey)) {
+          merged.push(optMsg);
+          seenContent.add(contentKey);
+        }
+      }
+    }
+    
+    // Final deduplication by ID to handle any edge cases
+    return deduplicateMessages(merged);
+  }, [deduplicateMessages]);
+  
+  // Load messages for current thread and subscribe to changes
+  useEffect(() => {
+    if (!currentConversationId) return;
+    
+    // Skip subscription for temporary thread IDs (they'll be migrated when real thread is created)
+    if (currentConversationId.startsWith('temp-thread-')) {
+      return;
+    }
+    
+    // Initial load - always load from DB to ensure we have persisted messages
+    getMessagesForThread(currentConversationId).then(msgs => {
+      // Messages from getMessagesForThread are already sorted by createdAt
+      // Filter out temp messages from DB
+      const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
+      const deduplicated = deduplicateMessages(realMsgs);
+      
+      setMessagesByThread(prev => {
+        const existing = prev[currentConversationId] || [];
+        const merged = mergeMessagesWithOptimistic(deduplicated, existing);
+        return { ...prev, [currentConversationId]: merged };
+      });
+    });
+    
+    // Subscribe to message changes for this thread
+    const messagesQuery = database.collections.get<ConversationMessage>('conversation_messages')
+      .query(Q.where('thread_id', currentConversationId));
+    
+    const subscription = messagesQuery.observe().subscribe(async () => {
+      // Refresh messages when they change, but merge with optimistic messages
+      const msgs = await getMessagesForThread(currentConversationId);
+      // Filter out temp messages from DB
+      const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
+      const deduplicated = deduplicateMessages(realMsgs);
+      
+      setMessagesByThread(prev => {
+        const existing = prev[currentConversationId] || [];
+        const merged = mergeMessagesWithOptimistic(deduplicated, existing);
+        return { ...prev, [currentConversationId]: merged };
+      });
+    });
+    
+    return () => subscription.unsubscribe();
+  }, [currentConversationId, getMessagesForThread, database, deduplicateMessages, mergeMessagesWithOptimistic]);
+
+  // Get current conversation with messages
+  const currentConversation = useMemo(() => {
+    // Handle temporary thread IDs (for new conversations before server responds)
+    if (currentConversationId.startsWith('temp-thread-')) {
+      const messages = messagesByThread[currentConversationId] || [];
+      return {
+        id: currentConversationId,
+        title: 'New Conversation',
+        messages,
+        isPinned: false,
+        createdAt: new Date(),
+        lastMessageAt: new Date(),
+      };
+    }
+    
+    const thread = threads.find(t => t.id === currentConversationId);
+    if (!thread) return null;
+    const messages = messagesByThread[currentConversationId] || [];
+    return {
+      id: thread.id,
+      title: thread.title,
+      messages,
+      isPinned: thread.isPinned || false,
+      createdAt: thread.createdAt,
+      lastMessageAt: thread.updatedAt,
+    };
+  }, [threads, currentConversationId, messagesByThread]);
 
   const toggleSidebar = () => {
     if (sidebarVisible) {
@@ -144,97 +399,115 @@ export default function AIChatScreen({ navigation, route }: any) {
   const startNewConversation = async () => {
     setLoading(true);
     try {
-      const thread = await conversationService.createThread('New Conversation', null);
-      const newConversation: Conversation = {
-        id: thread.id,
-        title: thread.title || 'New Conversation',
-        messages: [{ id: Date.now(), text: 'Hi there, and welcome to Mind Clear! I\'m here to help you structure your goals and tasks in a way that feels manageable. What would you like to do first?', sender: 'ai' }],
+      const thread = await conversationRepository.createThread({
+        title: 'New Conversation',
+        summary: null,
+        isActive: true,
         isPinned: false,
-        createdAt: new Date(thread.created_at || new Date()),
-        lastMessageAt: new Date(thread.updated_at || new Date()),
-      };
-      setConversations(prev => [newConversation, ...prev]);
+      });
       setCurrentConversationId(thread.id);
+      // Thread will appear in threads observable automatically
+      // Add welcome message locally (mark as synced since it's a local-only message)
+      const welcomeMessage = await conversationRepository.createMessage(
+        thread.id,
+        'Hi there, and welcome to Mind Clear! I\'m here to help you structure your goals and tasks in a way that feels manageable. What would you like to do first?',
+        'assistant'
+      );
+      // Mark welcome message as synced (it's a local-only message, not from server)
+      await conversationRepository.markMessageAsSynced(welcomeMessage.id);
+      // Reload messages
+      const msgs = await getMessagesForThread(thread.id);
+      setMessagesByThread(prev => ({ ...prev, [thread.id]: msgs }));
     } catch (err) {
       logger.error('Failed to create conversation thread:', err);
       setError('Failed to create conversation. Please try again.');
     } finally {
       setLoading(false);
       toggleSidebar();
+      // Trigger sync
+      syncService.silentSync().catch(() => {});
     }
   };
 
   const deleteConversation = async (conversationId: string) => {
     setLoading(true);
     try {
-      // Attempt server delete (soft delete) for all conversations
-      // Let the server handle validation of conversation IDs
-      try {
-        await conversationService.deleteThread(conversationId);
-      } catch (serverError) {
-        // If server delete fails (e.g., conversation doesn't exist on server),
-        // still proceed with local state update for consistency
-        logger.warn('Server delete failed, proceeding with local delete:', serverError);
-      }
-      
-      const updatedConversations = conversations.filter(c => c.id !== conversationId);
-      setConversations(updatedConversations);
-      if (conversationId === currentConversationId && updatedConversations.length > 0) {
-        setCurrentConversationId(updatedConversations[0].id);
-      } else if (updatedConversations.length === 0) {
-        await startNewConversation();
+      await conversationRepository.deleteThread(conversationId);
+      // Thread will disappear from threads observable automatically
+      // Switch to another conversation if needed
+      const remainingThreads = threads.filter(t => t.id !== conversationId);
+      if (conversationId === currentConversationId) {
+        if (remainingThreads.length > 0) {
+          setCurrentConversationId(remainingThreads[0].id);
+        } else {
+          await startNewConversation();
+        }
       }
     } catch (err) {
       logger.warn('Failed to delete conversation:', err);
       setError('Failed to delete conversation. Please try again.');
     } finally {
       setLoading(false);
+      // Trigger sync
+      syncService.silentSync().catch(() => {});
     }
   };
 
-  const togglePinConversation = (conversationId: string) => {
-    setConversations(conversations.map(c => 
-      c.id === conversationId ? { ...c, isPinned: !c.isPinned } : c
-    ));
+  const togglePinConversation = async (conversationId: string) => {
+    try {
+      const thread = threads.find(t => t.id === conversationId);
+      if (thread) {
+        await conversationRepository.updateThread(conversationId, {
+          isPinned: !thread.isPinned,
+        });
+        // Thread will update in observable automatically
+        // Trigger sync
+        syncService.silentSync().catch(() => {});
+      }
+    } catch (err) {
+      logger.warn('Failed to toggle pin:', err);
+    }
   };
 
   const clearNonPinnedConversations = async () => {
     setLoading(true);
     setError('');
-      try {
-        const hadPinned = conversations.some(c => c.isPinned);
-        if (!hadPinned) {
-          // No pinned: delete ALL threads on server then create a fresh one
-          const allServerIds = conversations.map(c => c.id).filter(id => id && id.includes('-'));
-          if (allServerIds.length) {
-            await conversationService.bulkDeleteThreads(allServerIds, { concurrency: BULK_DELETE_CONCURRENCY, timeoutMs: BULK_DELETE_TIMEOUT_MS });
-          }
-          setConversations([]);
-          await startNewConversation();
-          return;
+    try {
+      const pinnedThreads = threads.filter(t => t.isPinned);
+      const hadPinned = pinnedThreads.length > 0;
+      
+      if (!hadPinned) {
+        // No pinned: delete ALL threads locally then create a fresh one
+        for (const thread of threads) {
+          await conversationRepository.deleteThread(thread.id);
         }
-        // Otherwise delete only non-pinned
-        const toDelete = conversations.filter(c => !c.isPinned);
-        const serverIds = toDelete.map(c => c.id).filter(id => id && id.includes('-'));
-        if (serverIds.length) {
-          await conversationService.bulkDeleteThreads(serverIds, { concurrency: BULK_DELETE_CONCURRENCY, timeoutMs: BULK_DELETE_TIMEOUT_MS });
-        }
-        let pinnedSnapshot: Conversation[] = [];
-        setConversations(prev => {
-          pinnedSnapshot = prev.filter(c => c.isPinned);
-          return pinnedSnapshot;
-        });
-        if (pinnedSnapshot.length > 0 && !pinnedSnapshot.find(c => c.id === currentConversationId)) {
-          setCurrentConversationId(pinnedSnapshot[0].id);
-        } else if (pinnedSnapshot.length === 0) {
-          await startNewConversation();
-        }
-      } catch (err) {
-        logger.warn('Failed to clear conversations:', err);
-        setError('Failed to clear conversations. Please try again.');
-      } finally {
-        setLoading(false);
+        await startNewConversation();
+        return;
       }
+      
+      // Otherwise delete only non-pinned
+      const toDelete = threads.filter(t => !t.isPinned);
+      for (const thread of toDelete) {
+        await conversationRepository.deleteThread(thread.id);
+      }
+      
+      // Switch to pinned thread if current is deleted
+      if (toDelete.some(t => t.id === currentConversationId)) {
+        if (pinnedThreads.length > 0) {
+          setCurrentConversationId(pinnedThreads[0].id);
+        } else {
+          await startNewConversation();
+        }
+      }
+      
+      // Trigger sync
+      syncService.silentSync().catch(() => {});
+    } catch (err) {
+      logger.warn('Failed to clear conversations:', err);
+      setError('Failed to clear conversations. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Title updates are handled when sending messages
@@ -250,67 +523,77 @@ export default function AIChatScreen({ navigation, route }: any) {
       setShowOnboarding(true);
     }
   }, []);
-  // Load persisted threads on mount
-  useEffect(() => {
-    if (threadsLoaded) return;
 
-    (async () => {
-      try {
-        const threads = await conversationService.listThreads();
-        if (threads && threads.length > 0) {
-          const mapped: Conversation[] = threads.map((t: ConversationThread) => {
-            const last = t.last_message;
-            const lastMsg: Message | null = last
-              ? {
-                  id: Date.parse(last.created_at || t.updated_at || new Date().toISOString()) || Date.now(),
-                  text: last.content,
-                  sender: last.role === 'user' ? 'user' : 'ai',
-                }
-              : null;
-            return {
-              id: t.id,
-              title: t.title || 'Conversation',
-              messages: lastMsg ? [lastMsg] : [{ id: 1, text: 'Hi there, and welcome to Mind Clear! I\'m here to help you structure your goals and tasks in a way that feels manageable. What would you like to do first?', sender: 'ai' }],
-              isPinned: false,
-              createdAt: new Date(t.created_at || new Date()),
-              lastMessageAt: new Date(t.updated_at || new Date()),
-            };
-          });
-          setConversations(mapped);
-          setCurrentConversationId(mapped[0].id);
-        }
-      } catch (err) {
-        logger.warn('Failed to load conversation threads:', err);
-        setError('Failed to load conversations. Please try again.');
-      } finally {
-        setThreadsLoaded(true);
-      }
-    })();
-  }, [threadsLoaded]);
-
-  const loadThreadMessages = useCallback(async (threadId: string) => {
-    setLoading(true);
-    setError('');
+  const handleSaveGoal = async (goalData: GoalData) => {
     try {
-      const data: ConversationThreadWithMessages = await conversationService.getThread(threadId);
-      const msgs: Message[] = (data.messages || []).map(m => ({
-        id: Date.parse(m.created_at) || Date.now(),
-        text: m.content,
-        sender: m.role === 'user' ? 'user' : 'ai',
-      }));
-      setConversations(prev => prev.map(c => (c.id === threadId ? {
-        ...c,
-        messages: msgs.length > 0 ? msgs : c.messages,
-        lastMessageAt: new Date(data.thread.updated_at || new Date()),
-        title: data.thread.title || c.title,
-      } : c)));
-    } catch (err) {
-      logger.warn('Failed to load thread messages:', err);
-      setError('Failed to load messages. Please try again.');
-    } finally {
-      setLoading(false);
+      const goalCategory = mapToValidCategory(goalData.category);
+      // 1. Create the goal
+      const newGoal = await goalRepository.createGoal({
+        title: goalData.title,
+        description: goalData.description,
+        targetCompletionDate: goalData.dueDate ? safeParseDate(goalData.dueDate) : undefined,
+        category: goalCategory,
+      });
+  
+      // 2. Create milestones and steps
+      for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
+        const newMilestone = await goalRepository.createMilestone(newGoal.id, {
+          title: milestone.title,
+          description: '', // Milestone description not provided in GoalData
+          order: milestoneIndex,
+        });
+  
+        for (const [stepIndex, step] of milestone.steps.entries()) {
+          await goalRepository.createMilestoneStep(newMilestone.id, {
+            text: step.text,
+            order: stepIndex,
+          });
+        }
+      }
+  
+      Alert.alert('Success', 'Goal has been saved successfully!');
+      // Optional: trigger a sync
+      syncService.silentSync().catch(err => {
+        logger.warn('Background sync failed after saving goal:', err);
+      });
+  
+    } catch (error) {
+      logger.error('Failed to save goal from AIChatScreen:', error);
+      Alert.alert('Error', 'There was an error saving the goal. Please try again.');
+      // Re-throw to let the caller (GoalBreakdownDisplay) know it failed.
+      throw error;
     }
-  }, []);
+  };
+
+  const handleSaveTasks = async (tasks: TaskDataFromDisplay[]) => {
+    try {
+      for (const task of tasks) {
+        await taskRepository.createTask({
+          title: task.title,
+          description: task.description,
+          dueDate: task.dueDate ? safeParseDate(task.dueDate) : undefined,
+          priority: task.priority,
+        });
+      }
+      Alert.alert('Success', 'Tasks have been saved successfully!');
+      syncService.silentSync().catch(err => {
+        logger.warn('Background sync failed after saving tasks:', err);
+      });
+    } catch (error) {
+      logger.error('Failed to save tasks from AIChatScreen:', error);
+      Alert.alert('Error', 'There was an error saving the tasks. Please try again.');
+      throw error; // Rethrow to let TaskDisplay know it failed.
+    }
+  };
+
+  // Get messages for current conversation - observe from WatermelonDB
+  const currentMessages = useMemo(() => {
+    if (!messagesQuery || !currentConversationId) return [];
+    // Note: We need to use subscribe pattern or transform observable
+    // For now, we'll fetch messages directly when needed
+    return [];
+  }, [messagesQuery, currentConversationId]);
+
 
 
   
@@ -320,22 +603,32 @@ export default function AIChatScreen({ navigation, route }: any) {
     setShowOnboarding(true);
     setHasUserInteracted(false);
     setOnboardingState({ isCompleted: false });
-    // Reset current conversation to welcome message
-    const resetConversation: Conversation = {
-      id: currentConversationId,
-      title: 'General Chat',
-      messages: [{ id: 1, text: 'Welcome to Mind Clear! How can I help you today?', sender: 'ai' }],
-      isPinned: false,
-      createdAt: new Date(),
-      lastMessageAt: new Date(),
-    };
-    setConversations(prev => prev.map(c => 
-      c.id === currentConversationId ? resetConversation : c
-    ));
+    
+    if (currentConversationId) {
+        try {
+            const messagesToDelete = await conversationRepository.getMessagesByThreadId(currentConversationId);
+            if (messagesToDelete.length > 0) {
+                await database.write(async () => {
+                    const deletions = messagesToDelete.map(msg => msg.prepareDestroyPermanently());
+                    await database.batch(...deletions);
+                });
+            }
+
+            const welcomeMessage = await conversationRepository.createMessage(
+                currentConversationId,
+                'Welcome to Mind Clear! How can I help you today?',
+                'assistant'
+            );
+            await conversationRepository.markMessageAsSynced(welcomeMessage.id);
+        } catch (error) {
+            logger.error('Failed to reset conversation for help press:', error);
+        }
+    }
+
     if (messageToSend) {
       setPendingHelpMessage(messageToSend);
     }
-  }, [currentConversationId]);
+  }, [currentConversationId, database]);
 
   // Sign out is handled from Profile screen now
 
@@ -378,36 +671,38 @@ export default function AIChatScreen({ navigation, route }: any) {
 
   // Detect if a message contains goal breakdown content
   const isGoalBreakdownContent = (text: string): boolean => {
-    // Look for patterns that indicate goal breakdown with milestones and steps
-    const goalBreakdownPatterns = [
-      /\*\*goal\*\*:/i,
-      /\*\*description\*\*:/i,
-      /\*\*milestones\*\*:/i,
-      /milestone\s+\d+/i,
-      /\*\*milestone\s+\d+/i,
-      /break.*down.*into/i,
-      /structured.*plan/i,
-      /milestone.*steps/i,
-    ];
-    
-    // Check if the text contains milestone patterns
-    const hasMilestonePatterns = goalBreakdownPatterns.some(pattern => pattern.test(text));
-    
-    // Check if it contains bullet points (indicating steps)
-    const hasBulletPoints = /\n[•\-\*]\s*.+$/im.test(text);
-    
-    // Check for goal-related keywords
-    const hasGoalKeywords = /goal|milestone|step|breakdown|plan/i.test(text);
-    
-    // Check for the specific format with **Goal:** and **Milestones:**
-    const hasGoalFormat = /\*\*goal\*\*:.*\*\*milestones\*\*:/is.test(text);
-    
-    // Check for standardized JSON format
+    // Check for standardized JSON format first (most reliable)
     const hasJsonGoalFormat = /"category":\s*"goal"/i.test(text);
     // Treat titles-only payloads differently so we render a list component
     const isTitlesOnly = /"category"\s*:\s*"goal"[\s\S]*"goals"\s*:\s*\[\s*"/.test(text);
     
-    return ((hasMilestonePatterns && hasBulletPoints && hasGoalKeywords) || hasGoalFormat || hasJsonGoalFormat) && !isTitlesOnly;
+    // If it's JSON format and not titles-only, it's definitely a goal breakdown
+    if (hasJsonGoalFormat && !isTitlesOnly) {
+      // Additional check: must have milestones array in JSON
+      const hasMilestonesInJson = /"milestones"\s*:\s*\[/i.test(text);
+      return hasMilestonesInJson;
+    }
+    
+    // Check for explicit milestone headers (e.g., "Milestone 1:", "**Milestone 2:**")
+    // This is more reliable than generic patterns
+    const hasExplicitMilestoneHeaders = /(?:^|\n)\s*(?:\*\*)?milestone\s+\d+\s*(?:\*\*)?\s*:/im.test(text);
+    
+    // Check for the specific format with **Goal:** and **Milestones:**
+    const hasGoalFormat = /(?:\*\*goal\*\*|goal):\s*.+?(?:\*\*milestones\*\*|milestones):/is.test(text);
+    
+    // Only use lenient detection if we have clear structural indicators
+    // Require: milestone headers + multiple bullet points (indicating steps)
+    const hasMilestoneHeaders = /milestone\s+\d+/i.test(text);
+    const bulletPointMatches = text.match(/\n[•\-\*]\s+/g);
+    const hasMultipleBulletPoints = (bulletPointMatches?.length ?? 0) >= 2;
+    
+    // Strict detection: only match if we have clear structural indicators
+    // This prevents matching conversational text that just mentions goals/milestones
+    return (
+      hasExplicitMilestoneHeaders || 
+      hasGoalFormat ||
+      (hasMilestoneHeaders && hasMultipleBulletPoints && /"category":\s*"goal"/i.test(text))
+    ) && !isTitlesOnly;
   };
 
   // Detect if message contains a titles-only goal list
@@ -439,8 +734,8 @@ export default function AIChatScreen({ navigation, route }: any) {
     // Identify the first marker that usually precedes the structured list
     const patterns = [
       /goal breakdown/i,
-      /\*\*goal\*\*:/i,
-      /\*\*milestones\*\*:/i,
+      /(?:\*\*goal\*\*|goal):/i,
+      /(?:\*\*milestones\*\*|milestones):/i,
       /^milestones:/im,
       /\bmilestone\s+1\b/i,
     ];
@@ -457,6 +752,68 @@ export default function AIChatScreen({ navigation, route }: any) {
     return cleaned.trim();
   };
 
+  // Helper function to extract meaningful title from a message
+  const extractTitleFromMessage = (message: string): string => {
+    let text = message.toLowerCase().trim();
+    
+    // Common prefixes to remove that don't add meaning to the title
+    const prefixesToRemove = [
+      /^let'?s\s+create\s+(a\s+)?goal\s+to\s+/i,
+      /^let'?s\s+create\s+(a\s+)?/i,
+      /^help\s+me\s+(to\s+)?(create\s+)?(a\s+)?(goal\s+to\s+)?/i,
+      /^i\s+want\s+to\s+(create\s+)?(a\s+)?(goal\s+to\s+)?/i,
+      /^i\s+need\s+to\s+(create\s+)?(a\s+)?(goal\s+to\s+)?/i,
+      /^can\s+you\s+help\s+me\s+(to\s+)?(create\s+)?(a\s+)?(goal\s+to\s+)?/i,
+      /^please\s+(help\s+me\s+)?(to\s+)?(create\s+)?(a\s+)?(goal\s+to\s+)?/i,
+      /^create\s+(a\s+)?(goal\s+to\s+)?/i,
+      /^make\s+(a\s+)?(goal\s+to\s+)?/i,
+      /^set\s+(up\s+)?(a\s+)?(goal\s+to\s+)?/i,
+      /^i\s+would\s+like\s+to\s+/i,
+      /^i'?d\s+like\s+to\s+/i,
+      /^goal:\s*/i,
+      /^the\s+goal\s+is\s+to\s+/i,
+      /^my\s+goal\s+is\s+to\s+/i,
+    ];
+    
+    // Remove prefixes
+    for (const prefix of prefixesToRemove) {
+      text = text.replace(prefix, '');
+    }
+    
+    // Remove trailing punctuation and question words
+    text = text.replace(/[?.!\s]+$/g, '').trim();
+    
+    // Remove quotes if present
+    text = text.replace(/^["']|["']$/g, '').trim();
+    
+    // Extract meaningful words (filter out common stop words and short words)
+    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those']);
+    const words = text.split(/\s+/)
+      .filter(word => {
+        const cleaned = word.replace(/[^\w]/g, '').toLowerCase();
+        return cleaned.length > 2 && !stopWords.has(cleaned);
+      });
+    
+    if (words.length === 0) {
+      // If no meaningful words found, fall back to original message processing
+      const allWords = text.split(/\s+/).filter(w => w.length > 2);
+      if (allWords.length > 0) {
+        return allWords.slice(0, 4).map(w => 
+          w.charAt(0).toUpperCase() + w.slice(1)
+        ).join(' ');
+      }
+      return 'New Goal';
+    }
+    
+    // Take up to 4-5 meaningful words for a descriptive title
+    const titleWords = words.slice(0, 5).map(word => {
+      // Capitalize first letter of each word
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    });
+    
+    return titleWords.join(' ');
+  };
+
   const generateConversationTitle = (messages: Message[]): string => {
     // Get all user messages to analyze the conversation topic
     const userMessages = messages.filter(msg => msg.sender === 'user').map(msg => msg.text);
@@ -467,7 +824,8 @@ export default function AIChatScreen({ navigation, route }: any) {
     
     // If it's the first message, use it to generate a title
     if (userMessages.length === 1) {
-      const firstMessage = userMessages[0].toLowerCase();
+      const firstMessage = userMessages[0];
+      const firstMessageLower = firstMessage.toLowerCase();
       
       // Common conversation starters and their topics
       const topicPatterns = [
@@ -493,22 +851,36 @@ export default function AIChatScreen({ navigation, route }: any) {
         { pattern: /motivation|inspiration|encouragement/, title: 'Motivation' },
       ];
       
-      // Check for topic patterns
+      // Check for topic patterns first (only if they're very specific)
+      // Skip generic goal patterns to allow extraction of actual goal content
       for (const topic of topicPatterns) {
-        if (topic.pattern.test(firstMessage)) {
+        // Skip generic goal-related patterns to allow more specific extraction
+        if (topic.pattern.test(firstMessageLower) && !topic.pattern.source.includes('goal')) {
           return topic.title;
         }
       }
       
-      // If no specific pattern matches, create a title from the first message
-      const words = firstMessage.split(' ').filter(word => word.length > 2);
-      if (words.length > 0) {
-        // Take first 2-3 meaningful words and capitalize them
-        const titleWords = words.slice(0, 3).map(word => 
-          word.charAt(0).toUpperCase() + word.slice(1)
-        );
-        return titleWords.join(' ');
+      // Extract meaningful title from the message
+      const extractedTitle = extractTitleFromMessage(firstMessage);
+      
+      // If extracted title is too generic or short, try to improve it
+      if (extractedTitle.length < 5 || extractedTitle.toLowerCase().includes('goal') || extractedTitle.toLowerCase().includes('create')) {
+        // Try extracting again with more aggressive prefix removal
+        let improved = extractTitleFromMessage(firstMessage);
+        if (improved.length < 5) {
+          // Last resort: use original message but skip first few words
+          const words = firstMessage.split(/\s+/).filter(w => w.length > 2);
+          if (words.length > 3) {
+            // Skip first 2-3 words and take next meaningful ones
+            improved = words.slice(2, 6).map(w => 
+              w.charAt(0).toUpperCase() + w.slice(1)
+            ).join(' ');
+          }
+        }
+        return improved || 'New Goal';
       }
+      
+      return extractedTitle;
     }
     
     // For conversations with multiple messages, analyze the overall topic
@@ -543,7 +915,13 @@ export default function AIChatScreen({ navigation, route }: any) {
       }
     }
     
-    // Fallback: use the first few words of the first message
+    // Fallback: extract meaningful title from first message
+    const extractedTitle = extractTitleFromMessage(userMessages[0]);
+    if (extractedTitle && extractedTitle.length > 5) {
+      return extractedTitle;
+    }
+    
+    // Last resort: use the first few words of the first message
     const firstMessage = userMessages[0];
     const words = firstMessage.split(' ').filter(word => word.length > 2);
     if (words.length > 0) {
@@ -556,132 +934,407 @@ export default function AIChatScreen({ navigation, route }: any) {
     return 'Conversation';
   };
 
+  // Extract message migration logic
+  const migrateTempMessagesToServerThread = useCallback((
+    tempThreadId: string,
+    serverThreadId: string,
+    tempAiMessageId: string,
+    tempUserMessageId: string,
+    tempAiMsgId: string,
+    tempUserMsgId: string,
+    response: { message: string },
+    userMessage: string
+  ) => {
+    setMessagesByThread(prev => {
+      const optimisticMsgs = prev[tempThreadId] || [];
+      // Remove temp messages from old key
+      const newState = { ...prev };
+      if (tempThreadId !== serverThreadId) {
+        delete newState[tempThreadId];
+      }
+      // Get existing messages for server thread (if any)
+      const existingMsgs = newState[serverThreadId] || [];
+      // Merge optimistic messages with existing, replacing "Thinking..." with real response
+      const mergedMsgs = [...existingMsgs];
+      for (const optMsg of optimisticMsgs) {
+        // Replace "Thinking..." with real AI response
+        if (optMsg.id === tempAiMessageId || (optMsg.sender === 'ai' && optMsg.text === 'Thinking...')) {
+          // Check if AI response already exists (by content)
+          const aiExists = mergedMsgs.some(m => 
+            m.sender === 'ai' && m.text === response.message
+          );
+          if (!aiExists) {
+            mergedMsgs.push({
+              id: tempAiMsgId,
+              text: response.message,
+              sender: 'ai' as const,
+              status: 'synced',
+              messageId: tempAiMsgId,
+            });
+          }
+        } else if (optMsg.id === tempUserMessageId) {
+          // Check if user message already exists (by content) before adding
+          const userExists = mergedMsgs.some(m => 
+            m.sender === 'user' && m.text === userMessage
+          );
+          if (!userExists) {
+            mergedMsgs.push({
+              id: tempUserMsgId,
+              text: userMessage,
+              sender: 'user' as const,
+              status: 'synced',
+              messageId: tempUserMsgId,
+            });
+          }
+        } else {
+          // Check if this optimistic message already exists before adding
+          const exists = mergedMsgs.some(m => 
+            m.text === optMsg.text && m.sender === optMsg.sender
+          );
+          if (!exists) {
+            mergedMsgs.push(optMsg);
+          }
+        }
+      }
+      // Deduplicate by ID as well (in case same message has different IDs)
+      return {
+        ...newState,
+        [serverThreadId]: deduplicateMessages(mergedMsgs),
+      };
+    });
+  }, [deduplicateMessages]);
+
+  // Extract DB message creation logic
+  const createMessagesInDatabase = useCallback(async (
+    database: Database,
+    serverThreadId: string,
+    tempUserMsgId: string,
+    tempAiMsgId: string,
+    userId: string,
+    userMessage: string,
+    response: { message: string; actions?: any[] },
+    now: Date
+  ) => {
+    try {
+      await database.write(async () => {
+        // Create user message
+        await database.get<ConversationMessage>('conversation_messages').create(m => {
+          m._raw.id = tempUserMsgId;
+          m.threadId = serverThreadId;
+          m.userId = userId;
+          m.role = 'user';
+          m.content = userMessage;
+          m.status = 'synced'; // Mark as synced since backend already saved it
+          m.createdAt = now;
+          m.updatedAt = now;
+        });
+        
+        // Create AI response message
+        await database.get<ConversationMessage>('conversation_messages').create(m => {
+          m._raw.id = tempAiMsgId;
+          m.threadId = serverThreadId;
+          m.userId = userId;
+          m.role = 'assistant';
+          m.content = response.message;
+          if (response.actions && response.actions.length > 0) {
+            m.metadata = JSON.stringify({ actions: response.actions });
+          }
+          m.status = 'synced'; // Mark as synced since backend already saved it
+          m.createdAt = now;
+          m.updatedAt = now;
+        });
+      });
+    } catch (dbError: any) {
+      // Messages might already exist, continue - UI is already updated
+      logger.warn('Failed to create messages locally:', dbError);
+    }
+  }, []);
+
+  // Extract message merging logic from DB
+  const mergeRealMessagesFromDB = useCallback(async (
+    serverThreadId: string,
+    getMessagesForThread: (threadId: string) => Promise<Message[]>
+  ) => {
+    let msgs: Message[] = [];
+    try {
+      msgs = await getMessagesForThread(serverThreadId);
+      // Filter out temp messages from DB (we already have them in state with temp IDs)
+      const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
+      const deduplicated = deduplicateMessages(realMsgs);
+      
+      // If we got real messages from DB, merge them (they'll have proper IDs from server)
+      if (deduplicated.length > 0) {
+        setMessagesByThread(prev => {
+          const currentMsgs = prev[serverThreadId] || [];
+          const merged = mergeMessagesWithOptimistic(deduplicated, currentMsgs);
+          return {
+            ...prev,
+            [serverThreadId]: merged,
+          };
+        });
+      }
+    } catch (msgError) {
+      // If we can't get messages from DB, use current state for title generation
+      msgs = messagesByThread[serverThreadId] || [];
+      logger.warn('Failed to refresh messages from DB:', msgError);
+    }
+    return msgs;
+  }, [deduplicateMessages, mergeMessagesWithOptimistic]);
+
   const handleSend = useCallback(async (messageOverride?: string) => {
     const candidate = (messageOverride !== undefined ? String(messageOverride) : input).trim();
-    if (!candidate || loading || !currentConversation) {return;}
+    if (!candidate || loading || isSendingRef.current) return;
+    
+    // Set sending flag immediately to prevent duplicates
+    isSendingRef.current = true;
     
     const userMessage = candidate;
     if (messageOverride === undefined) {
       setInput('');
     }
-    setLoading(true);
     setError('');
 
-    // Add user message to conversation
-    const updatedConversations = conversations.map(c => {
-      if (c.id === currentConversationId) {
-        const newMessage: Message = {
-          id: Date.now(),
-          text: userMessage,
-          sender: 'user',
-        };
-        
-        const updatedMessages = [...c.messages, newMessage];
-        const newTitle = c.title === 'New Conversation' || c.title === 'Conversation' 
-          ? generateConversationTitle(updatedMessages)
-          : c.title;
-        
-        return {
-          ...c,
-          messages: updatedMessages,
-          lastMessageAt: new Date(),
-          title: newTitle,
-        };
-      }
-      return c;
+    // Determine thread to use: only pass threadId if the thread is already synced on server
+    const currentThreadModel = threads.find(t => t.id === currentConversationId);
+    const isThreadSynced = currentThreadModel?.status === 'synced';
+    const threadIdToUse = isThreadSynced ? currentConversationId : null;
+    
+    // For new conversations, use a temporary thread ID so optimistic messages display immediately
+    const tempThreadId = threadIdToUse || `temp-thread-${Date.now()}`;
+    
+    // If this is a new conversation, set the temp thread ID immediately so messages show
+    if (!threadIdToUse) {
+      setCurrentConversationId(tempThreadId);
+    }
+    
+    // Create temporary IDs for optimistic updates
+    const tempUserMessageId = `temp-user-${Date.now()}-${Math.random()}`;
+    const tempAiMessageId = `temp-ai-${Date.now()}-${Math.random()}`;
+    
+    // Optimistic UI: Add user message immediately (no sending indicator)
+    const optimisticUserMessage: Message = {
+      id: tempUserMessageId,
+      text: userMessage,
+      sender: 'user',
+      status: 'synced', // No sending indicator needed
+    };
+    
+    // Optimistic UI: Add "Thinking..." AI message immediately
+    const optimisticAiMessage: Message = {
+      id: tempAiMessageId,
+      text: 'Thinking...',
+      sender: 'ai',
+      status: 'pending',
+    };
+
+    // Update state immediately for instant feedback using tempThreadId
+    setMessagesByThread(prev => {
+      const currentMsgs = prev[tempThreadId] || [];
+      return {
+        ...prev,
+        [tempThreadId]: [...currentMsgs, optimisticUserMessage, optimisticAiMessage],
+      };
     });
     
-    setConversations(updatedConversations);
+    setLoading(true);
+
+    // Track serverThreadId so we can preserve it on error
+    let serverThreadId: string | null = null;
 
     try {
-      const token = await authService.getAuthToken();
-      // Ensure we have a persisted thread id for this conversation
-      let threadIdToUse = currentConversationId;
-      if (!threadIdToUse || !threadIdToUse.includes('-')) {
-        const created = await conversationService.createThread(currentConversation?.title || 'New Conversation', null);
-        threadIdToUse = created.id;
-        // swap conversation id to server id
-        setConversations(prev => prev.map(c => c.id === currentConversationId ? { ...c, id: created.id } : c));
-        setCurrentConversationId(created.id);
+      // Call AI service - backend will create thread if needed
+      const response = await conversationService.sendMessage(userMessage, threadIdToUse);
+      
+      // Get the threadId from response (server-created if new conversation)
+      serverThreadId = response.threadId;
+      if (!serverThreadId) {
+        throw new Error('No threadId returned from server');
       }
-      const response = await axios.post(
-        `${getSecureApiBaseUrl()}/ai/chat`,
-        { message: userMessage, threadId: threadIdToUse },
-        { headers: { Authorization: `Bearer ${token}` } }
+
+      // Generate title from user message for new conversations
+      const initialTitle = threadIdToUse ? null : extractTitleFromMessage(userMessage);
+      const threadTitle = initialTitle || 'New Conversation';
+
+      // Create or update thread locally with server threadId
+      let localThread = await conversationRepository.getThreadById(serverThreadId);
+      if (!localThread) {
+        // Thread was created on server, create it locally
+        try {
+          await database.write(async () => {
+            await database.get<ConversationThread>('conversation_threads').create(t => {
+              t._raw.id = serverThreadId!; // Non-null assertion: we throw if serverThreadId is null above
+              t.userId = authService.getCurrentUser()?.id || '';
+              t.title = threadTitle;
+              t.summary = null;
+              t.isActive = true;
+              t.isPinned = false;
+              t.status = 'synced'; // Already on server
+              t.createdAt = new Date();
+              t.updatedAt = new Date();
+            });
+          });
+          localThread = await conversationRepository.getThreadById(serverThreadId!);
+        } catch (threadError: any) {
+          logger.warn('Failed to create thread locally, will retry:', threadError);
+          // Thread might already exist, try to fetch it
+          try {
+            localThread = await conversationRepository.getThreadById(serverThreadId!);
+          } catch (fetchError) {
+            logger.error('Thread not found locally or on server:', fetchError);
+            throw new Error('Thread not found');
+          }
+        }
+      }
+
+      // Set current conversation to server thread ID
+      if (serverThreadId !== currentConversationId) {
+        setCurrentConversationId(serverThreadId);
+      }
+
+      // If we started from a local-only pending thread, clean it up to avoid duplicates
+      if (currentThreadModel && currentThreadModel.status !== 'synced' && currentThreadModel.id !== serverThreadId) {
+        try {
+          await conversationRepository.deleteThread(currentThreadModel.id);
+        } catch (cleanupErr) {
+          logger.warn('Failed to cleanup pending local thread:', cleanupErr);
+        }
+      }
+
+      // Prepare temp message IDs for DB operations
+      const userId = authService.getCurrentUser()?.id || '';
+      const now = new Date();
+      const tempUserMsgId = `temp-${Date.now()}-user`;
+      const tempAiMsgId = `temp-${Date.now()}-ai`;
+
+      // Migrate optimistic messages from tempThreadId to serverThreadId and replace "Thinking..."
+      migrateTempMessagesToServerThread(
+        tempThreadId,
+        serverThreadId,
+        tempAiMessageId,
+        tempUserMessageId,
+        tempAiMsgId,
+        tempUserMsgId,
+        response,
+        userMessage
+      );
+
+      // Create messages locally directly from API response
+      await createMessagesInDatabase(
+        database,
+        serverThreadId,
+        tempUserMsgId,
+        tempAiMsgId,
+        userId,
+        userMessage,
+        response,
+        now
       );
       
-      // Extract message and actions from response
-      const responseData = response.data || response;
-      const message = responseData.message;
-      const actions = responseData.actions || [];
-      
-      // Track AI message sent analytics
-      // Track AI message sent analytics
+      // Trigger background sync to fetch actual message IDs and handle any updates
+      syncService.silentSync().catch(err => {
+        logger.warn('Background sync failed, will retry later:', err);
+      });
+
+      // Also update from database to get any messages that might have been created by sync
+      const msgs = serverThreadId 
+        ? await mergeRealMessagesFromDB(serverThreadId, getMessagesForThread)
+        : [];
+
+      // Update thread title if needed (only if it's still generic)
+      // This handles cases where the thread was created on the server with a generic title
+      if (localThread && (localThread.title === 'New Conversation' || localThread.title === 'Conversation')) {
+        const newTitle = generateConversationTitle(msgs);
+        // Only update if we got a better title than the generic one
+        if (newTitle && newTitle !== 'New Conversation' && newTitle !== 'Conversation') {
+          await conversationRepository.updateThread(serverThreadId, { title: newTitle });
+          // Trigger background sync for title update
+          syncService.silentSync().catch(err => {
+            logger.warn('Sync failed, will retry:', err);
+          });
+        }
+      }
+
+      // Track analytics
       analyticsService.trackAIMessageSent({
-        message: message ?? '',
-        threadId: route.params?.threadId,
-        context: null // No additional context available in this flow
+        message: userMessage,
+        threadId: serverThreadId,
+        context: null
       }).catch(error => {
         logger.warn('Failed to track AI message analytics:', error);
       });
 
-      // Add AI response to conversation
-      const aiMessage: Message = {
-        id: Date.now() + 1,
-        text: message,
-        sender: 'ai',
-      };
-      
-      setConversations(prev => prev.map(c => {
-        if (c.id === currentConversationId) {
-          return {
-            ...c,
-            messages: [...c.messages, aiMessage],
-            lastMessageAt: new Date(),
-          };
-        }
-        return c;
-      }));
-
-      // Handle actions (show toast notifications for completed actions)
-      actions.forEach((action: any) => {
-        // Only handle create/update/delete actions
-        if (["create", "update", "delete"].includes(action.action_type)) {
-          let actionVerb = '';
-          if (action.action_type === 'create') actionVerb = 'created';
-          if (action.action_type === 'update') actionVerb = 'updated';
-          if (action.action_type === 'delete') actionVerb = 'deleted';
-          const entity = action.entity_type.replace('_', ' ');
-          const title = action.details?.title || action.details?.name || '';
-          // Show success message
-          const successMessage = `${entity.charAt(0).toUpperCase() + entity.slice(1)}${title ? ` "${title}"` : ''} ${actionVerb}.`;
-          // Action completed successfully
-        }
-        // If error
-        if (action.details && action.details.error) {
-          const errorMessage = `Failed to ${action.action_type} ${action.entity_type}: ${action.details.error}`;
-          logger.error('❌ Action failed:', errorMessage);
-        }
-      });
     } catch (err: any) {
       logger.error('AI Chat error:', (err as any)?.message || err);
       
-      let errorMessage = 'AI failed to respond. Please try again.';
-      if (err.response?.status === 401) {
+      // Check if we got a serverThreadId before the error (thread was created)
+      // If so, preserve it and the user message
+      if (serverThreadId) {
+        // Thread was created, preserve it and the user message
+        const threadId = serverThreadId; // Type narrowing
+        setCurrentConversationId(threadId);
+        setMessagesByThread(prev => {
+          const currentMsgs = prev[threadId] || [];
+          // Keep user message but remove "Thinking..."
+          const filtered = currentMsgs.filter(
+            (msg: Message) => msg.id !== tempAiMessageId && msg.text !== 'Thinking...'
+          );
+          return {
+            ...prev,
+            [threadId]: filtered,
+          };
+        });
+      } else {
+        // No thread was created, remove optimistic messages
+        setMessagesByThread(prev => {
+          const currentMsgs = prev[tempThreadId] || [];
+          return {
+            ...prev,
+            [tempThreadId]: currentMsgs.filter(
+              msg => msg.id !== tempUserMessageId && msg.id !== tempAiMessageId
+            ),
+          };
+        });
+        
+        // Reset conversation ID if it was a temp one
+        if (tempThreadId.startsWith('temp-thread-')) {
+          // Find the first real thread or set to empty
+          const realThread = threads.find(t => t.status === 'synced');
+          if (realThread) {
+            setCurrentConversationId(realThread.id);
+          } else if (threads.length > 0) {
+            setCurrentConversationId(threads[0].id);
+          } else {
+            setCurrentConversationId('');
+          }
+        }
+      }
+      
+      let errorMessage = 'Failed to send message. Please try again.';
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes('not authenticated')) {
         errorMessage = 'Authentication failed. Please log in again.';
-      } else if (err.response?.status === 500) {
-        errorMessage = 'Server error. Please try again later.';
-      } else if (err.code === 'NETWORK_ERROR') {
-        errorMessage = 'Network error. Please check your connection.';
-      } else if (err.response?.data?.message) {
-        errorMessage = err.response.data.message;
+      } else if (errorMsg.includes('Thread not found')) {
+        errorMessage = 'Failed to create conversation. Please try again.';
       }
       
       setError(errorMessage);
     } finally {
       setLoading(false);
+      isSendingRef.current = false; // Reset sending flag
     }
-  }, [conversations, currentConversation, currentConversationId, input, loading]);
+  }, [
+    currentConversationId,
+    input,
+    loading,
+    threads,
+    getMessagesForThread,
+    database,
+    migrateTempMessagesToServerThread,
+    createMessagesInDatabase,
+    mergeRealMessagesFromDB,
+    extractTitleFromMessage,
+    generateConversationTitle,
+  ]);
 
   // After help reset completes rendering, send the pending help message once
   useEffect(() => {
@@ -716,130 +1369,55 @@ export default function AIChatScreen({ navigation, route }: any) {
   useEffect(() => {
     if (route.params?.initialMessage) {
       const initialMessage = route.params.initialMessage as string;
-      // Try to derive a concise title from the initial message (goal-focused)
-      const deriveTitle = (msg: string): string => {
-        const cleaned = String(msg || '').trim();
-        // Common prefixes
-        const prefixes = [
-          /^help me break down this goal:\s*/i,
-          /^can you help me (update|with) (the\s*)?/i,
-          /^help me with (the\s*)?/i,
-          /^please (help|assist) (me\s*)?(with\s*)?/i,
-        ];
-        let text = cleaned;
-        for (const p of prefixes) {text = text.replace(p, '');}
-        // Remove trailing question marks/periods and limit length
-        text = text.replace(/[?.!\s]+$/g, '').trim();
-        // If it still contains leading "goal:" or quotes, strip them
-        text = text.replace(/^goal:\s*/i, '').replace(/^"|"$/g, '').trim();
-        // Shorten to ~32 chars if very long
-        if (text.length > 32) {text = text.slice(0, 32).trim() + '…';}
-        return text || 'Goal Help';
-      };
-      const inferredTitle = deriveTitle(initialMessage);
+      // Use the improved title extraction function for consistency
+      const inferredTitle = extractTitleFromMessage(initialMessage) || 'New Goal';
       
-      // Create a new conversation; we'll append the user's initial message once during auto-send
-      // Auto-create a server thread if not provided via route
+      // Create thread and send message using repository
       (async () => {
         try {
-          const token = await authService.getAuthToken();
           setLoading(true);
           setError('');
           let threadIdToUse = route.params?.threadId as string | undefined;
+          
           if (!threadIdToUse) {
-            const created = await conversationService.createThread(inferredTitle, null);
-            threadIdToUse = created.id;
-            const newConversation: Conversation = {
-              id: created.id,
-              title: created.title || inferredTitle,
-              messages: [ { id: 1, text: 'Welcome to Mind Clear! How can I help you today?', sender: 'ai' } ],
+            // Create new thread locally
+            const thread = await conversationRepository.createThread({
+              title: inferredTitle,
+              summary: null,
+              isActive: true,
               isPinned: false,
-              createdAt: new Date(created.created_at || new Date()),
-              lastMessageAt: new Date(created.updated_at || new Date()),
-            };
-            setConversations(prev => [newConversation, ...prev]);
-            setCurrentConversationId(created.id);
+            });
+            threadIdToUse = thread.id;
+            setCurrentConversationId(thread.id);
           } else {
-            // Prepare local conversation for existing thread id
-            const thread = await conversationService.getThread(threadIdToUse);
-            const msgs: Message[] = (thread.messages || []).map(m => ({ id: Date.parse(m.created_at) || Date.now(), text: m.content, sender: m.role === 'user' ? 'user' : 'ai' }));
-            const conv: Conversation = {
-              id: thread.thread.id,
-              title: thread.thread.title || inferredTitle,
-              messages: msgs.length ? msgs : [ { id: 1, text: 'Welcome to Mind Clear! How can I help you today?', sender: 'ai' } ],
-              isPinned: false,
-              createdAt: new Date(thread.thread.created_at || new Date()),
-              lastMessageAt: new Date(thread.thread.updated_at || new Date()),
-            };
-            setConversations(prev => [conv, ...prev]);
-            setCurrentConversationId(conv.id);
-          }
-          // Add the user's initial message to the conversation first
-          const userMessage: Message = { id: Date.now(), text: initialMessage, sender: 'user' };
-          const threadIdFinal = (route.params?.threadId as string) || (navigation.getState && threadIdToUse) || threadIdToUse;
-          if (threadIdFinal) {
-            setConversations(prev => prev.map(c => (c.id === threadIdFinal ? { ...c, messages: [...c.messages, userMessage], lastMessageAt: new Date() } : c)));
+            // Use existing thread
+            if (threadIdToUse) {
+              const threadId = threadIdToUse; // Type narrowing
+              setCurrentConversationId(threadId);
+              // Load messages for existing thread
+              const msgs = await getMessagesForThread(threadId);
+              setMessagesByThread(prev => ({ ...prev, [threadId]: msgs }));
+            }
           }
 
           // Clear the route params to prevent re-triggering
           navigation.setParams({ initialMessage: undefined, threadId: threadIdToUse });
-          const response = await axios.post(
-            `${getSecureApiBaseUrl()}/ai/chat`,
-            { message: initialMessage, threadId: threadIdToUse },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
           
-          // Extract message and actions from response
-          const responseData = response.data || response;
-          const message = responseData.message;
-          const actions = responseData.actions || [];
-          
-          const aiMessage: Message = { id: Date.now() + 1, text: message, sender: 'ai' };
-          if (threadIdFinal) {
-            setConversations(prev => prev.map(c => (c.id === threadIdFinal ? { ...c, messages: [...c.messages, aiMessage], lastMessageAt: new Date() } : c)));
-          }
-
-          // Handle actions (show toast notifications for completed actions)
-          actions.forEach((action: any) => {
-            // Only handle create/update/delete actions
-            if (["create", "update", "delete"].includes(action.action_type)) {
-              let actionVerb = '';
-              if (action.action_type === 'create') actionVerb = 'created';
-              if (action.action_type === 'update') actionVerb = 'updated';
-              if (action.action_type === 'delete') actionVerb = 'deleted';
-              const entity = action.entity_type.replace('_', ' ');
-              const title = action.details?.title || action.details?.name || '';
-              // Show success message
-              const successMessage = `${entity.charAt(0).toUpperCase() + entity.slice(1)}${title ? ` "${title}"` : ''} ${actionVerb}.`;
-              // Action completed successfully
-            }
-            // If error
-            if (action.details && action.details.error) {
-              const errorMessage = `Failed to ${action.action_type} ${action.entity_type}: ${action.details.error}`;
-              logger.error('❌ Action failed:', errorMessage);
-            }
-          });
-                 } catch (err: any) {
-           logger.error('AI Chat auto-send error:', (err as any)?.message || err);
-          
-          let errorMessage = 'AI failed to respond. Please try again.';
-          if (err.response?.status === 401) {
+          // Send message using handleSend
+          await handleSend(initialMessage);
+        } catch (err: any) {
+          logger.error('AI Chat auto-send error:', (err as any)?.message || err);
+          let errorMessage = 'Failed to send message. Please try again.';
+          if (err.message?.includes('not authenticated')) {
             errorMessage = 'Authentication failed. Please log in again.';
-          } else if (err.response?.status === 500) {
-            errorMessage = 'Server error. Please try again later.';
-          } else if (err.code === 'NETWORK_ERROR') {
-            errorMessage = 'Network error. Please check your connection.';
-          } else if (err.response?.data?.message) {
-            errorMessage = err.response.data.message;
           }
-          
           setError(errorMessage);
         } finally {
           setLoading(false);
         }
       })();
     }
-  }, [route.params?.initialMessage, handleSend, navigation]);
+  }, [route.params?.initialMessage, handleSend, navigation, getMessagesForThread]);
 
   // Initialize onboarding on component mount
   useEffect(() => {
@@ -867,11 +1445,43 @@ export default function AIChatScreen({ navigation, route }: any) {
   // Cleanup timer on unmount
   // Timer removed with deprecation of follow-up; nothing to clean up here
 
+  // Animated "Thinking..." component
+  const ThinkingIndicator = () => {
+    const [dots, setDots] = useState('.');
+    
+    useEffect(() => {
+      const interval = setInterval(() => {
+        setDots(prev => {
+          if (prev === '.') return '..';
+          if (prev === '..') return '...';
+          return '.';
+        });
+      }, 500);
+      
+      return () => clearInterval(interval);
+    }, []);
+    
+    return (
+      <Text style={styles.thinkingText}>Thinking{dots}</Text>
+    );
+  };
+
   const renderMessage = (msg: Message) => {
+    const isThinking = msg.sender === 'ai' && msg.status === 'pending' && msg.text === 'Thinking...';
+    
     if (msg.sender === 'user') {
       return (
         <View key={msg.id} style={styles.userMsg}>
           <Text selectable style={styles.userMsgText}>{msg.text}</Text>
+        </View>
+      );
+    }
+    
+    // Show "Thinking..." indicator for pending AI messages
+    if (isThinking) {
+      return (
+        <View key={msg.id} style={styles.aiMsg}>
+          <ThinkingIndicator />
         </View>
       );
     }
@@ -882,12 +1492,6 @@ export default function AIChatScreen({ navigation, route }: any) {
     const hasGoalTitlesContent = isGoalTitlesContent(msg.text);
     const hasTaskContent = isTaskContent(msg.text);
     
-    // Debug: Log AI messages to see what format they're in
-    // Optional debug retained for development; commented to keep console clean
-    // if (msg.sender === 'ai' && msg.text.includes('schedule')) {
-    
-    // }
-    
     // Remove JSON code blocks and (when present) the goal breakdown section
     // from AI text for conversational display, then simplify redundant lines
     const baseConversational = hasGoalBreakdownContent
@@ -897,7 +1501,7 @@ export default function AIChatScreen({ navigation, route }: any) {
       let text = baseConversational
         .split('\n')
         // Drop redundant confirmations like "I've scheduled ..."
-        .filter(line => !/^i['’]ve scheduled/i.test(line.trim()))
+        .filter(line => !/^i['']ve scheduled/i.test(line.trim()))
         .join('\n');
       const taskTitleFromRoute = route?.params?.taskTitle;
       if (taskTitleFromRoute) {
@@ -907,10 +1511,13 @@ export default function AIChatScreen({ navigation, route }: any) {
       return text.trim();
     })();
 
+    // Use full width for structured content to prevent truncation
+    const shouldUseFullWidth = hasGoalBreakdownContent || hasScheduleContent || hasTaskContent || hasGoalTitlesContent;
+    
     return (
-      <View key={msg.id} style={styles.aiMsg}>
-        {/* Show conversational text with proper padding */}
-        {conversationalText && (
+      <View key={msg.id} style={[styles.aiMsg, shouldUseFullWidth && styles.aiMsgFullWidth]}>
+        {/* Show conversational text - show it even with goal breakdown so user sees context */}
+        {conversationalText && conversationalText.trim() && (
           <View style={styles.conversationalTextContainer}>
             <Markdown
               style={markdownStyles}
@@ -924,7 +1531,13 @@ export default function AIChatScreen({ navigation, route }: any) {
           <ScheduleDisplay text={msg.text} taskTitle={route?.params?.taskTitle} />
         )}
         {hasGoalBreakdownContent && (
-          <GoalBreakdownDisplay text={msg.text} />
+          <GoalBreakdownDisplay 
+            key={`goal-breakdown-${msg.id}`}
+            text={msg.text} 
+            onSaveGoal={handleSaveGoal} 
+            conversationalText={conversationalText}
+            conversationTitle={currentConversation?.title}
+          />
         )}
         {hasGoalTitlesContent && (
           <GoalTitlesDisplay
@@ -940,7 +1553,7 @@ export default function AIChatScreen({ navigation, route }: any) {
           />
         )}
         {hasTaskContent && (
-          <TaskDisplay text={msg.text} />
+          <TaskDisplay text={msg.text} onSaveTasks={handleSaveTasks} />
         )}
         {showOnboarding && msg.text.includes('Hi there, and welcome to Mind Clear') && (
           <QuickActions
@@ -953,18 +1566,22 @@ export default function AIChatScreen({ navigation, route }: any) {
     );
   };
 
-  const renderConversationItem = (conversation: Conversation) => {
-    const isActive = conversation.id === currentConversationId;
-    const lastMessage = conversation.messages[conversation.messages.length - 1];
+  const renderConversationItem = (thread: ConversationThread) => {
+    const isActive = thread.id === currentConversationId;
+    const messages = messagesByThread[thread.id] || [];
+    const lastMessage = messages[messages.length - 1];
     
     return (
       <TouchableOpacity
-        key={conversation.id}
+        key={thread.id}
         style={[styles.conversationItem, isActive && styles.activeConversationItem]}
         onPress={async () => {
           try {
-            setCurrentConversationId(conversation.id);
-            await loadThreadMessages(conversation.id);
+            setCurrentConversationId(thread.id);
+            // Always load messages to ensure we have the latest from database
+            // This is important when app reopens and messagesByThread is empty
+            const msgs = await getMessagesForThread(thread.id);
+            setMessagesByThread(prev => ({ ...prev, [thread.id]: msgs }));
             toggleSidebar();
           } catch (err) {
             logger.error('Failed to switch conversation:', err);
@@ -975,34 +1592,34 @@ export default function AIChatScreen({ navigation, route }: any) {
         <View style={styles.conversationHeader}>
           <View style={styles.conversationTitleRow}>
             <Text style={[styles.conversationTitle, isActive && styles.activeConversationTitle]} numberOfLines={1}>
-              {conversation.title}
+              {thread.title}
             </Text>
-                                      {conversation.isPinned && <Icon name="pin" size={12} color={colors.primary} style={styles.pinIcon} />}
-           </View>
-           <View style={styles.conversationActions}>
-             <TouchableOpacity
-               style={styles.actionButton}
-               onPress={() => togglePinConversation(conversation.id)}
-             >
-               <Icon 
-                 name={conversation.isPinned ? "pin-fill" : "pin"} 
-                 size={16} 
-                 color={colors.text.secondary} 
-               />
-             </TouchableOpacity>
-             <TouchableOpacity
-               style={styles.actionButton}
-               onPress={async () => { await deleteConversation(conversation.id); }}
-             >
-               <Icon name="trash" size={16} color={colors.text.secondary} />
-             </TouchableOpacity>
-           </View>
+            {thread.isPinned && <Icon name="pin" size={12} color={colors.primary} style={styles.pinIcon} />}
+          </View>
+          <View style={styles.conversationActions}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => togglePinConversation(thread.id)}
+            >
+              <Icon 
+                name={thread.isPinned ? "pin-fill" : "pin"} 
+                size={16} 
+                color={colors.text.secondary} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={async () => { await deleteConversation(thread.id); }}
+            >
+              <Icon name="trash" size={16} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
         </View>
         <Text style={styles.conversationPreview} numberOfLines={1}>
           {lastMessage?.text || 'No messages yet'}
         </Text>
         <Text style={styles.conversationDate}>
-          {conversation.lastMessageAt.toLocaleDateString()}
+          {thread.updatedAt.toLocaleDateString()}
         </Text>
       </TouchableOpacity>
     );
@@ -1047,11 +1664,6 @@ export default function AIChatScreen({ navigation, route }: any) {
           </View>
           
           {currentConversation?.messages.map((msg) => renderMessage(msg))}
-          {loading && (
-            <View style={styles.aiMsg}>
-              <ActivityIndicator color={colors.primary} />
-            </View>
-          )}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </ScrollView>
         
@@ -1114,7 +1726,7 @@ export default function AIChatScreen({ navigation, route }: any) {
             <Text style={styles.newConversationButtonText}>+ New Conversation</Text>
           </TouchableOpacity>
           
-          {conversations.some(c => !c.isPinned) && (
+          {threads.some(t => !t.isPinned) && (
             <TouchableOpacity style={styles.clearButton} onPress={clearNonPinnedConversations}>
               <Text style={styles.clearButtonText}>Clear Non-Pinned</Text>
             </TouchableOpacity>
@@ -1122,7 +1734,7 @@ export default function AIChatScreen({ navigation, route }: any) {
         </View>
 
         <ScrollView style={styles.conversationsList}>
-          {conversations.map(renderConversationItem)}
+          {threads.map(renderConversationItem)}
         </ScrollView>
       </Animated.View>
     </SafeAreaView>
@@ -1172,6 +1784,22 @@ const styles = StyleSheet.create({
     color: colors.secondary,
     fontSize: typography.fontSize.base,
   },
+  pendingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+  },
+  pendingText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    fontStyle: 'italic',
+  },
+  thinkingText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.base,
+    fontStyle: 'italic',
+  },
   aiMsg: {
     alignSelf: 'flex-start',
     backgroundColor: colors.aiMessage,
@@ -1179,6 +1807,11 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.sm,
     maxWidth: '80%',
+  },
+  aiMsgFullWidth: {
+    maxWidth: '95%', // Slightly less than 100% to avoid edge issues
+    width: '95%',
+    alignSelf: 'stretch', // Allow it to expand
   },
   aiMsgText: {
     color: colors.text.primary,
@@ -1411,3 +2044,38 @@ const markdownStyles = StyleSheet.create({
     borderRadius: borderRadius.sm,
   },
 });
+
+// Create the enhanced component with WatermelonDB observables
+const enhance = withObservables<{ database: Database }, "threads">(
+  ['database'],
+  // @ts-expect-error - WatermelonDB's withObservables type definition expects the factory to return the keys, but implementation requires observables object
+  ({ database }) => {
+    // Get userId at render time, not module load time
+    const userId = authService.getCurrentUser()?.id;
+    if (!userId) {
+      // Return empty observable if no user - use a query that returns nothing
+      const emptyQuery = database.collections.get<ConversationThread>('conversation_threads').query(
+        Q.where('id', 'non-existent-id')
+      );
+      return { threads: emptyQuery.observe() };
+    }
+    const threadsQuery = database.collections.get<ConversationThread>('conversation_threads').query(
+      Q.where('user_id', userId),
+      Q.where('status', Q.notEq('pending_delete'))
+    );
+    const threads: Observable<ConversationThread[]> = threadsQuery.observe();
+    
+    return {
+      threads,
+    };
+  }
+);
+
+const EnhancedAIChatScreen = enhance(AIChatScreen);
+
+const AIChatScreenWithDatabase = (props: any) => {
+  const database = useDatabase();
+  return <EnhancedAIChatScreen {...props} database={database} />;
+};
+
+export default AIChatScreenWithDatabase;

@@ -5,6 +5,7 @@ import {map} from 'rxjs/operators';
 import Goal from '../db/models/Goal';
 import Milestone from '../db/models/Milestone';
 import MilestoneStep from '../db/models/MilestoneStep';
+import Task from '../db/models/Task';
 import {authService} from '../services/auth';
 
 // Custom error classes for domain-specific errors
@@ -134,6 +135,12 @@ export class GoalRepository {
   }): Promise<Milestone> {
     const database = getDatabase();
     
+    // Verify ownership - ensure the goal belongs to the current user
+    const goal = await this.getGoalById(goalId);
+    if (!goal) {
+      throw new AuthorizationError('You do not have permission to create a milestone for this goal');
+    }
+    
     return await database.write(async () => {
       return await database.get<Milestone>('milestones').create(milestone => {
         milestone.goalId = goalId;
@@ -155,7 +162,12 @@ export class GoalRepository {
     order?: number;
   }): Promise<Milestone> {
     const database = getDatabase();
-    const milestone = await database.get<Milestone>('milestones').find(id);
+    
+    // Verify ownership using getMilestoneById which includes ownership checks
+    const milestone = await this.getMilestoneById(id);
+    if (!milestone) {
+      throw new NotFoundError(`Milestone with id ${id} not found`);
+    }
     
     return await database.write(async () => {
       return await milestone.update(m => {
@@ -274,6 +286,12 @@ export class GoalRepository {
   }): Promise<MilestoneStep> {
     const database = getDatabase();
     
+    // Verify ownership - ensure the milestone belongs to a goal owned by the current user
+    const milestone = await this.getMilestoneById(milestoneId);
+    if (!milestone) {
+      throw new AuthorizationError('You do not have permission to create a step for this milestone');
+    }
+    
     return await database.write(async () => {
       return await database.get<MilestoneStep>('milestone_steps').create(step => {
         step.milestoneId = milestoneId;
@@ -380,6 +398,142 @@ export class GoalRepository {
       
       // Handle unknown error types
       throw new Error('An unexpected error occurred while deleting the milestone step');
+    }
+  }
+
+  /**
+   * Migrates a locally-created milestone to use the server-assigned ID.
+   * Re-creates the milestone with the serverId and re-points all child steps
+   * to the new milestone ID, then deletes the old milestone record.
+   */
+  async updateMilestoneServerId(localId: string, serverId: string, serverGoalId?: string): Promise<void> {
+    const database = getDatabase();
+    // Find the local milestone; if it doesn't exist, nothing to migrate
+    let localMilestone: Milestone | null = null;
+    try {
+      localMilestone = await database.get<Milestone>('milestones').find(localId);
+    } catch {
+      return;
+    }
+
+    // Gather child steps tied to the local milestone
+    let childSteps: MilestoneStep[] = [];
+    try {
+      const stepCollection = database.get<MilestoneStep>('milestone_steps');
+      childSteps = await stepCollection.query(
+        Q.where('milestone_id', localId)
+      ).fetch();
+    } catch (error) {
+      throw new Error(`Failed to fetch milestone steps: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    try {
+      await database.write(async () => {
+        // Create a new milestone record with the server-assigned ID
+        const newMilestone = await database.get<Milestone>('milestones').create(m => {
+          m._raw.id = serverId;
+          m._raw._status = 'synced';
+          m._raw._changed = '';
+          m.goalId = serverGoalId || localMilestone.goalId;
+          m.title = localMilestone.title;
+          m.description = localMilestone.description;
+          m.completed = localMilestone.completed;
+          m.order = localMilestone.order;
+          m.status = 'synced';
+          m.createdAt = localMilestone.createdAt;
+          m.updatedAt = localMilestone.updatedAt;
+        });
+
+        // Re-point all child steps to the new milestone ID
+        for (const step of childSteps) {
+          await step.update(s => {
+            s.milestoneId = newMilestone.id;
+          });
+        }
+
+        // Remove the old milestone record
+        await localMilestone.destroyPermanently();
+      });
+    } catch (error) {
+      throw new Error(`Failed to migrate milestone server ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Migrates a locally-created goal to use the server-assigned ID.
+   * Creates a new goal with the server ID, re-points all child milestones and tasks
+   * to the new goal ID, then deletes the old goal record.
+   */
+  async updateGoalServerId(localId: string, serverId: string): Promise<void> {
+    const database = getDatabase();
+    // Find the local goal with ownership verification; if it doesn't exist, nothing to migrate
+    let localGoal: Goal | null = null;
+    try {
+      localGoal = await database.get<Goal>('goals').find(localId);
+    } catch {
+      return;
+    }
+
+    // Gather child milestones and tasks tied to the local goal
+    const milestoneCollection = database.get<Milestone>('milestones');
+    const taskCollection = database.get<Task>('tasks');
+    
+    let childMilestones: Milestone[] = [];
+    try {
+      childMilestones = await milestoneCollection.query(
+        Q.where('goal_id', localId)
+      ).fetch();
+    } catch (error) {
+      throw new Error(`Failed to fetch child milestones: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    let childTasks: Task[] = [];
+    try {
+      childTasks = await taskCollection.query(
+        Q.where('goal_id', localId)
+      ).fetch();
+    } catch (error) {
+      throw new Error(`Failed to fetch child tasks: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    try {
+      await database.write(async () => {
+        // Create a new goal record with the server-assigned ID
+        const newGoal = await database.get<Goal>('goals').create(g => {
+          g._raw.id = serverId;
+          g._raw._status = 'synced';
+          g._raw._changed = '';
+          g.title = localGoal.title;
+          g.description = localGoal.description;
+          g.targetCompletionDate = localGoal.targetCompletionDate;
+          g.progressPercentage = localGoal.progressPercentage;
+          g.category = localGoal.category;
+          g.isActive = localGoal.isActive;
+          g.userId = localGoal.userId;
+          g.status = 'synced';
+          g.createdAt = localGoal.createdAt;
+          g.updatedAt = localGoal.updatedAt;
+        });
+
+        // Re-point all child milestones to the new goal ID
+        for (const ms of childMilestones) {
+          await ms.update(m => {
+            m.goalId = newGoal.id;
+          });
+        }
+
+        // Re-point all child tasks to the new goal ID
+        for (const task of childTasks) {
+          await task.update(t => {
+            t.goalId = newGoal.id;
+          });
+        }
+
+        // Remove the old goal record
+        await localGoal.destroyPermanently();
+      });
+    } catch (error) {
+      throw new Error(`Failed to migrate goal server ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

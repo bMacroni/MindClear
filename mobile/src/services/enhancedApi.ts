@@ -34,7 +34,7 @@ class EnhancedAPI {
     };
 
     // Declare timeoutId outside try block so it's accessible in catch
-    let timeoutId: NodeJS.Timeout | undefined = undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
     try {
       // Check if external signal is already aborted
@@ -103,7 +103,7 @@ class EnhancedAPI {
         // Check if we should retry
         if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
           const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
           return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
         }
         
@@ -139,12 +139,13 @@ class EnhancedAPI {
       const userError = await errorHandlingService.handleError(error, category, context);
       
       // Don't retry 404 errors - endpoint doesn't exist
-      const is404 = error?.status === 404 || error?.response?.status === 404;
+      const errorWithStatus = error as { status?: number; response?: { status?: number } } | null | undefined;
+      const is404 = errorWithStatus?.status === 404 || errorWithStatus?.response?.status === 404;
       
       // Check if we should retry
       if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
         return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
       }
       
@@ -448,7 +449,8 @@ class EnhancedAPI {
   }
 
   async createGoal(goalData: any): Promise<any> {
-    return this.makeRequest(
+    logger.debug('Creating goal', { operation: 'createGoal' });
+    return await this.makeRequest(
       `${getSecureApiBaseUrl()}/goals`,
       {
         method: 'POST',
@@ -484,6 +486,15 @@ class EnhancedAPI {
     return;
   }
 
+  async getGoal(goalId: string): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/${goalId}`,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getGoal'
+    );
+  }
+
   // Milestone API methods
   async createMilestone(goalId: string, milestoneData: any): Promise<any> {
     return this.makeRequest(
@@ -500,7 +511,7 @@ class EnhancedAPI {
 
   async updateMilestone(milestoneId: string, milestoneData: any): Promise<any> {
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -513,13 +524,22 @@ class EnhancedAPI {
 
   async deleteMilestone(milestoneId: string): Promise<void> {
     const result = await this.makeRequest(
-      `${getSecureApiBaseUrl()}/milestones/${milestoneId}`,
+      `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteMilestone'
     );
     // DELETE operations may return undefined for empty responses
     return;
+  }
+
+  async getMilestone(milestoneId: string): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}`,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getMilestone'
+    );
   }
 
   async getMilestones(since?: string): Promise<any> {
@@ -537,8 +557,9 @@ class EnhancedAPI {
 
   // Step API methods
   async createStep(milestoneId: string, stepData: any): Promise<any> {
+    const url = `${getSecureApiBaseUrl()}/goals/milestones/${milestoneId}/steps`;
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/milestones/${milestoneId}/steps`,
+      url,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -550,8 +571,9 @@ class EnhancedAPI {
   }
 
   async updateStep(stepId: string, stepData: any): Promise<any> {
+    const url = `${getSecureApiBaseUrl()}/goals/steps/${stepId}`;
     return this.makeRequest(
-      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      url,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -564,13 +586,22 @@ class EnhancedAPI {
 
   async deleteStep(stepId: string): Promise<void> {
     const result = await this.makeRequest(
-      `${getSecureApiBaseUrl()}/steps/${stepId}`,
+      `${getSecureApiBaseUrl()}/goals/steps/${stepId}`,
       { method: 'DELETE' },
       ErrorCategory.GOALS,
       'deleteStep'
     );
     // DELETE operations may return undefined for empty responses
     return;
+  }
+
+  async getStep(stepId: string): Promise<any> {
+    return this.makeRequest(
+      `${getSecureApiBaseUrl()}/goals/steps/${stepId}`,
+      { method: 'GET' },
+      ErrorCategory.GOALS,
+      'getStep'
+    );
   }
 
   async getMilestoneSteps(since?: string): Promise<any> {

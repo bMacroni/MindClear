@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -6,7 +6,7 @@ import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { tasksAPI } from '../../services/api';
 
-interface Task {
+export interface Task {
   id?: string;
   title: string;
   description?: string;
@@ -23,6 +23,7 @@ interface TaskData {
 
 interface TaskDisplayProps {
   text: string;
+  onSaveTasks: (tasks: Task[]) => Promise<void>;
 }
 
 // Normalize raw payload into TaskData shape expected by the UI
@@ -70,17 +71,60 @@ const parseTaskData = (taskText: string): TaskData | null => {
   }
 };
 
-export default function TaskDisplay({ text }: TaskDisplayProps) {
+export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
   const taskData = useMemo(() => parseTaskData(text), [text]);
   const [items, setItems] = useState<Task[]>(taskData?.tasks || []);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+
+  // New state for proposal mode
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasBeenSaved, setHasBeenSaved] = useState(false);
+
+  const isProposal = useMemo(() => {
+    return taskData?.tasks && taskData.tasks.length > 0 && taskData.tasks.some(t => !t.id);
+  }, [taskData]);
 
   // When the incoming message changes, sync the local list once
   useEffect(() => {
     setItems(taskData?.tasks || []);
   }, [taskData]);
 
+  // Track previous taskData to detect when new AI drafts arrive
+  const prevTaskDataRef = useRef<TaskData | null>(null);
+  const isInitialMountRef = useRef(true);
+  
+  // Reset hasBeenSaved when new AI draft data arrives
+  useEffect(() => {
+    // Skip on initial mount
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      prevTaskDataRef.current = taskData;
+      return;
+    }
+    
+    // Reset hasBeenSaved when taskData changes (new AI draft arrived)
+    if (prevTaskDataRef.current !== taskData) {
+      setHasBeenSaved(false);
+    }
+    prevTaskDataRef.current = taskData;
+  }, [taskData]);
+
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    if (!onSaveTasks || !taskData?.tasks) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSaveTasks(taskData.tasks);
+      setHasBeenSaved(true);
+    } catch (e) {
+      setSaveError('Failed to save tasks. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
   // If no task data found, return null to fall back to regular text display
   if (!taskData) {
     return null;
@@ -159,6 +203,58 @@ export default function TaskDisplay({ text }: TaskDisplayProps) {
   const activeCount = items.filter(t => t.status !== 'completed').length;
   const completedCount = items.length - activeCount;
   const filteredItems = items.filter(t => showCompleted ? t.status === 'completed' : t.status !== 'completed');
+
+  if (isProposal) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.displayTitle}>Here are the tasks I've drafted for you:</Text>
+        <View style={styles.tasksContainer}>
+          {taskData?.tasks.map((task, index) => (
+            <View key={index} style={styles.taskCard}>
+              <View style={styles.taskHeader}>
+                <Icon name="checklist" size={18} color={colors.text.secondary} style={styles.taskIcon} />
+                <Text selectable style={styles.taskTitle} numberOfLines={2}>
+                  {task.title}
+                </Text>
+              </View>
+              {!!task.dueDate && (
+                <View style={styles.dueDateContainer}>
+                  <Icon name="calendar" size={12} color={colors.text.secondary} style={styles.calendarIcon} />
+                  <Text style={styles.dueDateText}>Due: {formatDate(task.dueDate)}</Text>
+                </View>
+              )}
+              {index < (taskData?.tasks.length ?? 0) - 1 && <View style={styles.separator} />}
+            </View>
+          ))}
+        </View>
+        {!hasBeenSaved && (
+          <TouchableOpacity 
+            style={styles.saveButton} 
+            onPress={handleSave} 
+            disabled={isSaving}
+            accessibilityLabel="Save all drafted tasks"
+            accessibilityRole="button"
+          >
+            {isSaving ? (
+              <ActivityIndicator color={colors.secondary} />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Tasks</Text>
+            )}
+          </TouchableOpacity>        )}
+        {saveError && (
+          <Text style={styles.saveErrorText} accessibilityRole="text">
+            {saveError}
+          </Text>
+        )}
+        {hasBeenSaved && (
+          <View style={styles.savedConfirmation}>
+            <Icon name="check-circle-fill" size={16} color={colors.success} />
+            <Text style={styles.savedConfirmationText}>Tasks have been saved successfully!</Text>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -318,5 +414,38 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border.light,
     marginHorizontal: -spacing.md,
+  },
+  saveButton: {
+    marginTop: spacing.md,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    height: 44,
+  },
+  saveButtonText: {
+    color: colors.secondary,
+    fontWeight: typography.fontWeight.bold,
+    fontSize: typography.fontSize.base,
+  },
+  savedConfirmation: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    backgroundColor: colors.success + '1A',
+    borderRadius: borderRadius.md,
+  },
+  savedConfirmationText: {
+    color: colors.success,
+    fontWeight: typography.fontWeight.medium,
+    marginLeft: spacing.sm,
+  },
+  saveErrorText: {
+    marginTop: spacing.sm,
+    color: colors.error,
+    textAlign: 'center',
+    fontSize: typography.fontSize.sm,
   },
 }); 

@@ -62,11 +62,29 @@ router.post('/chat', requireAuth, async (req, res) => {
         }
       });
 
-    // Save conversation to database if threadId is provided
-    if (threadId) {
+    // Create thread if not provided, then save messages
+    let finalThreadId = threadId;
+    let isNewlyCreatedThread = false;
+    if (!finalThreadId) {
       try {
-        await conversationController.addMessage(threadId, message, 'user', { mood: moodHeader }, token);
-        await conversationController.addMessage(threadId, response.message, 'assistant', { actions: response.actions }, token);
+        // Auto-create thread for new conversations
+        const newThread = await conversationController.createThread(userId, null, null, token);
+        finalThreadId = newThread.id;
+        isNewlyCreatedThread = true;
+        logger.info('Auto-created thread for new conversation', { threadId: finalThreadId, userId });
+      } catch (threadError) {
+        logger.error('Failed to auto-create thread:', threadError);
+        // Continue without threadId - frontend can create locally
+      }
+    }
+
+    // Save conversation to database if we have a threadId
+    if (finalThreadId) {
+      try {
+        // Use the optimized method that verifies ownership directly using userId
+        // This avoids RLS propagation issues for both new and existing threads
+        await conversationController.addMessageToThread(finalThreadId, userId, message, 'user', { mood: moodHeader });
+        await conversationController.addMessageToThread(finalThreadId, userId, response.message, 'assistant', { actions: response.actions });
       } catch (dbError) {
         logger.error('Database save error:', dbError);
         // Continue with response even if database save fails
@@ -79,13 +97,14 @@ router.post('/chat', requireAuth, async (req, res) => {
     if (!safeMessage || safeMessage.trim().length === 0) {
       logger.warn('Empty AI response received', {
         userId,
-        threadId
+        threadId: finalThreadId
       });
     }
 
     const finalResponse = {
       message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
-      actions: Array.isArray(response.actions) ? response.actions : []
+      actions: Array.isArray(response.actions) ? response.actions : [],
+      threadId: finalThreadId || null // Include threadId in response
     };
 
     // Send a notification to the user
@@ -93,7 +112,7 @@ router.post('/chat', requireAuth, async (req, res) => {
       notification_type: 'new_message',
       title: 'New message from your AI assistant',
       message: safeMessage.substring(0, 100) + (safeMessage.length > 100 ? '...' : ''),
-      details: { threadId }
+      details: { threadId: finalThreadId }
     };
     // Don't await this, let it run in the background
     sendNotification(userId, notification).catch(err =>
@@ -219,13 +238,24 @@ router.get('/threads/:threadId', requireAuth, async (req, res) => {
   try {
     const { threadId } = req.params;
     const userId = req.user.id;
-    
+    const limitParam = req.query.limit;
+    const limit = limitParam ? parseInt(String(limitParam), 10) : undefined;
+
+    if (limit && Number.isFinite(limit) && limit > 0) {
+      // Fetch thread meta and limited recent messages
+      const threadMeta = await conversationController.getThreadMeta(threadId, userId);
+      if (!threadMeta) {
+        return res.status(404).json({ error: 'Thread not found' });
+      }
+      const messages = await conversationController.getRecentMessages(threadId, userId, limit);
+      return res.json({ thread: threadMeta, messages });
+    }
+
     const thread = await conversationController.getThread(threadId, userId);
     if (!thread) {
       return res.status(404).json({ error: 'Thread not found' });
     }
-    
-    res.json(thread);
+    return res.json(thread);
   } catch (error) {
     logger.error('Get Thread Error:', error);
     res.status(500).json({ error: 'Failed to get conversation thread' });

@@ -1,4 +1,4 @@
-import {Model} from '@nozbe/watermelondb';
+import {Model, Relation} from '@nozbe/watermelondb';
 import {field, date, text, relation} from '@nozbe/watermelondb/decorators';
 import Milestone from './Milestone';
 
@@ -16,5 +16,5 @@ export default class MilestoneStep extends Model {
   @date('updated_at') updatedAt!: Date;
   @text('status') status!: string;
 
-  @relation('milestones', 'milestone_id') milestone: Milestone;
+  @relation('milestones', 'milestone_id') milestone!: Relation<Milestone>;
 }
