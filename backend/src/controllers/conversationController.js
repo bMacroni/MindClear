@@ -277,6 +277,15 @@ export const conversationController = {
         throw new Error('Failed to add message');
       }
 
+      const { error: threadUpdateError } = await supabase
+        .from('conversation_threads')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', threadId);
+
+      if (threadUpdateError) {
+        console.error('Failed to update thread timestamp after message insert:', threadUpdateError);
+      }
+
       return message;
     } catch (error) {
       console.error('Error adding message:', error);

@@ -36,6 +36,19 @@ BEGIN
     v_category := NULL;
   END IF;
 
+  -- Validate required fields before INSERT
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'Invalid goal data: user_id is required and cannot be NULL';
+  END IF;
+
+  IF p_goal_data->>'title' IS NULL THEN
+    RAISE EXCEPTION 'Invalid goal data: title is required and cannot be NULL';
+  END IF;
+
+  IF LENGTH(TRIM(p_goal_data->>'title')) = 0 THEN
+    RAISE EXCEPTION 'Invalid goal data: title cannot be empty or whitespace only';
+  END IF;
+
   -- Create the goal first
   INSERT INTO goals (
     user_id,
@@ -88,7 +101,7 @@ BEGIN
           )
           VALUES (
             v_created_milestone_id,
-            COALESCE(v_step->>'text', v_step::TEXT),
+            COALESCE(v_step->>'text', ''),
             CASE 
               WHEN v_step ? 'order' AND (v_step->>'order') IS NOT NULL THEN (v_step->>'order')::INTEGER
               ELSE v_step_index + 1

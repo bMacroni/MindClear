@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -22,11 +22,15 @@ const parseGoalBreakdown = (breakdownText: string, conversationalText?: string, 
         const jsonData = JSON.parse(jsonMatch[1]);
         // Case A: { category: 'goal', milestones: [...] } (older schema)
         if (jsonData.category === 'goal' && jsonData.milestones) {
+          const rawCategory =
+            jsonData.category && jsonData.category !== 'goal'
+              ? jsonData.category
+              : jsonData.priority;
           return {
             title: jsonData.title || '',
             description: jsonData.description || '',
             dueDate: jsonData.due_date || jsonData.dueDate,
-            category: jsonData.category || jsonData.priority,
+            category: rawCategory ?? undefined,
             milestones: jsonData.milestones
           };
         }
@@ -64,11 +68,15 @@ const parseGoalBreakdown = (breakdownText: string, conversationalText?: string, 
         const jsonData = JSON.parse(directJsonMatch[0]);
         // Mirror the same three cases for direct JSON
         if (jsonData.category === 'goal' && jsonData.milestones) {
+          const rawCategory =
+            jsonData.category && jsonData.category !== 'goal'
+              ? jsonData.category
+              : jsonData.priority;
           return {
             title: jsonData.title || '',
             description: jsonData.description || '',
             dueDate: jsonData.due_date || jsonData.dueDate,
-            category: jsonData.category || jsonData.priority,
+            category: rawCategory ?? undefined,
             milestones: jsonData.milestones
           };
         }
@@ -331,6 +339,12 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
   // Memoize parsing to avoid re-parsing on every render
   const goalData = useMemo(() => {
     return parseGoalBreakdown(text, conversationalText, conversationTitle);
+  }, [text, conversationalText, conversationTitle]);
+
+  // Reset saved state when new AI breakdown data arrives
+  useEffect(() => {
+    setIsSaved(false);
+    setIsSaving(false);
   }, [text, conversationalText, conversationTitle]);
 
   const handleSave = async () => {

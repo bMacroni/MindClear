@@ -432,6 +432,8 @@ export class GoalRepository {
         // Create a new milestone record with the server-assigned ID
         const newMilestone = await database.get<Milestone>('milestones').create(m => {
           m._raw.id = serverId;
+          m._raw._status = 'synced';
+          m._raw._changed = '';
           m.goalId = serverGoalId || localMilestone.goalId;
           m.title = localMilestone.title;
           m.description = localMilestone.description;
@@ -499,6 +501,8 @@ export class GoalRepository {
         // Create a new goal record with the server-assigned ID
         const newGoal = await database.get<Goal>('goals').create(g => {
           g._raw.id = serverId;
+          g._raw._status = 'synced';
+          g._raw._changed = '';
           g.title = localGoal.title;
           g.description = localGoal.description;
           g.targetCompletionDate = localGoal.targetCompletionDate;

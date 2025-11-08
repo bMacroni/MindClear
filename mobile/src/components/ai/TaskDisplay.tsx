@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
@@ -88,6 +88,26 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
   // When the incoming message changes, sync the local list once
   useEffect(() => {
     setItems(taskData?.tasks || []);
+  }, [taskData]);
+
+  // Track previous taskData to detect when new AI drafts arrive
+  const prevTaskDataRef = useRef<TaskData | null>(null);
+  const isInitialMountRef = useRef(true);
+  
+  // Reset hasBeenSaved when new AI draft data arrives
+  useEffect(() => {
+    // Skip on initial mount
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      prevTaskDataRef.current = taskData;
+      return;
+    }
+    
+    // Reset hasBeenSaved when taskData changes (new AI draft arrived)
+    if (prevTaskDataRef.current !== taskData) {
+      setHasBeenSaved(false);
+    }
+    prevTaskDataRef.current = taskData;
   }, [taskData]);
 
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -221,6 +241,11 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
               <Text style={styles.saveButtonText}>Save Tasks</Text>
             )}
           </TouchableOpacity>        )}
+        {saveError && (
+          <Text style={styles.saveErrorText} accessibilityRole="text">
+            {saveError}
+          </Text>
+        )}
         {hasBeenSaved && (
           <View style={styles.savedConfirmation}>
             <Icon name="check-circle-fill" size={16} color={colors.success} />
@@ -415,5 +440,11 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontWeight: typography.fontWeight.medium,
     marginLeft: spacing.sm,
+  },
+  saveErrorText: {
+    marginTop: spacing.sm,
+    color: colors.error,
+    textAlign: 'center',
+    fontSize: typography.fontSize.sm,
   },
 }); 

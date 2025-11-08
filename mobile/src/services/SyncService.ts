@@ -833,11 +833,99 @@ class SyncService {
     // Call AI chat endpoint with the user message
     const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
     
-    // Mark user message as synced
-    await conversationRepository.markMessageAsSynced(message.id, {
-      createdAt: safeParseDate(chatResponse.userMessage.created_at) || message.createdAt,
-      updatedAt: safeParseDate(chatResponse.userMessage.updated_at) || new Date(),
-    });
+    // Handle user message ID migration if server assigned a different ID
+    let finalUserMessageId = message.id;
+    if (chatResponse.userMessage.id !== message.id) {
+      // Server assigned a different ID - migrate the local record to use server ID
+      try {
+        await database.write(async () => {
+          // Check if message with server ID already exists (race condition)
+          let existingServerMessage = null;
+          try {
+            existingServerMessage = await database.get<ConversationMessage>('conversation_messages')
+              .find(chatResponse.userMessage.id);
+          } catch (error: any) {
+            // Only swallow true "not found" errors, rethrow others
+            const errorMessage = error?.message || String(error || '');
+            if (!errorMessage.toLowerCase().includes('not found')) {
+              throw error;
+            }
+            // Message doesn't exist, will create it below
+          }
+
+          if (existingServerMessage) {
+            // Race condition: message with server ID already exists (likely from pull)
+            // Delete the local message with old ID first
+            await message.destroyPermanently();
+            finalUserMessageId = existingServerMessage.id;
+          } else {
+            // Create new message record with server ID, copying all fields
+            const newMessage = await database.get<ConversationMessage>('conversation_messages').create(m => {
+              m._raw.id = chatResponse.userMessage.id;
+              m.threadId = message.threadId;
+              m.userId = message.userId;
+              m.role = message.role;
+              m.content = message.content;
+              m.metadata = message.metadata;
+              m.status = 'synced';
+              // Use server timestamps if provided, otherwise preserve original timestamps
+              m.createdAt = safeParseDate(chatResponse.userMessage.created_at) || message.createdAt;
+              m.updatedAt = safeParseDate(chatResponse.userMessage.updated_at) || message.updatedAt;
+            });
+            
+            // Delete old message record
+            await message.destroyPermanently();
+            finalUserMessageId = newMessage.id;
+          }
+        });
+        
+        // After successful migration, call markMessageAsSynced with server ID for consistency
+        // (even though status is already 'synced', this ensures timestamps are correct)
+        await conversationRepository.markMessageAsSynced(finalUserMessageId, {
+          createdAt: safeParseDate(chatResponse.userMessage.created_at),
+          updatedAt: safeParseDate(chatResponse.userMessage.updated_at),
+        });
+      } catch (migrationError: any) {
+        // Handle unique-constraint/duplicate-ID races
+        const errorMessage = migrationError?.message || String(migrationError || '');
+        const isDuplicateError = 
+          errorMessage.toLowerCase().includes('duplicate') ||
+          errorMessage.toLowerCase().includes('unique constraint') ||
+          errorMessage.toLowerCase().includes('already exists');
+        
+        if (isDuplicateError) {
+          // Race condition: message with server ID was created concurrently, fetch and mark synced
+          try {
+            const existingServerMessage = await database.get<ConversationMessage>('conversation_messages')
+              .find(chatResponse.userMessage.id);
+            
+            if (existingServerMessage.status !== 'synced') {
+              await conversationRepository.markMessageAsSynced(existingServerMessage.id, {
+                createdAt: safeParseDate(chatResponse.userMessage.created_at) || existingServerMessage.createdAt,
+                updatedAt: safeParseDate(chatResponse.userMessage.updated_at) || existingServerMessage.updatedAt,
+              });
+            }
+            // Delete the local message with old ID
+            await database.write(async () => {
+              await message.destroyPermanently();
+            });
+            finalUserMessageId = existingServerMessage.id;
+          } catch (fetchError: any) {
+            // If we can't fetch the existing message, rethrow the original migration error
+            throw migrationError;
+          }
+        } else {
+          // Unexpected error, rethrow
+          throw migrationError;
+        }
+      }
+    } else {
+      // Server ID matches local ID - just mark as synced
+      await conversationRepository.markMessageAsSynced(message.id, {
+        createdAt: safeParseDate(chatResponse.userMessage.created_at) || message.createdAt,
+        updatedAt: safeParseDate(chatResponse.userMessage.updated_at) || new Date(),
+      });
+    }
 
     // Create assistant message locally if it doesn't exist
     if (chatResponse.assistantMessage) {

@@ -271,6 +271,10 @@ export class ConversationRepository {
   /**
    * Marks a message as synced after successful API sync.
    * Used internally by SyncService.
+   * 
+   * If serverData.id exists and differs from the local id, performs reconciliation:
+   * creates a new record with the server ID, copies all fields, and deletes the old record.
+   * This prevents duplicate messages when the server assigns a new UUID.
    */
   async markMessageAsSynced(id: string, serverData?: {
     id?: string;
@@ -281,20 +285,47 @@ export class ConversationRepository {
     try {
       const message = await database.get<ConversationMessage>('conversation_messages').find(id);
       
-      await database.write(async () => {
-        await message.update(m => {
-          m.status = 'synced';
-          if (serverData?.createdAt) {
-            m.createdAt = serverData.createdAt;
-          }
-          if (serverData?.updatedAt) {
-            m.updatedAt = serverData.updatedAt;
-          }
+      // If server assigned a new ID, perform reconciliation in a single transaction
+      if (serverData?.id && serverData.id !== id) {
+        await database.write(async () => {
+          // Create new message record with server ID, copying all fields
+          const newMessage = await database.get<ConversationMessage>('conversation_messages').create(m => {
+            m._raw.id = serverData.id!;
+            m.threadId = message.threadId;
+            m.userId = message.userId;
+            m.role = message.role;
+            m.content = message.content;
+            m.metadata = message.metadata;
+            m.status = 'synced';
+            // Use server timestamps if provided, otherwise preserve original timestamps
+            m.createdAt = serverData.createdAt ?? message.createdAt;
+            m.updatedAt = serverData.updatedAt ?? message.updatedAt;
+          });
+          
+          // Note: ConversationMessage has no child relations (attachments, etc.) that need re-pointing
+          // The thread relation is a belongs_to (thread_id), which doesn't need updating
+          
+          // Delete old message record
+          await message.destroyPermanently();
         });
-      });
+      } else {
+        // Server ID matches or is absent - just update existing record
+        await database.write(async () => {
+          await message.update(m => {
+            m.status = 'synced';
+            if (serverData?.createdAt) {
+              m.createdAt = serverData.createdAt;
+            }
+            if (serverData?.updatedAt) {
+              m.updatedAt = serverData.updatedAt;
+            }
+          });
+        });
+      }
     } catch (error) {
       logger.error('Failed to mark message as synced', { 
         id, 
+        serverId: serverData?.id,
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
       throw error;
