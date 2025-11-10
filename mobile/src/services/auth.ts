@@ -86,7 +86,7 @@ class AuthService {
       // Check if migration is needed and perform it
       const needsMigration = await AndroidStorageMigrationService.checkMigrationNeeded();
       if (needsMigration) {
-        logger.info('🔐 Migrating auth data to secure storage...');
+        logger.info('Migrating auth data to secure storage...');
         const migrationResult = await AndroidStorageMigrationService.migrateAuthData();
         if (!migrationResult.success) {
           console.warn('⚠️ Some auth data migration failed:', migrationResult.errors);
@@ -116,8 +116,48 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          await this.clearAuthData();
-          this.setUnauthenticatedState();
+          // Attempt to refresh the token before logging out
+          const refreshSuccess = await this.refreshToken();
+          if (!refreshSuccess) {
+            // If refresh fails, then clear auth data
+            logger.warn('Token refresh failed, clearing auth data.');
+            await this.clearAuthData();
+            this.setUnauthenticatedState();
+          } else {
+            // Refresh succeeded - get the new token and user data from updated state
+            const newToken = this.authState.token;
+            const newUser = this.authState.user;
+            if (newToken && newUser) {
+              // State is already updated by refreshToken() -> setAuthData()
+              // Just ensure isLoading is false
+              this.authState.isLoading = false;
+              this.startBackgroundRefresh();
+            } else {
+              // Fallback: get fresh data from storage after refresh
+              const refreshedToken = await secureStorage.get('auth_token');
+              const refreshedUserData = await secureStorage.get('auth_user');
+              if (refreshedToken && refreshedUserData) {
+                try {
+                  const refreshedUser = JSON.parse(refreshedUserData);
+                  this.authState = {
+                    user: refreshedUser,
+                    token: refreshedToken,
+                    isLoading: false,
+                    isAuthenticated: true,
+                  };
+                  this.startBackgroundRefresh();
+                } catch (error) {
+                  logger.error('Failed to parse refreshed user data', error);
+                  await this.clearAuthData();
+                  this.setUnauthenticatedState();
+                }
+              } else {
+                logger.warn('Refresh succeeded but no token/user found in storage.');
+                await this.clearAuthData();
+                this.setUnauthenticatedState();
+              }
+            }
+          }
         } else {
           // Try to get user data from storage first
           let user: User | null = null;
@@ -362,10 +402,23 @@ class AuthService {
 
   // Get authentication token
   public async getAuthToken(): Promise<string | null> {
+    // If initialization is in progress and we're refreshing, wait for it to complete
+    if (!this.initialized && this.refreshPromise) {
+      const refreshSuccess = await this.refreshPromise;
+      if (refreshSuccess && this.authState.token) {
+        return this.authState.token;
+      }
+      return null;
+    }
+
     if (this.authState.token) {
       // Check if the current token is expired
       if (isTokenExpired(this.authState.token)) {
         // Token is expired, attempt to refresh before giving up
+        // But don't refresh if initialization is still in progress (to avoid race conditions)
+        if (!this.initialized) {
+          return null;
+        }
         const refreshSuccess = await this.refreshToken();
         if (refreshSuccess) {
           return this.authState.token; // Return the new token
@@ -385,6 +438,10 @@ class AuthService {
         // Check if token is expired
         if (isTokenExpired(token)) {
           // Token is expired, attempt to refresh before giving up
+          // But don't refresh if initialization is still in progress (to avoid race conditions)
+          if (!this.initialized) {
+            return null;
+          }
           const refreshSuccess = await this.refreshToken();
           if (refreshSuccess) {
             return this.authState.token; // Return the new token
@@ -482,12 +539,16 @@ class AuthService {
     try {
       const refreshTokenValue = await secureStorage.get('auth_refresh_token');
       if (!refreshTokenValue) {
+        logger.warn('No refresh token found. Logging out.');
         await this.logout();
         return false;
       }
 
       const { ok, data } = await apiFetch('/auth/refresh', {
         method: 'POST',
+        headers: {
+          'Authorization': '', // Explicitly bypass token attachment
+        },
         body: JSON.stringify({ refresh_token: refreshTokenValue }),
       }, 15000);
 
@@ -501,11 +562,13 @@ class AuthService {
         return true;
       } else {
         // Token is invalid, logout user
+        logger.warn('Token refresh failed or returned no access token. Logging out.');
         await this.logout();
         return false;
       }
     } catch (_error) {
       console.error('Token refresh error:', _error);
+      logger.error('Exception during token refresh. Logging out.', _error);
       await this.logout();
       return false;
     }

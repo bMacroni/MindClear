@@ -35,9 +35,6 @@ export async function apiFetch<T = any>(
   const startTime = Date.now();
   
   try {
-    // Get auth token if available
-    const token = await authService.getAuthToken();
-    
     // Build headers: start with init.headers, then add our headers
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -56,9 +53,21 @@ export async function apiFetch<T = any>(
       }
     }
     
-    // Add Authorization header if token is available
-    if (token) {
+    // Check if Authorization is explicitly set to empty string (for public endpoints)
+    const shouldSkipAuth = headers['Authorization'] === '';
+    
+    // Get auth token if available and not explicitly skipped
+    let token: string | null = null;
+    if (!shouldSkipAuth) {
+      token = await authService.getAuthToken();
+    }
+    
+    // Add Authorization header if token is available and not explicitly skipped
+    if (token && !shouldSkipAuth) {
       headers['Authorization'] = `Bearer ${token}`;
+    } else if (shouldSkipAuth) {
+      // Remove the empty Authorization header for public endpoints
+      delete headers['Authorization'];
     }
     
     // Add Content-Type only for non-GET requests or when body is present
@@ -75,7 +84,8 @@ export async function apiFetch<T = any>(
     });
     
     // Handle 401 Unauthorized - attempt token refresh and retry (only once per request)
-    if (res.status === 401 && token && !(init as any).retryAttempted) {
+    // Skip retry for public endpoints (where auth was explicitly skipped)
+    if (res.status === 401 && token && !shouldSkipAuth && !(init as any).retryAttempted) {
       logger.info('Received 401, attempting token refresh...');
       try {
         // Use single-flight refresh to avoid concurrent refresh races
