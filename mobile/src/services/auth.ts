@@ -116,48 +116,8 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          // Attempt to refresh the token before logging out
-          const refreshSuccess = await this.refreshToken();
-          if (!refreshSuccess) {
-            // If refresh fails, then clear auth data
-            logger.warn('Token refresh failed, clearing auth data.');
-            await this.clearAuthData();
-            this.setUnauthenticatedState();
-          } else {
-            // Refresh succeeded - get the new token and user data from updated state
-            const newToken = this.authState.token;
-            const newUser = this.authState.user;
-            if (newToken && newUser) {
-              // State is already updated by refreshToken() -> setAuthData()
-              // Just ensure isLoading is false
-              this.authState.isLoading = false;
-              this.startBackgroundRefresh();
-            } else {
-              // Fallback: get fresh data from storage after refresh
-              const refreshedToken = await secureStorage.get('auth_token');
-              const refreshedUserData = await secureStorage.get('auth_user');
-              if (refreshedToken && refreshedUserData) {
-                try {
-                  const refreshedUser = JSON.parse(refreshedUserData);
-                  this.authState = {
-                    user: refreshedUser,
-                    token: refreshedToken,
-                    isLoading: false,
-                    isAuthenticated: true,
-                  };
-                  this.startBackgroundRefresh();
-                } catch (error) {
-                  logger.error('Failed to parse refreshed user data', error);
-                  await this.clearAuthData();
-                  this.setUnauthenticatedState();
-                }
-              } else {
-                logger.warn('Refresh succeeded but no token/user found in storage.');
-                await this.clearAuthData();
-                this.setUnauthenticatedState();
-              }
-            }
-          }
+          // Handle expired token on initialization
+          await this.handleExpiredTokenOnInit();
         } else {
           // Try to get user data from storage first
           let user: User | null = null;
@@ -248,6 +208,33 @@ class AuthService {
       this.setUnauthenticatedState();
       this.initialized = true;
       this.notifyListeners();
+    }
+  }
+
+  // Handle expired token during initialization
+  private async handleExpiredTokenOnInit(): Promise<void> {
+    // Attempt to refresh the token before logging out
+    const refreshSuccess = await this.refreshToken();
+    if (!refreshSuccess) {
+      // If refresh fails, then clear auth data
+      logger.warn('Token refresh failed, clearing auth data.');
+      await this.clearAuthData();
+      this.setUnauthenticatedState();
+    } else {
+      // Refresh succeeded - refreshToken() has already updated authState via setAuthData()
+      // Verify that state contains token and user (should always be true if refresh succeeded)
+      if (this.authState.token && this.authState.user) {
+        // State is already updated by refreshToken() -> setAuthData()
+        // Ensure isLoading is false and start background refresh
+        this.authState.isLoading = false;
+        this.startBackgroundRefresh();
+      } else {
+        // This should not happen if refreshToken() is working correctly
+        // But handle it gracefully as a safety check
+        logger.error('Refresh succeeded but authState missing token/user. This indicates a bug in refreshToken().');
+        await this.clearAuthData();
+        this.setUnauthenticatedState();
+      }
     }
   }
 
