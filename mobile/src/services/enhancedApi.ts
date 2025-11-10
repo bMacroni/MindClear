@@ -454,7 +454,6 @@ class EnhancedAPI {
   }
 
   async createGoal(goalData: any): Promise<any> {
-    logger.debug('Creating goal', { operation: 'createGoal' });
     return await this.makeRequest(
       `${getSecureApiBaseUrl()}/goals`,
       {

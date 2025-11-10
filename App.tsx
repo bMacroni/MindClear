@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { AuthState, authService } from './src/services/auth';
-import { GoogleAuthService } from './src/services/googleAuth';
-import secureConfigService from './src/services/secureConfig';
-import { configService } from './src/services/config';
-import { logger } from './src/utils/logger';
-import { colors } from './src/themes/colors';
-import { typography } from './src/themes/typography';
-import { spacing } from './src/themes/spacing';
-import { Button } from './src/components/common';
+import { AuthState, authService } from './mobile/src/services/auth';
+import { googleAuthService } from './mobile/src/services/googleAuth';
+import secureConfigService from './mobile/src/services/secureConfig';
+import { configService } from './mobile/src/services/config';
+import logger from './mobile/src/utils/logger';
+import { colors } from './mobile/src/themes/colors';
+import { typography } from './mobile/src/themes/typography';
+import { spacing } from './mobile/src/themes/spacing';
+import { Button } from './mobile/src/components/common';
 
 const App: React.FC = () => {
   const [isReady, setIsReady] = useState(false);
@@ -26,16 +26,11 @@ const App: React.FC = () => {
     const initializeGoogleSignIn = async () => {
       if (authState.isAuthenticated) {
         try {
-          // Wait for secure config to be ready
-          await secureConfigService.onReady();
+          // Wait for secure config to initialize
+          await secureConfigService.initialize();
           
-          const webClientId = secureConfigService.getGoogleWebClientId() || configService.getGoogleWebClientId();
-          
-          if (webClientId) {
-            await GoogleAuthService.getInstance().configureGoogleSignIn(webClientId);
-          } else {
-            console.warn('Skipping Google Sign-In configuration - web client ID not available yet. Will retry when remote config loads.');
-          }
+          // Reconfigure Google Auth service with updated config
+          googleAuthService.reconfigure();
         } catch (error) {
           logger.error('Failed to initialize Google Sign-In', error);
         }

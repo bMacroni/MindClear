@@ -9,7 +9,7 @@ function decodeJWT(token: string): any {
   try {
     return jwtDecode(token);
   } catch (error) {
-    console.error('🔐 AuthService: Error decoding JWT:', error);
+    logger.error('Error decoding JWT', error);
     return null;
   }
 }
@@ -66,7 +66,7 @@ class AuthService {
   };
   private listeners: ((_state: AuthState) => void)[] = [];
   private initialized = false;
-  private refreshTimer: NodeJS.Timeout | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshPromise: Promise<boolean> | null = null;
 
   private constructor() {
@@ -89,7 +89,7 @@ class AuthService {
         logger.info('Migrating auth data to secure storage...');
         const migrationResult = await AndroidStorageMigrationService.migrateAuthData();
         if (!migrationResult.success) {
-          console.warn('⚠️ Some auth data migration failed:', migrationResult.errors);
+          logger.warn('Some auth data migration failed', { errors: migrationResult.errors });
         }
       }
 
@@ -126,7 +126,7 @@ class AuthService {
             try {
               user = JSON.parse(userData);
             } catch (error) {
-              console.error('Error parsing user data:', error);
+              logger.error('Error parsing user data', error);
             }
           }
           
@@ -153,7 +153,7 @@ class AuthService {
                 };
               } else {
                 // Log invalid token case when ID is missing or email is invalid
-                console.warn('Invalid JWT token: missing stable ID or invalid email', {
+                logger.warn('Invalid JWT token: missing stable ID or invalid email', {
                   hasId: !!idString,
                   hasEmail: !!decodedToken.email,
                   emailType: typeof decodedToken.email
@@ -204,7 +204,7 @@ class AuthService {
       this.initialized = true;
       this.notifyListeners();
     } catch (error) {
-      console.error('Error initializing auth:', error);
+      logger.error('Error initializing auth', error);
       this.setUnauthenticatedState();
       this.initialized = true;
       this.notifyListeners();
@@ -251,7 +251,7 @@ class AuthService {
     try {
       await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'authToken', 'authUser']);
     } catch (error) {
-      console.error('Error clearing auth data:', error);
+      logger.error('Error clearing auth data', error);
     }
   }
 
@@ -309,7 +309,7 @@ class AuthService {
         return { success: false, message: data.error || 'Signup failed' };
       }
     } catch (_error) {
-      console.error('Signup error:', _error);
+      logger.error('Signup error', _error);
       return { success: false, message: 'Network error. Please try again.' };
     } finally {
       this.authState.isLoading = false;
@@ -335,7 +335,7 @@ class AuthService {
         return { success: false, message: data.error || 'Login failed' };
       }
     } catch (_error) {
-      console.error('Login error:', _error);
+      logger.error('Login error', _error);
       return { success: false, message: 'Network error. Please try again.' };
     } finally {
       this.authState.isLoading = false;
@@ -360,7 +360,7 @@ class AuthService {
       
       this.notifyListeners();
     } catch (_error) {
-      console.error('Logout error:', _error);
+      logger.error('Logout error', _error);
     }
   }
 
@@ -382,7 +382,7 @@ class AuthService {
         return { success: false, message: data.error || 'Failed to get profile' };
       }
     } catch (_error) {
-      console.error('Get profile error:', _error);
+      logger.error('Get profile error', _error);
       return { success: false, message: 'Network error' };
     }
   }
@@ -443,7 +443,7 @@ class AuthService {
       }
       return token;
     } catch (_error) {
-      console.error('Error getting auth token:', _error);
+      logger.error('Error getting auth token', _error);
       return null;
     }
   }
@@ -554,8 +554,7 @@ class AuthService {
         return false;
       }
     } catch (_error) {
-      console.error('Token refresh error:', _error);
-      logger.error('Exception during token refresh. Logging out.', _error);
+      logger.error('Token refresh error', _error);
       await this.logout();
       return false;
     }
@@ -579,7 +578,7 @@ class AuthService {
     const decoded = decodeJWT(token);
     const exp = Number(decoded?.exp);
     if (!decoded || !Number.isFinite(exp)) {
-      console.warn('Cannot start background refresh: invalid token expiry');
+      logger.warn('Cannot start background refresh: invalid token expiry');
       return;
     }
     
