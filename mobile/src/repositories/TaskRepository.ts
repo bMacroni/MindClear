@@ -357,8 +357,7 @@ export class TaskRepository {
           t.goalId = localTask.goalId;
           t.isTodayFocus = localTask.isTodayFocus;
           t.userId = localTask.userId;
-          const currentLifecycleStatus = this.extractLifecycleStatus(localTask.status as string);
-          t.status = `synced:${currentLifecycleStatus}`;
+          t.status = 'synced';
           t.createdAt = localTask.createdAt;
           t.updatedAt = localTask.updatedAt;
         });
