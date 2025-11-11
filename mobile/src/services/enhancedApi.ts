@@ -360,7 +360,12 @@ class EnhancedAPI {
       googleIosClientId?: string;
     }>(
       `${getSecureApiBaseUrl()}/user/config`,
-      { method: 'GET' },
+      { 
+        method: 'GET',
+        headers: {
+          'Authorization': '', // Explicitly bypass token attachment for this public endpoint
+        },
+      },
       ErrorCategory.SYNC,
       'getUserConfig',
       0,
@@ -449,7 +454,6 @@ class EnhancedAPI {
   }
 
   async createGoal(goalData: any): Promise<any> {
-    logger.debug('Creating goal', { operation: 'createGoal' });
     return await this.makeRequest(
       `${getSecureApiBaseUrl()}/goals`,
       {

@@ -9,7 +9,7 @@ function decodeJWT(token: string): any {
   try {
     return jwtDecode(token);
   } catch (error) {
-    console.error('🔐 AuthService: Error decoding JWT:', error);
+    logger.error('Error decoding JWT', error);
     return null;
   }
 }
@@ -66,7 +66,7 @@ class AuthService {
   };
   private listeners: ((_state: AuthState) => void)[] = [];
   private initialized = false;
-  private refreshTimer: NodeJS.Timeout | null = null;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshPromise: Promise<boolean> | null = null;
 
   private constructor() {
@@ -86,10 +86,10 @@ class AuthService {
       // Check if migration is needed and perform it
       const needsMigration = await AndroidStorageMigrationService.checkMigrationNeeded();
       if (needsMigration) {
-        logger.info('🔐 Migrating auth data to secure storage...');
+        logger.info('Migrating auth data to secure storage...');
         const migrationResult = await AndroidStorageMigrationService.migrateAuthData();
         if (!migrationResult.success) {
-          console.warn('⚠️ Some auth data migration failed:', migrationResult.errors);
+          logger.warn('Some auth data migration failed', { errors: migrationResult.errors });
         }
       }
 
@@ -116,8 +116,8 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          await this.clearAuthData();
-          this.setUnauthenticatedState();
+          // Handle expired token on initialization
+          await this.handleExpiredTokenOnInit();
         } else {
           // Try to get user data from storage first
           let user: User | null = null;
@@ -126,7 +126,7 @@ class AuthService {
             try {
               user = JSON.parse(userData);
             } catch (error) {
-              console.error('Error parsing user data:', error);
+              logger.error('Error parsing user data', error);
             }
           }
           
@@ -153,7 +153,7 @@ class AuthService {
                 };
               } else {
                 // Log invalid token case when ID is missing or email is invalid
-                console.warn('Invalid JWT token: missing stable ID or invalid email', {
+                logger.warn('Invalid JWT token: missing stable ID or invalid email', {
                   hasId: !!idString,
                   hasEmail: !!decodedToken.email,
                   emailType: typeof decodedToken.email
@@ -204,10 +204,37 @@ class AuthService {
       this.initialized = true;
       this.notifyListeners();
     } catch (error) {
-      console.error('Error initializing auth:', error);
+      logger.error('Error initializing auth', error);
       this.setUnauthenticatedState();
       this.initialized = true;
       this.notifyListeners();
+    }
+  }
+
+  // Handle expired token during initialization
+  private async handleExpiredTokenOnInit(): Promise<void> {
+    // Attempt to refresh the token before logging out
+    const refreshSuccess = await this.refreshToken();
+    if (!refreshSuccess) {
+      // If refresh fails, then clear auth data
+      logger.warn('Token refresh failed, clearing auth data.');
+      await this.clearAuthData();
+      this.setUnauthenticatedState();
+    } else {
+      // Refresh succeeded - refreshToken() has already updated authState via setAuthData()
+      // Verify that state contains token and user (should always be true if refresh succeeded)
+      if (this.authState.token && this.authState.user) {
+        // State is already updated by refreshToken() -> setAuthData()
+        // Ensure isLoading is false and start background refresh
+        this.authState.isLoading = false;
+        this.startBackgroundRefresh();
+      } else {
+        // This should not happen if refreshToken() is working correctly
+        // But handle it gracefully as a safety check
+        logger.error('Refresh succeeded but authState missing token/user. This indicates a bug in refreshToken().');
+        await this.clearAuthData();
+        this.setUnauthenticatedState();
+      }
     }
   }
 
@@ -224,7 +251,7 @@ class AuthService {
     try {
       await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'authToken', 'authUser']);
     } catch (error) {
-      console.error('Error clearing auth data:', error);
+      logger.error('Error clearing auth data', error);
     }
   }
 
@@ -282,7 +309,7 @@ class AuthService {
         return { success: false, message: data.error || 'Signup failed' };
       }
     } catch (_error) {
-      console.error('Signup error:', _error);
+      logger.error('Signup error', _error);
       return { success: false, message: 'Network error. Please try again.' };
     } finally {
       this.authState.isLoading = false;
@@ -308,7 +335,7 @@ class AuthService {
         return { success: false, message: data.error || 'Login failed' };
       }
     } catch (_error) {
-      console.error('Login error:', _error);
+      logger.error('Login error', _error);
       return { success: false, message: 'Network error. Please try again.' };
     } finally {
       this.authState.isLoading = false;
@@ -333,7 +360,7 @@ class AuthService {
       
       this.notifyListeners();
     } catch (_error) {
-      console.error('Logout error:', _error);
+      logger.error('Logout error', _error);
     }
   }
 
@@ -355,17 +382,30 @@ class AuthService {
         return { success: false, message: data.error || 'Failed to get profile' };
       }
     } catch (_error) {
-      console.error('Get profile error:', _error);
+      logger.error('Get profile error', _error);
       return { success: false, message: 'Network error' };
     }
   }
 
   // Get authentication token
   public async getAuthToken(): Promise<string | null> {
+    // If initialization is in progress and we're refreshing, wait for it to complete
+    if (!this.initialized && this.refreshPromise) {
+      const refreshSuccess = await this.refreshPromise;
+      if (refreshSuccess && this.authState.token) {
+        return this.authState.token;
+      }
+      return null;
+    }
+
     if (this.authState.token) {
       // Check if the current token is expired
       if (isTokenExpired(this.authState.token)) {
         // Token is expired, attempt to refresh before giving up
+        // But don't refresh if initialization is still in progress (to avoid race conditions)
+        if (!this.initialized) {
+          return null;
+        }
         const refreshSuccess = await this.refreshToken();
         if (refreshSuccess) {
           return this.authState.token; // Return the new token
@@ -385,6 +425,10 @@ class AuthService {
         // Check if token is expired
         if (isTokenExpired(token)) {
           // Token is expired, attempt to refresh before giving up
+          // But don't refresh if initialization is still in progress (to avoid race conditions)
+          if (!this.initialized) {
+            return null;
+          }
           const refreshSuccess = await this.refreshToken();
           if (refreshSuccess) {
             return this.authState.token; // Return the new token
@@ -399,7 +443,7 @@ class AuthService {
       }
       return token;
     } catch (_error) {
-      console.error('Error getting auth token:', _error);
+      logger.error('Error getting auth token', _error);
       return null;
     }
   }
@@ -482,12 +526,16 @@ class AuthService {
     try {
       const refreshTokenValue = await secureStorage.get('auth_refresh_token');
       if (!refreshTokenValue) {
+        logger.warn('No refresh token found. Logging out.');
         await this.logout();
         return false;
       }
 
       const { ok, data } = await apiFetch('/auth/refresh', {
         method: 'POST',
+        headers: {
+          'Authorization': '', // Explicitly bypass token attachment
+        },
         body: JSON.stringify({ refresh_token: refreshTokenValue }),
       }, 15000);
 
@@ -501,11 +549,12 @@ class AuthService {
         return true;
       } else {
         // Token is invalid, logout user
+        logger.warn('Token refresh failed or returned no access token. Logging out.');
         await this.logout();
         return false;
       }
     } catch (_error) {
-      console.error('Token refresh error:', _error);
+      logger.error('Token refresh error', _error);
       await this.logout();
       return false;
     }
@@ -529,7 +578,7 @@ class AuthService {
     const decoded = decodeJWT(token);
     const exp = Number(decoded?.exp);
     if (!decoded || !Number.isFinite(exp)) {
-      console.warn('Cannot start background refresh: invalid token expiry');
+      logger.warn('Cannot start background refresh: invalid token expiry');
       return;
     }
     
