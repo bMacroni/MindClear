@@ -171,22 +171,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     }
   };
 
-  const loadData = async (options?: { silent?: boolean }) => {
+  const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
+    const awaitSync = !!options?.awaitSync;
     try {
       if (!silent) {
         setLoading(true);
       }
 
-      // Trigger silent sync to get latest data from server
-      try {
-        await syncService.silentSync();
-      } catch (error) {
-        // Silent sync failure - don't show alerts to user
-        console.warn('Silent sync failed:', error);
-      }
-
-      // Load preferences
+      // Load preferences first (fast, local operation)
       try {
         const prefs = await appPreferencesAPI.get();
         if (prefs && typeof prefs === 'object') {
@@ -196,18 +189,55 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       } catch (error) {
         console.warn('Failed to load preferences:', error);
       }
+
+      // Trigger silent sync - await only if explicitly requested (e.g., manual refresh)
+      // Otherwise, run in background to avoid blocking UI
+      // The component uses WatermelonDB observables which will automatically update
+      // when sync completes and writes to the local database
+      const syncPromise = syncService.silentSync().catch((error) => {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      });
+
+      if (awaitSync) {
+        // For manual refresh, await sync completion
+        await syncPromise;
+        if (!silent) {
+          setLoading(false);
+        }
+      } else {
+        // For normal load, don't block - sync runs in background
+        // If not silent, show loading briefly then hide it
+        if (!silent) {
+          // Set a short timeout to hide loading if sync takes too long
+          // This prevents the UI from being stuck in loading state
+          setTimeout(() => {
+            setLoading(false);
+          }, 1000);
+        } else {
+          setLoading(false);
+        }
+      }
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to sync data');
-    } finally {
+      if (!silent) {
+        Alert.alert('Error', 'Failed to sync data');
+      }
       setLoading(false);
     }
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    try {
+      // For manual refresh, await sync completion so user sees refresh indicator
+      // until data is actually updated
+      await loadData({ awaitSync: true });
+    } catch (error) {
+      console.warn('Refresh failed:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Honor cross-screen refresh hints

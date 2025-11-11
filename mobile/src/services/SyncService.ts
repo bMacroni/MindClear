@@ -1051,59 +1051,65 @@ class SyncService {
     const serverTimeBeforePull = new Date().toISOString();
 
     try {
-      // Fetch changes from the server since the last sync
-      const syncResponse = await enhancedAPI.getEvents(2500, lastSyncedAt || undefined);
-      const tasksResponse = await enhancedAPI.getTasks(lastSyncedAt || undefined);
-      const goalsResponse = await enhancedAPI.getGoals(lastSyncedAt || undefined);
-      // Fetch milestones and milestone steps as part of pull (resilient to errors)
-      let milestonesResponse: any = [];
-      let milestoneStepsResponse: any = [];
-      try {
-        milestonesResponse = await enhancedAPI.getMilestones(lastSyncedAt || undefined);
-      } catch (msErr: any) {
-        console.warn('Pull: Failed to fetch milestones, continuing without them.', msErr);
-        milestonesResponse = { changed: [], deleted: [] };
-      }
-      try {
-        milestoneStepsResponse = await enhancedAPI.getMilestoneSteps(lastSyncedAt || undefined);
-      } catch (stepsErr: any) {
-        console.warn('Pull: Failed to fetch milestone steps, continuing without them.', stepsErr);
-        milestoneStepsResponse = { changed: [], deleted: [] };
-      }
+      // Fetch changes from the server since the last sync - PARALLELIZE for performance
+      // All these calls are independent and can be made concurrently
+      const [
+        syncResponse,
+        tasksResponse,
+        goalsResponse,
+        milestonesResult,
+        milestoneStepsResult,
+        threadsResult,
+      ] = await Promise.allSettled([
+        enhancedAPI.getEvents(2500, lastSyncedAt || undefined),
+        enhancedAPI.getTasks(lastSyncedAt || undefined),
+        enhancedAPI.getGoals(lastSyncedAt || undefined),
+        enhancedAPI.getMilestones(lastSyncedAt || undefined).catch((msErr: any) => {
+          console.warn('Pull: Failed to fetch milestones, continuing without them.', msErr);
+          return { changed: [], deleted: [] };
+        }),
+        enhancedAPI.getMilestoneSteps(lastSyncedAt || undefined).catch((stepsErr: any) => {
+          console.warn('Pull: Failed to fetch milestone steps, continuing without them.', stepsErr);
+          return { changed: [], deleted: [] };
+        }),
+        conversationService.listThreads().catch((threadsErr: any) => {
+          console.warn('Pull: Failed to fetch threads, continuing without them.', threadsErr);
+          return [];
+        }),
+      ]);
 
-      // Fetch conversation threads (resilient to errors)
-      let threadsResponse: any = [];
-      try {
-        threadsResponse = await conversationService.listThreads();
-      } catch (threadsErr: any) {
-        console.warn('Pull: Failed to fetch threads, continuing without them.', threadsErr);
-        threadsResponse = [];
-      }
+      // Extract results from Promise.allSettled
+      const syncResponseValue = syncResponse.status === 'fulfilled' ? syncResponse.value : { changed: [], deleted: [] };
+      const tasksResponseValue = tasksResponse.status === 'fulfilled' ? tasksResponse.value : [];
+      const goalsResponseValue = goalsResponse.status === 'fulfilled' ? goalsResponse.value : [];
+      const milestonesResponse = milestonesResult.status === 'fulfilled' ? milestonesResult.value : { changed: [], deleted: [] };
+      const milestoneStepsResponse = milestoneStepsResult.status === 'fulfilled' ? milestoneStepsResult.value : { changed: [], deleted: [] };
+      const threadsResponse = threadsResult.status === 'fulfilled' ? threadsResult.value : [];
 
-      const { changed: changedEvents, deleted: deletedEventIds } = syncResponse;
+      const { changed: changedEvents, deleted: deletedEventIds } = syncResponseValue;
       
       // Handle tasks response - could be array (full sync) or object with changed/deleted (incremental sync)
       let changedTasks = [];
       let deletedTaskIds = [];
-      if (Array.isArray(tasksResponse)) {
+      if (Array.isArray(tasksResponseValue)) {
         // Full sync response
-        changedTasks = tasksResponse;
-      } else if (tasksResponse && typeof tasksResponse === 'object') {
+        changedTasks = tasksResponseValue;
+      } else if (tasksResponseValue && typeof tasksResponseValue === 'object') {
         // Incremental sync response
-        changedTasks = tasksResponse.changed || [];
-        deletedTaskIds = tasksResponse.deleted || [];
+        changedTasks = tasksResponseValue.changed || [];
+        deletedTaskIds = tasksResponseValue.deleted || [];
       }
       
       // Handle goals response - could be array (full sync) or object with changed/deleted (incremental sync)
       let changedGoals = [];
       let deletedGoalIds = [];
-      if (Array.isArray(goalsResponse)) {
+      if (Array.isArray(goalsResponseValue)) {
         // Full sync response
-        changedGoals = goalsResponse;
-      } else if (goalsResponse && typeof goalsResponse === 'object') {
+        changedGoals = goalsResponseValue;
+      } else if (goalsResponseValue && typeof goalsResponseValue === 'object') {
         // Incremental sync response
-        changedGoals = goalsResponse.changed || [];
-        deletedGoalIds = goalsResponse.deleted || [];
+        changedGoals = goalsResponseValue.changed || [];
+        deletedGoalIds = goalsResponseValue.deleted || [];
       }
 
       // Fallback: If incremental sync returned no goals, and local milestones are empty while local goals exist,
@@ -1148,20 +1154,29 @@ class SyncService {
       // Handle threads response - convert to change format
       const changedThreads = Array.isArray(threadsResponse) ? threadsResponse : [];
       
-      // Fetch messages for each thread (this could be optimized with a batch endpoint)
+      // Fetch messages for each thread in PARALLEL (optimized from sequential N+1 queries)
+      // This significantly improves performance when there are many threads
       const changedMessages: any[] = [];
-      for (const thread of changedThreads) {
-        try {
-          const threadData = await conversationService.getThread(thread.id, { limit: 50, timeoutMs: 60000 });
-          if (threadData.messages) {
-            changedMessages.push(...threadData.messages.map((msg: any) => ({
-              ...msg,
-              thread_id: thread.id, // Ensure thread_id is set
-            })));
+      if (changedThreads.length > 0) {
+        const threadMessagePromises = changedThreads.map(async (thread) => {
+          try {
+            const threadData = await conversationService.getThread(thread.id, { limit: 50, timeoutMs: 60000 });
+            if (threadData.messages) {
+              return threadData.messages.map((msg: any) => ({
+                ...msg,
+                thread_id: thread.id, // Ensure thread_id is set
+              }));
+            }
+            return [];
+          } catch (msgErr: any) {
+            console.warn(`Pull: Failed to fetch messages for thread ${thread.id}, continuing without them.`, msgErr);
+            return [];
           }
-        } catch (msgErr: any) {
-          console.warn(`Pull: Failed to fetch messages for thread ${thread.id}, continuing without them.`, msgErr);
-        }
+        });
+        
+        const messageResults = await Promise.all(threadMessagePromises);
+        // Flatten the array of arrays into a single array
+        changedMessages.push(...messageResults.flat());
       }
 
       const allChanges = [
