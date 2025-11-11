@@ -285,7 +285,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     if (taskData.estimatedDurationMinutes !== undefined) apiData.estimated_duration_minutes = taskData.estimatedDurationMinutes;
     if (taskData.dueDate !== undefined) apiData.due_date = taskData.dueDate?.toISOString();
     if (taskData.goalId !== undefined) apiData.goal_id = taskData.goalId;
-    if (taskData.isTodayFocus !== undefined) apiData.is_today_focus = taskData.isTodayFocus;
+    // Only include is_today_focus if it's explicitly a boolean (not null or undefined)
+    // Backend validation requires boolean or absent, not null
+    if (typeof taskData.isTodayFocus === 'boolean') apiData.is_today_focus = taskData.isTodayFocus;
     if (taskData.status !== undefined) apiData.status = taskData.status;
     return apiData;
   };

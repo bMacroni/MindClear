@@ -14,6 +14,7 @@ import { authService } from './auth';
 import { safeParseDate } from '../utils/dateUtils';
 import { conversationRepository } from '../repositories/ConversationRepository';
 import { goalRepository } from '../repositories/GoalRepository';
+import { taskRepository } from '../repositories/TaskRepository';
 import { conversationService } from './conversationService';
 
 // Interface for task data received from server during sync
@@ -229,7 +230,9 @@ class SyncService {
             due_date: record.dueDate?.toISOString(),
             // Only include optional fields if they have values (don't send null)
             ...(record.goalId ? { goal_id: record.goalId } : {}),
-            ...(record.isTodayFocus !== undefined ? { is_today_focus: record.isTodayFocus } : {}),
+            // Only include is_today_focus if it's explicitly a boolean (not null or undefined)
+            // Backend validation requires boolean or absent, not null
+            ...(typeof record.isTodayFocus === 'boolean' ? { is_today_focus: record.isTodayFocus } : {}),
             status: lifecycleStatus, // Include lifecycle status in sync
             client_updated_at: record.updatedAt?.toISOString(),
           };
@@ -237,6 +240,17 @@ class SyncService {
           switch (syncStatus) {
             case 'pending_create':
               serverResponse = await enhancedAPI.createTask(recordData);
+              // If server returned a different ID, migrate local task ID to server ID
+              // This prevents duplicate tasks when the server generates a new ID
+              if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
+                try {
+                  await taskRepository.updateTaskServerId(record.id, serverResponse.id);
+                  // Skip the normal update logic since we've migrated to new ID
+                  continue;
+                } catch (migrationError) {
+                  console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
+                }
+              }
               break;
             case 'pending_update':
               serverResponse = await enhancedAPI.updateTask(record.id, recordData);
