@@ -253,9 +253,34 @@ class SyncService {
               }
               break;
             case 'pending_update':
-              serverResponse = await enhancedAPI.updateTask(record.id, recordData);
+              // If task ID is not a UUID, it was never synced to server
+              // This shouldn't happen in normal flow, but treat it as a create if it does
+              if (!this.isUUID(record.id)) {
+                console.warn(`Push: Task ${record.id} has pending_update but non-UUID ID, treating as create`);
+                serverResponse = await enhancedAPI.createTask(recordData);
+                // If server returned a different ID, migrate local task ID to server ID
+                if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
+                  try {
+                    await taskRepository.updateTaskServerId(record.id, serverResponse.id);
+                    continue;
+                  } catch (migrationError) {
+                    console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
+                  }
+                }
+              } else {
+                serverResponse = await enhancedAPI.updateTask(record.id, recordData);
+              }
               break;
             case 'pending_delete':
+              // If task ID is not a UUID, it was never synced to server
+              // Just delete it locally without attempting server deletion
+              if (!this.isUUID(record.id)) {
+                await database.write(async () => {
+                  await record.destroyPermanently();
+                });
+                // Skip the normal update logic since we've already deleted locally
+                continue;
+              }
               serverResponse = await enhancedAPI.deleteTask(record.id);
               break;
             default:
