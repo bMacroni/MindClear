@@ -4,6 +4,21 @@ import { TasksScreen } from '../../../screens/tasks/TasksScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import { act } from 'react-test-renderer';
 
+jest.mock('../../../repositories/TaskRepository', () => ({
+  taskRepository: {
+    getNextFocusTask: jest.fn().mockResolvedValue({
+      id: '2',
+      title: 'Task B',
+      status: 'pending_update:not_started',
+      isTodayFocus: true,
+      priority: 'medium',
+      estimatedDurationMinutes: 30,
+    }),
+    updateTaskStatus: jest.fn(),
+    setTaskAsFocus: jest.fn(),
+  },
+}));
+
 jest.mock('../../../services/api', () => {
   const actual = jest.requireActual('../../../services/api');
   return {
@@ -23,7 +38,6 @@ jest.mock('../../../services/api', () => {
         { id: '2', title: 'Task B', status: 'not_started', is_today_focus: false, priority: 'medium' },
       ]),
       updateTask: jest.fn().mockImplementation(async (id, body) => ({ id, title: id === '1' ? 'Focus A' : 'Task B', is_today_focus: id === '1' ? false : false, status: body.status || 'not_started', priority: id === '1' ? 'high' : 'medium' })),
-      focusNext: jest.fn().mockResolvedValue({ id: '2', title: 'Task B', status: 'not_started', is_today_focus: true, priority: 'medium' }),
     },
     goalsAPI: { getGoals: jest.fn().mockResolvedValue([]) },
   };

@@ -237,6 +237,169 @@ export class TaskRepository {
   }
 
   /**
+   * Momentum Mode: Find and set the next focus task for today.
+   * Replicates backend logic from getNextFocusTask() controller.
+   * 
+   * Selection criteria:
+   * 1. Unset current focus if currentTaskId provided
+   * 2. Filter candidates: user's tasks, not completed, not in excludeIds
+   * 3. If travelPreference === 'home_only', prefer tasks without location
+   * 4. Sort by priority (high > medium > low), then due date (earliest first, nulls last)
+   * 5. Select first candidate
+   * 6. Ensure estimated_duration_minutes (default to 30 if missing)
+   * 7. Set is_today_focus = true and mark for sync
+   * 
+   * @param options - Selection options
+   * @param options.currentTaskId - ID of current focus task to unset (optional)
+   * @param options.travelPreference - 'allow_travel' or 'home_only' (optional, defaults to 'allow_travel')
+   * @param options.excludeIds - Array of task IDs to exclude (optional)
+   * @returns Promise<Task> - The selected and updated focus task
+   * @throws Error - If no matching task found (message: 'No other tasks match your criteria.')
+   */
+  async getNextFocusTask(options: {
+    currentTaskId?: string | null;
+    travelPreference?: 'allow_travel' | 'home_only';
+    excludeIds?: string[];
+  }): Promise<Task> {
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+    const { currentTaskId, travelPreference = 'allow_travel', excludeIds = [] } = options;
+
+    return await database.write(async () => {
+      // Step 1: Unset current focus if provided (inline to avoid nested writes)
+      if (currentTaskId) {
+        const focusTasks = await database.get<Task>('tasks')
+          .query(
+            Q.where('user_id', userId),
+            Q.where('is_today_focus', true),
+            Q.where('status', Q.notEq('pending_delete'))
+          )
+          .fetch();
+
+        for (const task of focusTasks) {
+          const currentLifecycleStatus = this.extractLifecycleStatus(task.status as string);
+          await task.update(t => {
+            t.isTodayFocus = false;
+            // Preserve lifecycle status while marking for sync, preserving pending_create for offline-created tasks
+            const currentStatus = t.status as string;
+            if (currentStatus && currentStatus.startsWith('pending_create:')) {
+              t.status = `pending_create:${currentLifecycleStatus}`;
+            } else {
+              t.status = `pending_update:${currentLifecycleStatus}`;
+            }
+            t.updatedAt = new Date();
+          });
+        }
+      }
+
+      // Step 2: Fetch candidate tasks
+      // WatermelonDB doesn't support complex OR conditions, so we'll fetch and filter in JavaScript
+      let candidates = await database.get<Task>('tasks')
+        .query(
+          Q.where('user_id', userId),
+          Q.where('status', Q.notEq('pending_delete'))
+        )
+        .fetch();
+
+      // Step 3: Filter candidates in JavaScript
+      candidates = candidates.filter(task => {
+        // Exclude completed tasks (extract lifecycle status from combined format)
+        const lifecycleStatus = this.extractLifecycleStatus(task.status as string);
+        if (lifecycleStatus === 'completed') {
+          return false;
+        }
+
+        // Exclude tasks in excludeIds
+        if (excludeIds.includes(task.id)) {
+          return false;
+        }
+
+        // Exclude current task if provided (already unset, but don't select it)
+        if (currentTaskId && task.id === currentTaskId) {
+          return false;
+        }
+
+        return true;
+      });
+
+      // Step 4: Sort candidates
+      // Priority mapping: high=3, medium=2, low=1, undefined/null=0
+      const priorityMap: Record<string, number> = {
+        'high': 3,
+        'medium': 2,
+        'low': 1,
+      };
+
+      candidates.sort((a, b) => {
+        // Primary sort: Priority (descending - higher priority first)
+        const aPriority = priorityMap[a.priority || ''] || 0;
+        const bPriority = priorityMap[b.priority || ''] || 0;
+        if (aPriority !== bPriority) {
+          return bPriority - aPriority; // Descending
+        }
+
+        // Secondary sort: Due date (ascending - earliest first, nulls last)
+        const aDueDate = a.dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bDueDate = b.dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return aDueDate - bDueDate;
+      });
+
+      // Step 5: Apply travel preference (if home_only)
+      // Backend uses OR condition (location.is.null OR location.eq.'), which means it prefers
+      // tasks without location but doesn't exclude tasks with location
+      // We need to apply this preference BEFORE selecting, so we re-sort after initial sort
+      if (travelPreference === 'home_only' && candidates.length > 0) {
+        // Separate tasks by location presence (maintaining priority/due date order)
+        const noLocationTasks: Task[] = [];
+        const withLocationTasks: Task[] = [];
+        
+        for (const task of candidates) {
+          if (!task.location || task.location.trim() === '') {
+            noLocationTasks.push(task);
+          } else {
+            withLocationTasks.push(task);
+          }
+        }
+        
+        // Re-sort: no location first (maintaining priority/due date order within each group)
+        if (noLocationTasks.length > 0) {
+          candidates = [...noLocationTasks, ...withLocationTasks];
+        }
+      }
+
+      // Step 6: Select first candidate
+      if (candidates.length === 0) {
+        throw new Error('No other tasks match your criteria.');
+      }
+
+      const next = candidates[0];
+
+      // Step 7: Ensure estimated duration (default to 30 if missing or invalid)
+      const ensureDuration = (task: Task): number => {
+        const duration = task.estimatedDurationMinutes;
+        return (Number.isFinite(duration) && duration && duration > 0) ? duration : 30;
+      };
+
+      // Step 8: Update task as focus
+      const currentLifecycleStatus = this.extractLifecycleStatus(next.status as string);
+      const updatedTask = await next.update(t => {
+        t.isTodayFocus = true;
+        t.estimatedDurationMinutes = ensureDuration(next);
+        // Preserve lifecycle status while marking for sync, preserving pending_create for offline-created tasks
+        const currentStatus = t.status as string;
+        if (currentStatus && currentStatus.startsWith('pending_create:')) {
+          t.status = `pending_create:${currentLifecycleStatus}`;
+        } else {
+          t.status = `pending_update:${currentLifecycleStatus}`;
+        }
+        t.updatedAt = new Date();
+      });
+
+      return updatedTask;
+    });
+  }
+
+  /**
    * Unsets all tasks as today's focus.
    * @returns Promise<void>
    */

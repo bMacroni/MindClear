@@ -3,6 +3,21 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { TasksScreen } from '../../../screens/tasks/TasksScreen';
 import { NavigationContainer } from '@react-navigation/native';
 
+jest.mock('../../../repositories/TaskRepository', () => ({
+  taskRepository: {
+    getNextFocusTask: jest.fn().mockResolvedValue({
+      id: '2',
+      title: 'Task B',
+      status: 'pending_update:not_started',
+      isTodayFocus: true,
+      priority: 'medium',
+      estimatedDurationMinutes: 30,
+    }),
+    updateTaskStatus: jest.fn(),
+    setTaskAsFocus: jest.fn(),
+  },
+}));
+
 jest.mock('../../../services/api', () => {
   const actual = jest.requireActual('../../../services/api');
   return {
@@ -17,7 +32,6 @@ jest.mock('../../../services/api', () => {
         { id: '1', title: 'Focus A', status: 'in_progress', is_today_focus: true, priority: 'high' },
         { id: '2', title: 'Task B', status: 'not_started', is_today_focus: false, priority: 'medium' },
       ]),
-      focusNext: jest.fn().mockResolvedValue({ id: '2', title: 'Task B', status: 'not_started', is_today_focus: true, priority: 'medium' }),
     },
     goalsAPI: { getGoals: jest.fn().mockResolvedValue([]) },
   };
@@ -30,13 +44,16 @@ function renderWithNav(ui: React.ReactElement) {
 }
 
 describe('Skip exhaustion retains original focus', () => {
-  it('when focusNext 404 repeatedly, focus remains unchanged', async () => {
+  it('when getNextFocusTask throws error, focus remains unchanged', async () => {
     const { getByTestId, getByText, queryByText } = renderWithNav(<TasksScreen />);
     await waitFor(() => getByText('Tasks'));
     const skip = getByTestId('skipFocusButton');
-    // Change mock to 404 after first attempt
-    const mod = require('../../../services/api');
-    (mod.tasksAPI.focusNext as jest.Mock).mockImplementationOnce(async () => { const err: any = new Error('No other tasks match your criteria.'); err.code = 404; throw err; });
+    // Change mock to throw error
+    const mod = require('../../../repositories/TaskRepository');
+    (mod.taskRepository.getNextFocusTask as jest.Mock).mockImplementationOnce(async () => {
+      const err: any = new Error('No other tasks match your criteria.');
+      throw err;
+    });
     fireEvent.press(skip);
     await waitFor(() => expect(queryByText('No other tasks match your criteria.')).toBeTruthy());
     // Verify focus card still shows original title

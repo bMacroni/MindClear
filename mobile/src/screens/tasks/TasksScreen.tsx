@@ -1117,12 +1117,22 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
       if (task.isTodayFocus && momentumEnabled) {
         try {
-          // Get next focus task
-          const next = await tasksAPI.focusNext({
-            current_task_id: task.id,
-            travel_preference: travelPreference,
-            exclude_ids: [],
+          // Get next focus task using local repository (offline-capable)
+          const next = await taskRepository.getNextFocusTask({
+            currentTaskId: task.id,
+            travelPreference: travelPreference,
+            excludeIds: [],
           });
+
+          // Force a small delay to allow WatermelonDB to process the update
+          await new Promise<void>(resolve => setTimeout(resolve, 100));
+          
+          // Force UI update to reflect the new focus task
+          // WatermelonDB observables may not emit immediately, so we increment tasksVersion
+          setTasksVersion(prev => prev + 1);
+          
+          // Give React a moment to process the state update
+          await new Promise<void>(resolve => setTimeout(resolve, 50));
 
           // Handle calendar operations asynchronously (non-blocking)
           const handleMomentumCalendarOperations = async () => {
@@ -1146,7 +1156,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
               try {
                 const today = new Date().toISOString().split('T')[0];
                 const todaysEvents = await enhancedAPI.getEventsForDate(today);
-                const taskDuration = next.estimated_duration_minutes || 60;
+                const taskDuration = next.estimatedDurationMinutes || 60;
 
                 const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
@@ -1192,7 +1202,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           handleMomentumCalendarOperations().catch(console.error);
 
         } catch (err: any) {
-          if (err?.code === 404) {
+          // Check for "no candidates" error (matches backend 404 behavior)
+          if (err?.message?.includes('No other tasks match your criteria') || err?.code === 404) {
             setToastMessage("Great work, you've cleared all your tasks!");
             setToastCalendarEvent(false);
             setShowToast(true);
@@ -1338,12 +1349,22 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     if (!focus) { return; }
 
     try {
-      // Get next focus task
-      const next = await tasksAPI.focusNext({
-        current_task_id: focus.id,
-        travel_preference: travelPreference,
-        exclude_ids: [focus.id],
+      // Get next focus task using local repository (offline-capable)
+      const next = await taskRepository.getNextFocusTask({
+        currentTaskId: focus.id,
+        travelPreference: travelPreference,
+        excludeIds: [focus.id],
       });
+
+      // Force a small delay to allow WatermelonDB to process the update
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
+      
+      // Force UI update to reflect the new focus task
+      // WatermelonDB observables may not emit immediately, so we increment tasksVersion
+      setTasksVersion(prev => prev + 1);
+      
+      // Give React a moment to process the state update
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
 
       // Handle calendar operations asynchronously (non-blocking)
       const handleSkipCalendarOperations = async () => {
@@ -1367,7 +1388,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           try {
             const today = new Date().toISOString().split('T')[0];
             const todaysEvents = await enhancedAPI.getEventsForDate(today);
-            const taskDuration = next.estimated_duration_minutes || 60;
+            const taskDuration = next.estimatedDurationMinutes || 60;
 
             const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
 
@@ -1413,7 +1434,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       handleSkipCalendarOperations().catch(console.error);
 
     } catch (err: any) {
-      if (err?.code === 404) {
+      // Check for "no candidates" error (matches backend 404 behavior)
+      if (err?.message?.includes('No other tasks match your criteria') || err?.code === 404) {
         setToastMessage('No other tasks match your criteria.');
         setToastCalendarEvent(false);
         setShowToast(true);
