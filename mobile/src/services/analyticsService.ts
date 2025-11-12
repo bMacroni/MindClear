@@ -145,11 +145,13 @@ class AnalyticsService {
         return;
       }
 
-      // Reduced timeout for faster failure detection
+      // Environment-aware timeout: longer in debug builds to account for dev tooling overhead,
+      // shorter in production for faster failure detection
+      const timeoutMs = __DEV__ ? 10000 : 5000; // 10s for debug, 5s for production
       const response: ApiResponse<any> = await apiService.post('/analytics/track', {
         event_name: event.eventName,
         payload: event.payload,
-      }, { timeoutMs: 3000 }); // Reduced to 3 seconds for even faster failure detection
+      }, { timeoutMs });
 
       if (!response.ok) {
         const errorMessage = typeof response.data === 'object' && response.data?.error
