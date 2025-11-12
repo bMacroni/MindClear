@@ -363,7 +363,7 @@ export class TaskRepository {
           t.location = localTask.location;
           t.calendarEventId = localTask.calendarEventId;
           t.userId = localTask.userId;
-          t.status = lifecycleStatus;
+          t.status = 'synced';
           t.createdAt = localTask.createdAt;
           t.updatedAt = localTask.updatedAt;
         });
