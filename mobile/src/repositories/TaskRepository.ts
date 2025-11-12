@@ -344,6 +344,8 @@ export class TaskRepository {
         .fetch();
 
       await database.write(async () => {
+        const lifecycleStatus = this.extractLifecycleStatus(localTask.status as string);
+
         // Create new task with server ID
         const newTask = await database.get<Task>('tasks').create(t => {
           t._raw.id = serverId;
@@ -356,8 +358,12 @@ export class TaskRepository {
           t.dueDate = localTask.dueDate;
           t.goalId = localTask.goalId;
           t.isTodayFocus = localTask.isTodayFocus;
+          t.autoScheduleEnabled = localTask.autoScheduleEnabled;
+          t.category = localTask.category;
+          t.location = localTask.location;
+          t.calendarEventId = localTask.calendarEventId;
           t.userId = localTask.userId;
-          t.status = 'synced';
+          t.status = lifecycleStatus;
           t.createdAt = localTask.createdAt;
           t.updatedAt = localTask.updatedAt;
         });
