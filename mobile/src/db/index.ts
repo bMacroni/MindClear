@@ -4,6 +4,7 @@ import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 import EncryptedStorage from 'react-native-encrypted-storage';
 import {mySchema} from './schema';
 import {models} from './models';
+import migrations from './migrations/schemaMigrations';
 import 'react-native-get-random-values';
 
 const DB_ENCRYPTION_KEY = 'mindclear_db_encryption_key';
@@ -48,6 +49,7 @@ export const initializeDatabase = async (): Promise<Database> => {
 
       const adapter = new SQLiteAdapter({
         schema: mySchema,
+        migrations,
         // jsi: true, // commented out to disable JSI and avoid native build issues
         onSetUpError: error => {
           console.error('SQLiteAdapter setup error:', error);

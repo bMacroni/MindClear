@@ -1,7 +1,7 @@
 import {appSchema, tableSchema} from '@nozbe/watermelondb';
 
 export const mySchema = appSchema({
-  version: 3,
+  version: 4, // Incremented to add location field to tasks table
   tables: [
     tableSchema({
       name: 'goals',
@@ -58,6 +58,7 @@ export const mySchema = appSchema({
         {name: 'created_at', type: 'number'},
         {name: 'updated_at', type: 'number'},
         {name: 'is_today_focus', type: 'boolean', isOptional: true},
+        {name: 'location', type: 'string', isOptional: true}, // Task location for travel preference
       ],
     }),
     tableSchema({

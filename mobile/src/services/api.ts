@@ -699,7 +699,17 @@ export const tasksAPI = {
     }
   },
   
-  // Momentum Mode: Get next focus task
+  /**
+   * @deprecated Use taskRepository.getNextFocusTask() instead.
+   * This method will be removed in a future version.
+   * 
+   * Momentum Mode: Get next focus task
+   * 
+   * The local method provides:
+   * - Offline functionality
+   * - Faster response times
+   * - Better user experience
+   */
   focusNext: async (payload: { current_task_id?: string|null; travel_preference?: 'allow_travel'|'home_only'; exclude_ids?: string[] }): Promise<Task> => {
     try {
       const token = await getAuthToken();

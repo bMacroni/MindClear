@@ -14,6 +14,7 @@ jest.mock('../../../repositories/TaskRepository', () => ({
     updateTaskStatus: jest.fn(),
     deleteTask: jest.fn(),
     setTaskAsFocus: jest.fn(),
+    getNextFocusTask: jest.fn(),
     getTaskById: jest.fn(),
   },
 }));
@@ -26,7 +27,7 @@ jest.mock('../../../services/SyncService', () => ({
 
 jest.mock('../../../services/api', () => ({
   tasksAPI: {
-    focusNext: jest.fn(),
+    // focusNext removed - now using taskRepository.getNextFocusTask()
   },
   goalsAPI: {
     getGoals: jest.fn(() => Promise.resolve([])),

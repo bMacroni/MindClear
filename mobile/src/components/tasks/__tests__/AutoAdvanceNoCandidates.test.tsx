@@ -3,6 +3,17 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { TasksScreen } from '../../../screens/tasks/TasksScreen';
 import { NavigationContainer } from '@react-navigation/native';
 
+jest.mock('../../../repositories/TaskRepository', () => ({
+  taskRepository: {
+    getNextFocusTask: jest.fn().mockImplementation(async () => {
+      const err: any = new Error('No other tasks match your criteria.');
+      throw err;
+    }),
+    updateTaskStatus: jest.fn(),
+    setTaskAsFocus: jest.fn(),
+  },
+}));
+
 jest.mock('../../../services/api', () => {
   const actual = jest.requireActual('../../../services/api');
   return {
@@ -17,7 +28,6 @@ jest.mock('../../../services/api', () => {
         { id: '1', title: 'Focus A', status: 'in_progress', is_today_focus: true, priority: 'high' },
       ]),
       updateTask: jest.fn().mockResolvedValue({ id: '1', title: 'Focus A', status: 'completed', is_today_focus: false, priority: 'high' }),
-      focusNext: jest.fn().mockImplementation(async () => { const err: any = new Error('No other tasks match your criteria.'); err.code = 404; throw err; }),
     },
     goalsAPI: { getGoals: jest.fn().mockResolvedValue([]) },
   };
