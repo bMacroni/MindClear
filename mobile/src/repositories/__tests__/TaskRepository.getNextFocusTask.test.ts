@@ -21,11 +21,14 @@ describe('TaskRepository.getNextFocusTask()', () => {
   let mockCollection: any;
 
   beforeAll(async () => {
-    database = getDatabase();
-    // Get the mock collection to access its internal tasks array
-    mockCollection = (database as any).collections.get('tasks');
+    try {
+      database = getDatabase();
+      // Get the mock collection to access its internal tasks array
+      mockCollection = (database as any).collections.get('tasks');
+    } catch (error) {
+      throw new Error(`Failed to initialize test database: ${error instanceof Error ? error.message : String(error)}`);
+    }
   });
-
   beforeEach(async () => {
     // Clear database before each test
     if (mockCollection._mockTasks) {
