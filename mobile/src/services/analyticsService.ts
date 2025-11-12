@@ -506,7 +506,6 @@ class AnalyticsService {
         };
       }
       logger.info('Analytics: Auth token status:', { hasToken: !!token });
-      logger.info('Analytics: Auth token status:', { hasToken: !!token });
       
       const response: ApiResponse<any> = await apiService.post('/analytics/track', {
         event_name: 'connectivity_test',

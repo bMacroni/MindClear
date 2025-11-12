@@ -44,7 +44,7 @@ import { extractCalendarEvents } from './utils/calendarEventUtils';
 import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
 
 // Development-only logging for EOD prompt debugging
-const EOD_DEBUG = true; // set false to silence
+const EOD_DEBUG = false; // set true to enable debug logging
 const eodLog = (...args: any[]) => {
   if (__DEV__ && EOD_DEBUG) {
     // eslint-disable-next-line no-console
