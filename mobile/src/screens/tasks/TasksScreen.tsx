@@ -44,7 +44,7 @@ import { extractCalendarEvents } from './utils/calendarEventUtils';
 import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
 
 // Development-only logging for EOD prompt debugging
-const EOD_DEBUG = true; // set false to silence
+const EOD_DEBUG = false; // set true to enable debug logging
 const eodLog = (...args: any[]) => {
   if (__DEV__ && EOD_DEBUG) {
     // eslint-disable-next-line no-console
@@ -171,22 +171,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     }
   };
 
-  const loadData = async (options?: { silent?: boolean }) => {
+  const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
+    const awaitSync = !!options?.awaitSync;
     try {
       if (!silent) {
         setLoading(true);
       }
 
-      // Trigger silent sync to get latest data from server
-      try {
-        await syncService.silentSync();
-      } catch (error) {
-        // Silent sync failure - don't show alerts to user
-        console.warn('Silent sync failed:', error);
-      }
-
-      // Load preferences
+      // Load preferences first (fast, local operation)
       try {
         const prefs = await appPreferencesAPI.get();
         if (prefs && typeof prefs === 'object') {
@@ -196,18 +189,55 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       } catch (error) {
         console.warn('Failed to load preferences:', error);
       }
+
+      // Trigger silent sync - await only if explicitly requested (e.g., manual refresh)
+      // Otherwise, run in background to avoid blocking UI
+      // The component uses WatermelonDB observables which will automatically update
+      // when sync completes and writes to the local database
+      const syncPromise = syncService.silentSync().catch((error) => {
+        // Silent sync failure - don't show alerts to user
+        console.warn('Silent sync failed:', error);
+      });
+
+      if (awaitSync) {
+        // For manual refresh, await sync completion
+        await syncPromise;
+        if (!silent) {
+          setLoading(false);
+        }
+      } else {
+        // For normal load, don't block - sync runs in background
+        // If not silent, show loading briefly then hide it
+        if (!silent) {
+          // Set a short timeout to hide loading if sync takes too long
+          // This prevents the UI from being stuck in loading state
+          setTimeout(() => {
+            setLoading(false);
+          }, 1000);
+        } else {
+          setLoading(false);
+        }
+      }
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to sync data');
-    } finally {
+      if (!silent) {
+        Alert.alert('Error', 'Failed to sync data');
+      }
       setLoading(false);
     }
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    try {
+      // For manual refresh, await sync completion so user sees refresh indicator
+      // until data is actually updated
+      await loadData({ awaitSync: true });
+    } catch (error) {
+      console.warn('Refresh failed:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Honor cross-screen refresh hints
@@ -285,7 +315,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     if (taskData.estimatedDurationMinutes !== undefined) apiData.estimated_duration_minutes = taskData.estimatedDurationMinutes;
     if (taskData.dueDate !== undefined) apiData.due_date = taskData.dueDate?.toISOString();
     if (taskData.goalId !== undefined) apiData.goal_id = taskData.goalId;
-    if (taskData.isTodayFocus !== undefined) apiData.is_today_focus = taskData.isTodayFocus;
+    // Only include is_today_focus if it's explicitly a boolean (not null or undefined)
+    // Backend validation requires boolean or absent, not null
+    if (typeof taskData.isTodayFocus === 'boolean') apiData.is_today_focus = taskData.isTodayFocus;
     if (taskData.status !== undefined) apiData.status = taskData.status;
     return apiData;
   };

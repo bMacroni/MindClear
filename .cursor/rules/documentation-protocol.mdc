@@ -1,0 +1,97 @@
+---
+alwaysApply: true
+---
+
+You must adhere to these comprehensive style guidelines to ensure consistent, professional, and effective documentation across all content.
+
+## Voice and Tone Framework
+
+### Professional Authority
+- **Confident Expertise**: Write with the assurance of deep technical knowledge while remaining humble and helpful
+- **Supportive Guidance**: Use language that builds reader confidence rather than highlighting their potential inexperience
+- **Clear Direction**: Provide definitive guidance without hedge words that create uncertainty ("might," "could," "possibly")
+- **Respectful Intelligence**: Assume readers are capable and intelligent while providing necessary context
+
+### Audience-Appropriate Communication
+- **Technical Precision**: Use accurate terminology while defining concepts appropriately for intended audience
+- **Context Awareness**: Provide sufficient background without over-explaining concepts readers already understand
+- **Progressive Complexity**: Build from foundational concepts to advanced implementation details
+- **Inclusive Language**: Use welcoming, accessible language that serves diverse technical backgrounds
+
+## Writing Mechanics Standards
+
+### Active Voice Priority
+- **Direct Action**: Use active voice for 80%+ of instructional content
+- **Clear Responsibility**: Specify who performs each action ("Run this command" not "This command should be run")
+- **Immediate Instructions**: Write steps as direct commands ("Configure the database" not "The database can be configured")
+- **Passive Voice Exceptions**: Use passive voice only when the actor is unknown or irrelevant
+
+### Sentence Structure
+- **Concise Clarity**: Average 15-20 words per sentence for optimal comprehension
+- **Varied Length**: Mix short (5-10 words) and medium (15-25 words) sentences for engaging rhythm
+- **Parallel Structure**: Use consistent grammatical patterns in lists and step sequences
+- **Clear Antecedents**: Ensure pronouns clearly reference their intended nouns
+
+### Word Choice Standards
+- **Specific Verbs**: Choose precise action words ("configure," "initialize," "deploy") over generic ones ("do," "make," "handle")
+- **Consistent Terminology**: Use identical terms for identical concepts throughout all documentation
+- **Plain Language**: Prefer simple, clear words over complex alternatives when meaning is equivalent
+- **Jargon Management**: Define technical terms on first use and maintain consistent definitions
+
+## Content Organization Principles
+
+### Information Hierarchy
+- **Logical Progression**: Organize information in the order readers need to encounter it
+- **Scannable Structure**: Use headings, bullets, and formatting to support quick information location
+- **Progressive Disclosure**: Present overview information before detailed implementation steps
+- **Cross-Reference Integration**: Link related concepts using consistent terminology and clear navigation paths
+
+### Instructional Design
+- **Goal-Oriented Structure**: Organize content around what readers need to accomplish
+- **Prerequisites Clarity**: Explicitly state required knowledge, tools, or setup before instruction sequences
+- **Success Validation**: Provide clear indicators for readers to confirm successful completion of steps
+- **Error Guidance**: Anticipate common issues and provide specific troubleshooting direction
+
+## Professional Standards
+
+### Credibility Indicators
+- **Technical Accuracy**: Ensure all statements, code examples, and procedures are factually correct
+- **Current Information**: Verify that all content reflects current system state and best practices
+- **Complete Coverage**: Address all aspects necessary for reader success without gaps
+- **Tested Procedures**: Confirm that all instructions have been validated and produce expected results
+
+### Accessibility Principles
+- **Inclusive Language**: Use gender-neutral, culturally sensitive, and ability-inclusive terminology
+- **Clear Communication**: Avoid idioms, cultural references, or colloquialisms that may not translate across audiences
+- **Multiple Learning Styles**: Support different information processing preferences through varied formatting
+- **Assumption Documentation**: Explicitly state background knowledge or environmental assumptions
+
+## Formatting and Presentation
+
+### Visual Hierarchy
+- **Consistent Heading Structure**: Use markdown headings systematically to create clear information architecture
+- **Code Formatting**: Apply appropriate syntax highlighting and clear code block boundaries
+- **Emphasis Usage**: Use **bold** for important terms and *italics* for emphasis sparingly and consistently
+- **List Organization**: Structure information using bullets, numbers, and nested lists for optimal clarity
+
+### Cross-Reference Standards
+- **Consistent Linking**: Use identical link text for identical destinations throughout documentation
+- **Descriptive Links**: Make link text clearly indicate destination content ("See Architecture Overview" not "Click here")
+- **Reference Integration**: Seamlessly integrate cross-references into natural sentence flow
+- **Navigation Support**: Provide clear pathways between related documentation sections
+
+## Quality Assurance Requirements
+
+### Content Validation
+- **Clarity Testing**: Ensure sentences can be understood on first reading by intended audience
+- **Accuracy Verification**: Confirm all technical details match current system implementation
+- **Completeness Checking**: Verify that readers have sufficient information to accomplish stated goals
+- **Consistency Auditing**: Maintain unified terminology, style, and formatting throughout all content
+
+### Professional Standards
+- **Error-Free Presentation**: Eliminate grammatical errors, typos, and formatting inconsistencies
+- **Professional Tone**: Balance technical authority with approachable helpfulness
+- **Organizational Alignment**: Ensure documentation voice reflects broader company communication standards
+- **Industry Best Practices**: Apply current professional technical writing standards consistently
+
+Apply these style standards consistently throughout all documentation generation, ensuring that every piece of content reflects professional expertise while serving reader needs effectively.

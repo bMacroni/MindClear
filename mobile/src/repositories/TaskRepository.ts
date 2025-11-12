@@ -324,6 +324,69 @@ export class TaskRepository {
       )
       .observe();
   }
+
+  /**
+   * Updates a task's server ID after creating it on the server.
+   * Used internally by SyncService when a pending_create task gets a server ID.
+   * Migrates the local task ID to match the server ID and updates any related calendar events.
+   */
+  async updateTaskServerId(localId: string, serverId: string): Promise<void> {
+    const database = getDatabase();
+    try {
+      const localTask = await this.getTaskById(localId);
+      if (!localTask) {
+        throw new Error(`Task with local ID ${localId} not found`);
+      }
+
+      // Find any calendar events that reference this task
+      const calendarEvents = await database.get('calendar_events')
+        .query(Q.where('task_id', localId))
+        .fetch();
+
+      await database.write(async () => {
+        const lifecycleStatus = this.extractLifecycleStatus(localTask.status as string);
+
+        // Create new task with server ID
+        const newTask = await database.get<Task>('tasks').create(t => {
+          t._raw.id = serverId;
+          t._raw._status = 'synced';
+          t._raw._changed = '';
+          t.title = localTask.title;
+          t.description = localTask.description;
+          t.priority = localTask.priority;
+          t.estimatedDurationMinutes = localTask.estimatedDurationMinutes;
+          t.dueDate = localTask.dueDate;
+          t.goalId = localTask.goalId;
+          t.isTodayFocus = localTask.isTodayFocus;
+          t.autoScheduleEnabled = localTask.autoScheduleEnabled;
+          t.category = localTask.category;
+          t.location = localTask.location;
+          t.calendarEventId = localTask.calendarEventId;
+          t.userId = localTask.userId;
+          t.status = 'synced';
+          t.createdAt = localTask.createdAt;
+          t.updatedAt = localTask.updatedAt;
+        });
+
+        // Update all calendar events to point to new task ID
+        for (const event of calendarEvents) {
+          await event.update((e: any) => {
+            e.taskId = serverId;
+          });
+        }
+
+        // Delete old task record
+        await localTask.destroyPermanently();
+      });
+    } catch (error) {
+      logger.error('Failed to update task server ID', {
+        localId,
+        serverId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
 }
 
 export const taskRepository = new TaskRepository();
