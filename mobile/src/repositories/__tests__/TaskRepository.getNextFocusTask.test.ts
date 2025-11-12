@@ -187,7 +187,7 @@ describe('TaskRepository.getNextFocusTask()', () => {
       expect(next.isTodayFocus).toBe(true);
     });
 
-    test('home_only still includes tasks with location if no alternatives', async () => {
+    test('home_only throws error when only tasks with location exist', async () => {
       await taskRepository.createTask({
         title: 'Only Task With Location',
         priority: 'high',
@@ -195,13 +195,12 @@ describe('TaskRepository.getNextFocusTask()', () => {
         status: 'not_started',
       });
 
-      const next = await taskRepository.getNextFocusTask({
-        travelPreference: 'home_only',
-      });
-
-      // Should still select the task even though it has location
-      expect(next.title).toBe('Only Task With Location');
-      expect(next.isTodayFocus).toBe(true);
+      // Should throw error when no tasks without location are available
+      await expect(
+        taskRepository.getNextFocusTask({
+          travelPreference: 'home_only',
+        })
+      ).rejects.toThrow('No other tasks match your criteria.');
     });
 
     test('home_only handles empty string location as no location', async () => {
@@ -580,10 +579,10 @@ describe('TaskRepository.getNextFocusTask()', () => {
       });
 
       // Should select best candidate (high priority, no location, not excluded, not completed)
-      // With home_only preference, should prefer task without location
+      // With home_only preference, tasks with location are filtered out completely
       expect(next.title).toBe('Best Candidate');
       expect(next.id).toBe(expected.id);
-      // Verify it's not the task with location
+      // Verify it's not the task with location (which should have been filtered out)
       expect(next.location).toBeUndefined();
     });
 

@@ -345,26 +345,11 @@ export class TaskRepository {
       });
 
       // Step 5: Apply travel preference (if home_only)
-      // Backend uses OR condition (location.is.null OR location.eq.'), which means it prefers
-      // tasks without location but doesn't exclude tasks with location
-      // We need to apply this preference BEFORE selecting, so we re-sort after initial sort
-      if (travelPreference === 'home_only' && candidates.length > 0) {
-        // Separate tasks by location presence (maintaining priority/due date order)
-        const noLocationTasks: Task[] = [];
-        const withLocationTasks: Task[] = [];
-        
-        for (const task of candidates) {
-          if (!task.location || task.location.trim() === '') {
-            noLocationTasks.push(task);
-          } else {
-            withLocationTasks.push(task);
-          }
-        }
-        
-        // Re-sort: no location first (maintaining priority/due date order within each group)
-        if (noLocationTasks.length > 0) {
-          candidates = [...noLocationTasks, ...withLocationTasks];
-        }
+      // Filter out tasks with non-empty location (exclude tasks that require travel)
+      if (travelPreference === 'home_only') {
+        candidates = candidates.filter(t => !t.location || t.location.trim() === '');
+        // Preserve existing priority/due-date ordering (already sorted in Step 4)
+        // If candidates array is empty after filtering, Step 6 will handle the error
       }
 
       // Step 6: Select first candidate
