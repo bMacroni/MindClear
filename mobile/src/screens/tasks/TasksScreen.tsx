@@ -38,6 +38,7 @@ import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import { Q, Database } from '@nozbe/watermelondb';
 import type { Observable } from 'rxjs';
+import { showToast } from '../../contexts/ToastContext';
 import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
@@ -240,13 +241,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // WatermelonDB observables will automatically update the UI when sync completes
       syncService.silentSync().catch((error) => {
         console.warn('[TasksScreen] Manual sync failed:', error);
+        // Show toast notification for sync failures
+        showToast('error', 'Sync failed. Please try again.');
       });
       
       // Show refresh indicator for a brief moment to give user feedback
       // Then hide it - the data will update automatically via observables
       await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (error) {
-      console.warn('Refresh failed:', error);
     } finally {
       setRefreshing(false);
       console.log('[TasksScreen] Manual refresh completed (sync continues in background)');

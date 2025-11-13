@@ -1,4 +1,6 @@
-import { showToast as serviceShowToast, hideToast as serviceHideToast } from '../ToastContext';
+import React from 'react';
+import { render } from '@testing-library/react-native';
+import { showToast as serviceShowToast, hideToast as serviceHideToast, ToastProvider } from '../ToastContext';
 
 describe('ToastContext Service Bridge', () => {
   let consoleWarnSpy: jest.SpyInstance;
@@ -20,6 +22,28 @@ describe('ToastContext Service Bridge', () => {
       expect(() => {
         serviceShowToast('success', 'Test message');
       }).not.toThrow();
+    });
+
+    it('showToast returns false when provider is not mounted', () => {
+      const result = serviceShowToast('success', 'Test message');
+      expect(result).toBe(false);
+      expect(consoleWarnSpy).toHaveBeenCalledWith('Toast context not initialized. Message:', 'Test message');
+    });
+
+    it('showToast returns true when provider is mounted', () => {
+      const TestComponent = () => {
+        React.useEffect(() => {
+          const result = serviceShowToast('success', 'Test message');
+          expect(result).toBe(true);
+        }, []);
+        return null;
+      };
+
+      render(
+        <ToastProvider>
+          <TestComponent />
+        </ToastProvider>
+      );
     });
 
     it('hideToast can be called without error before provider mounts', () => {

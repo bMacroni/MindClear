@@ -201,8 +201,13 @@ class NotificationService {
       
       console.log('In-app notification:', { title, body, toastType });
       
-      // Show toast notification (non-blocking)
-      showToast(toastType, message, 4000);
+      // Show toast notification (non-blocking) and capture return value
+      const toastSuccess = showToast(toastType, message, 4000);
+      
+      // If toast bridge isn't ready, immediately fall back to Alert
+      if (!toastSuccess) {
+        Alert.alert(title, body, [{ text: 'OK' }]);
+      }
     } catch (error) {
       console.error('Error showing in-app notification:', error);
       // Fallback to console log if toast system fails

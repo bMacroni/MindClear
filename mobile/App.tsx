@@ -20,6 +20,7 @@ import HelpOverlay from './src/components/help/HelpOverlay';
 import { ToastProvider, useToast } from './src/contexts/ToastContext';
 import { SuccessToast } from './src/components/common/SuccessToast';
 import { ErrorToast } from './src/components/common/ErrorToast';
+import { InfoToast } from './src/components/common/InfoToast';
 import { authService } from './src/services/auth';
 import { getCurrentRouteName } from './src/navigation/navigationRef';
 import messaging from '@react-native-firebase/messaging';
@@ -396,9 +397,20 @@ function App() {
 const ToastContainer: React.FC = () => {
   const { toast, hideToast } = useToast();
 
-  if (toast.type === 'success' || toast.type === 'info') {
+  if (toast.type === 'success') {
     return (
       <SuccessToast
+        visible={toast.visible}
+        message={toast.message}
+        onClose={hideToast}
+        duration={toast.duration}
+      />
+    );
+  }
+
+  if (toast.type === 'info') {
+    return (
+      <InfoToast
         visible={toast.visible}
         message={toast.message}
         onClose={hideToast}

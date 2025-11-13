@@ -11,7 +11,7 @@ interface ToastState {
 
 interface ToastContextValue {
   toast: ToastState;
-  showToast: (type: ToastType, message: string, duration?: number) => void;
+  showToast: (type: ToastType, message: string, duration?: number) => boolean;
   hideToast: () => void;
 }
 
@@ -20,7 +20,7 @@ const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 // Service bridge: allows services to trigger toasts without React hooks
 // This uses a ref pattern to access the context functions from outside React components
 let toastServiceRef: {
-  showToast: (type: ToastType, message: string, duration?: number) => void;
+  showToast: (type: ToastType, message: string, duration?: number) => boolean;
   hideToast: () => void;
 } | null = null;
 
@@ -36,13 +36,14 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     duration: 4000,
   });
 
-  const showToast = useCallback((type: ToastType, message: string, duration: number = 4000) => {
+  const showToast = useCallback((type: ToastType, message: string, duration: number = 4000): boolean => {
     setToast({
       visible: true,
       message,
       type,
       duration,
     });
+    return true;
   }, []);
 
   const hideToast = useCallback(() => {
@@ -92,19 +93,25 @@ export const useToast = (): ToastContextValue => {
  * @param type - The type of toast ('success' | 'error' | 'info' | 'warning')
  * @param message - The message to display
  * @param duration - Optional duration in milliseconds (default: 4000)
+ * @returns true if the toast was successfully shown, false if the provider is not mounted
  * 
  * @example
  * ```typescript
  * import { showToast } from '../contexts/ToastContext';
- * showToast('error', 'Sync failed. Please try again.');
+ * const success = showToast('error', 'Sync failed. Please try again.');
+ * if (!success) {
+ *   // Handle case where toast provider is not available
+ * }
  * ```
  */
-export const showToast = (type: ToastType, message: string, duration?: number): void => {
+export const showToast = (type: ToastType, message: string, duration?: number): boolean => {
   if (toastServiceRef) {
-    toastServiceRef.showToast(type, message, duration);
+    const result = toastServiceRef.showToast(type, message, duration);
+    return Boolean(result);
   } else {
     // Fallback: log to console if context not initialized
     console.warn('Toast context not initialized. Message:', message);
+    return false;
   }
 };
 
