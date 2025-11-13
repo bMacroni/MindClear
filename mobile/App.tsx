@@ -17,6 +17,9 @@ import { notificationService } from './src/services/notificationService';
 import { webSocketService } from './src/services/api';
 import { HelpProvider } from './src/contexts/HelpContext';
 import HelpOverlay from './src/components/help/HelpOverlay';
+import { ToastProvider, useToast } from './src/contexts/ToastContext';
+import { SuccessToast } from './src/components/common/SuccessToast';
+import { ErrorToast } from './src/components/common/ErrorToast';
 import { authService } from './src/services/auth';
 import { getCurrentRouteName } from './src/navigation/navigationRef';
 import messaging from '@react-native-firebase/messaging';
@@ -373,14 +376,49 @@ function App() {
     <GestureHandlerRootView style={{flex: 1}}>
       <DatabaseProvider database={database}>
         <SafeAreaProvider>
-          <HelpProvider>
-            <AppNavigator />
-            <HelpOverlay />
-          </HelpProvider>
+          <ToastProvider>
+            <HelpProvider>
+              <AppNavigator />
+              <HelpOverlay />
+              <ToastContainer />
+            </HelpProvider>
+          </ToastProvider>
         </SafeAreaProvider>
       </DatabaseProvider>
     </GestureHandlerRootView>
   );
+}
+
+/**
+ * ToastContainer component that renders toast notifications based on context state.
+ * This component must be inside ToastProvider to access toast context.
+ */
+const ToastContainer: React.FC = () => {
+  const { toast, hideToast } = useToast();
+
+  if (toast.type === 'success' || toast.type === 'info') {
+    return (
+      <SuccessToast
+        visible={toast.visible}
+        message={toast.message}
+        onClose={hideToast}
+        duration={toast.duration}
+      />
+    );
+  }
+
+  if (toast.type === 'error' || toast.type === 'warning') {
+    return (
+      <ErrorToast
+        visible={toast.visible}
+        message={toast.message}
+        onClose={hideToast}
+        duration={toast.duration}
+      />
+    );
+  }
+
+  return null;
 }
 
 export default App;

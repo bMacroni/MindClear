@@ -1,5 +1,6 @@
 import { PermissionsAndroid, Platform, Alert } from 'react-native';
 import { notificationsAPI } from './api';
+import { showToast, ToastType } from '../contexts/ToastContext';
 // import PushNotification from 'react-native-push-notification'; // A popular library for local notifications and badge count
 
 class NotificationService {
@@ -147,24 +148,72 @@ class NotificationService {
     await this.updateBadgeCount();
   }
 
+  /**
+   * Determines the toast type based on notification title.
+   * Maps common notification titles to appropriate toast types.
+   */
+  private getToastType(title: string): ToastType {
+    const titleLower = title.toLowerCase();
+    
+    // Error notifications
+    if (
+      titleLower.includes('failed') ||
+      titleLower.includes('error') ||
+      titleLower.includes('incomplete') ||
+      titleLower.includes('authentication failed')
+    ) {
+      return 'error';
+    }
+    
+    // Success notifications
+    if (
+      titleLower.includes('successful') ||
+      titleLower.includes('success') ||
+      titleLower.includes('completed')
+    ) {
+      return 'success';
+    }
+    
+    // Info notifications (default for status updates)
+    if (
+      titleLower.includes('started') ||
+      titleLower.includes('in progress') ||
+      titleLower.includes('syncing')
+    ) {
+      return 'info';
+    }
+    
+    // Default to info for unknown types
+    return 'info';
+  }
+
   // Show in-app notification
   public showInAppNotification(title: string, body: string) {
     try {
-      // For now, use Alert.alert for in-app notifications
-      // TODO: Implement proper toast queue system or use a global notification context
-      // This would typically involve:
-      // 1. A notification queue/context
-      // 2. A toast manager component at the app root level
-      // 3. Methods to show/hide toasts from anywhere in the app
+      // Use toast system instead of Alert.alert for non-blocking notifications
+      const toastType = this.getToastType(title);
       
-      console.log('In-app notification:', { title, body });
+      // Combine title and body into a single message
+      // If body is empty or same as title, just use title
+      const message = body && body.trim() && body !== title 
+        ? `${title}: ${body}` 
+        : title;
       
-      // Show a simple alert for now
-      Alert.alert(title, body, [{ text: 'OK' }]);
+      console.log('In-app notification:', { title, body, toastType });
+      
+      // Show toast notification (non-blocking)
+      showToast(toastType, message, 4000);
     } catch (error) {
       console.error('Error showing in-app notification:', error);
-      // Fallback to console log
+      // Fallback to console log if toast system fails
       console.log('Notification (error fallback):', { title, body });
+      
+      // Last resort: fall back to Alert if toast system is not available
+      try {
+        Alert.alert(title, body, [{ text: 'OK' }]);
+      } catch (alertError) {
+        console.error('Failed to show alert fallback:', alertError);
+      }
     }
   }
 

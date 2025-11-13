@@ -174,8 +174,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
     const awaitSync = !!options?.awaitSync;
+    console.log('[TasksScreen] loadData started', { silent, awaitSync });
+    const startTime = Date.now();
+    
     try {
-      if (!silent) {
+      // Don't show loading spinner on initial mount since we have observable data
+      // Only show loading for explicit user actions
+      if (!silent && awaitSync) {
         setLoading(true);
       }
 
@@ -201,25 +206,25 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
       if (awaitSync) {
         // For manual refresh, await sync completion
+        console.log('[TasksScreen] Awaiting sync completion...');
         await syncPromise;
+        console.log('[TasksScreen] Sync completed in', Date.now() - startTime, 'ms');
         if (!silent) {
           setLoading(false);
         }
       } else {
         // For normal load, don't block - sync runs in background
-        // If not silent, show loading briefly then hide it
-        if (!silent) {
-          // Set a short timeout to hide loading if sync takes too long
-          // This prevents the UI from being stuck in loading state
-          setTimeout(() => {
-            setLoading(false);
-          }, 1000);
-        } else {
-          setLoading(false);
-        }
+        // Since we're using WatermelonDB observables, the UI will update automatically
+        console.log('[TasksScreen] Sync running in background, total time:', Date.now() - startTime, 'ms');
+        setLoading(false);
+        
+        // Log when sync completes in background
+        syncPromise.then(() => {
+          console.log('[TasksScreen] Background sync completed in', Date.now() - startTime, 'ms');
+        });
       }
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('[TasksScreen] Error loading data:', error, 'Duration:', Date.now() - startTime, 'ms');
       if (!silent) {
         Alert.alert('Error', 'Failed to sync data');
       }
@@ -228,15 +233,23 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const handleRefresh = async () => {
+    console.log('[TasksScreen] Manual refresh triggered');
     setRefreshing(true);
     try {
-      // For manual refresh, await sync completion so user sees refresh indicator
-      // until data is actually updated
-      await loadData({ awaitSync: true });
+      // Trigger sync in background without awaiting
+      // WatermelonDB observables will automatically update the UI when sync completes
+      syncService.silentSync().catch((error) => {
+        console.warn('[TasksScreen] Manual sync failed:', error);
+      });
+      
+      // Show refresh indicator for a brief moment to give user feedback
+      // Then hide it - the data will update automatically via observables
+      await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error) {
       console.warn('Refresh failed:', error);
     } finally {
       setRefreshing(false);
+      console.log('[TasksScreen] Manual refresh completed (sync continues in background)');
     }
   };
 
