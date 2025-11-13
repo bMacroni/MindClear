@@ -59,6 +59,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showToast,
       hideToast,
     };
+    // Cleanup: clear ref on unmount to prevent callbacks referencing unmounted provider
+    return () => {
+      toastServiceRef = null;
+    };
   }, [showToast, hideToast]);
 
   const value: ToastContextValue = {
