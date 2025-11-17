@@ -140,8 +140,16 @@ class SyncService {
       if (status === 'pending_create' || status === 'pending_update' || status === 'pending_delete') {
         return true;
       }
+      // Include tasks with failed sync statuses (for retry)
+      if (status === 'sync_failed_delete' || status === 'sync_failed_create' || status === 'sync_failed_update') {
+        return true;
+      }
       // Include tasks with combined format (pending_update:* or pending_create:*)
       if (typeof status === 'string' && (status.startsWith('pending_update:') || status.startsWith('pending_create:'))) {
+        return true;
+      }
+      // Include tasks with sync_failed: combined format (for retry)
+      if (typeof status === 'string' && status.startsWith('sync_failed:')) {
         return true;
       }
       // Exclude synced tasks
@@ -237,8 +245,45 @@ class SyncService {
             client_updated_at: record.updatedAt?.toISOString(),
           };
 
+          // Check if this is a delete operation (pending_delete or sync_failed_delete)
+          const isDeleteOperation = syncStatus === 'pending_delete' || 
+                                   syncStatus === 'sync_failed_delete' ||
+                                   (typeof record.status === 'string' && record.status.includes('pending_delete')) ||
+                                   (typeof record.status === 'string' && record.status === 'sync_failed_delete');
+          
+          if (isDeleteOperation) {
+            // If task ID is not a UUID, it was never synced to server
+            // Just delete it locally without attempting server deletion
+            if (!this.isUUID(record.id)) {
+              console.log(`Push: Deleting local-only task ${record.id} (never synced to server)`);
+              await database.write(async () => {
+                await record.destroyPermanently();
+              });
+              // Skip the normal update logic since we've already deleted locally
+              continue;
+            }
+            // Delete task on server
+            try {
+              console.log(`Push: Deleting task ${record.id} from server`);
+              await enhancedAPI.deleteTask(record.id);
+              // Immediately delete local record after successful server deletion
+              console.log(`Push: Task ${record.id} deleted from server, removing from local database`);
+              await database.write(async () => {
+                await record.destroyPermanently();
+              });
+              // Skip the normal update logic since we've already deleted locally
+              continue;
+            } catch (deleteError: any) {
+              // Re-throw error to be handled by outer catch block
+              // This allows idempotent delete handling (404/410) and proper error tracking
+              console.error(`Push: Failed to delete task ${record.id} from server:`, deleteError);
+              throw deleteError;
+            }
+          }
+          
           switch (syncStatus) {
             case 'pending_create':
+            case 'sync_failed_create':
               serverResponse = await enhancedAPI.createTask(recordData);
               // If server returned a different ID, migrate local task ID to server ID
               // This prevents duplicate tasks when the server generates a new ID
@@ -253,6 +298,7 @@ class SyncService {
               }
               break;
             case 'pending_update':
+            case 'sync_failed_update':
               // If task ID is not a UUID, it was never synced to server
               // This shouldn't happen in normal flow, but treat it as a create if it does
               if (!this.isUUID(record.id)) {
@@ -270,18 +316,6 @@ class SyncService {
               } else {
                 serverResponse = await enhancedAPI.updateTask(record.id, recordData);
               }
-              break;
-            case 'pending_delete':
-              // If task ID is not a UUID, it was never synced to server
-              // Just delete it locally without attempting server deletion
-              if (!this.isUUID(record.id)) {
-                await database.write(async () => {
-                  await record.destroyPermanently();
-                });
-                // Skip the normal update logic since we've already deleted locally
-                continue;
-              }
-              serverResponse = await enhancedAPI.deleteTask(record.id);
               break;
             default:
               console.warn(`Push: Unknown status ${record.status} for task ${record.id}`);
@@ -703,8 +737,14 @@ class SyncService {
               await record.update(r => {
                 // For tasks, preserve lifecycle status using combined format
                 if (record instanceof Task) {
-                  const { lifecycleStatus } = this.extractLifecycleStatus(record.status);
-                  r.status = `sync_failed:${lifecycleStatus}`;
+                  const { lifecycleStatus, syncStatus } = this.extractLifecycleStatus(record.status);
+                  // If it's a pending_delete that failed, mark as sync_failed_delete
+                  if (syncStatus === 'pending_delete') {
+                    r.status = 'sync_failed_delete';
+                  } else {
+                    // For other task sync failures, use combined format
+                    r.status = `sync_failed:${lifecycleStatus}`;
+                  }
                 } else {
                   // For other records, transition pending states to failed states
                   if (r.status === 'pending_create') {
@@ -1154,30 +1194,12 @@ class SyncService {
       // Handle threads response - convert to change format
       const changedThreads = Array.isArray(threadsResponse) ? threadsResponse : [];
       
-      // Fetch messages for each thread in PARALLEL (optimized from sequential N+1 queries)
-      // This significantly improves performance when there are many threads
+      // Skip fetching thread messages during sync for performance
+      // Messages are loaded on-demand when users open threads (AIChatScreen)
+      // This significantly speeds up sync operations, especially during workflows like brain dump
+      // Thread metadata (title, summary, etc.) is still synced above
       const changedMessages: any[] = [];
-      if (changedThreads.length > 0) {
-        const threadMessagePromises = changedThreads.map(async (thread) => {
-          try {
-            const threadData = await conversationService.getThread(thread.id, { limit: 50, timeoutMs: 60000 });
-            if (threadData.messages) {
-              return threadData.messages.map((msg: any) => ({
-                ...msg,
-                thread_id: thread.id, // Ensure thread_id is set
-              }));
-            }
-            return [];
-          } catch (msgErr: any) {
-            console.warn(`Pull: Failed to fetch messages for thread ${thread.id}, continuing without them.`, msgErr);
-            return [];
-          }
-        });
-        
-        const messageResults = await Promise.all(threadMessagePromises);
-        // Flatten the array of arrays into a single array
-        changedMessages.push(...messageResults.flat());
-      }
+      // Note: Messages will be fetched on-demand when user opens a thread, not during sync
 
       const allChanges = [
         ...changedEvents,

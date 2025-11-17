@@ -3,6 +3,7 @@ import {Q} from '@nozbe/watermelondb';
 import Task from '../db/models/Task';
 import {authService} from '../services/auth';
 import logger from '../utils/logger';
+import { safeParseDate } from '../utils/dateUtils';
 
 /**
  * TaskRepository handles all task-related database operations.
@@ -534,6 +535,97 @@ export class TaskRepository {
       });
       throw error;
     }
+  }
+
+  /**
+   * Creates tasks in local database from server response.
+   * Used when tasks are created via API (e.g., brain dump) to make them immediately visible.
+   * @param serverTasks - Array of tasks from server API response
+   * @returns Promise<Task[]> - Array of created local tasks
+   */
+  async createTasksFromServer(serverTasks: any[]): Promise<Task[]> {
+    if (!Array.isArray(serverTasks) || serverTasks.length === 0) {
+      return [];
+    }
+
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+    const createdTasks: Task[] = [];
+
+    await database.write(async () => {
+      for (const serverTask of serverTasks) {
+        try {
+          // Validate required fields before processing
+          if (!serverTask || !serverTask.id || !serverTask.title) {
+            console.warn('Skipping task creation: missing required fields', { 
+              hasTask: !!serverTask, 
+              hasId: !!serverTask?.id, 
+              hasTitle: !!serverTask?.title 
+            });
+            continue;
+          }
+
+          // Check if task already exists (by server ID)
+          const existingTask = await database.get<Task>('tasks')
+            .find(serverTask.id)
+            .catch(() => null);
+
+          if (existingTask) {
+            // Task already exists, skip
+            continue;
+          }
+
+          // Parse due date if present
+          const parsedDueDate = serverTask.due_date 
+            ? safeParseDate(serverTask.due_date)
+            : undefined;
+
+          // Extract lifecycle status from server response
+          const lifecycleStatus = this.extractLifecycleStatus(serverTask.status || 'not_started');
+
+          // Create task in local database
+          // Match the pattern used by SyncService.processTaskChange
+          // Note: category is not set here because it's not in the WatermelonDB schema
+          // The sync service will handle category updates when syncing
+          const task = await database.get<Task>('tasks').create((t: Task) => {
+            // Set the server ID - this must be done first
+            t._raw.id = serverTask.id;
+            // Set task fields (only fields that exist in the schema)
+            t.title = serverTask.title;
+            t.description = serverTask.description || '';
+            t.priority = serverTask.priority || 'medium';
+            t.estimatedDurationMinutes = serverTask.estimated_duration_minutes;
+            // Only set dueDate if parsing succeeded
+            if (parsedDueDate) {
+              t.dueDate = parsedDueDate;
+            }
+            t.goalId = serverTask.goal_id || null;
+            t.isTodayFocus = serverTask.is_today_focus === true;
+            // Note: category is not in WatermelonDB schema, so we skip it here
+            // It will be synced later by SyncService if needed
+            t.userId = serverTask.user_id || userId;
+            // Use lifecycle status from server (not sync status)
+            t.status = lifecycleStatus;
+            t.createdAt = serverTask.created_at ? new Date(serverTask.created_at) : new Date();
+            t.updatedAt = serverTask.updated_at ? new Date(serverTask.updated_at) : new Date();
+          });
+
+          createdTasks.push(task);
+        } catch (error: any) {
+          // Log the error with context but continue processing other tasks
+          console.error('Failed to create task from server response:', {
+            taskId: serverTask?.id,
+            taskTitle: serverTask?.title,
+            error: error?.message,
+            errorStack: error?.stack,
+            serverTaskData: serverTask
+          });
+          // Continue with next task instead of failing completely
+        }
+      }
+    });
+
+    return createdTasks;
   }
 }
 
