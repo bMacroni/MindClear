@@ -498,8 +498,6 @@ export class TaskRepository {
         // Create new task with server ID
         const newTask = await database.get<Task>('tasks').create(t => {
           t._raw.id = serverId;
-          t._raw._status = 'synced';
-          t._raw._changed = '';
           t.title = localTask.title;
           t.description = localTask.description;
           t.priority = localTask.priority;
@@ -557,7 +555,7 @@ export class TaskRepository {
         try {
           // Validate required fields before processing
           if (!serverTask || !serverTask.id || !serverTask.title) {
-            console.warn('Skipping task creation: missing required fields', { 
+            logger.warn('Skipping task creation: missing required fields', { 
               hasTask: !!serverTask, 
               hasId: !!serverTask?.id, 
               hasTitle: !!serverTask?.title 
@@ -590,9 +588,6 @@ export class TaskRepository {
           const task = await database.get<Task>('tasks').create((t: Task) => {
             // Set the server ID - this must be done first
             t._raw.id = serverTask.id;
-            // Set WatermelonDB sync metadata to mark as synced
-            t._raw._status = 'synced';
-            t._raw._changed = '';
             // Set task fields (only fields that exist in the schema)
             t.title = serverTask.title;
             t.description = serverTask.description || '';
@@ -616,11 +611,11 @@ export class TaskRepository {
           createdTasks.push(task);
         } catch (error: any) {
           // Log the error with context but continue processing other tasks
-          console.error('Failed to create task from server response:', {
+          logger.error('Failed to create task from server response:', {
             taskId: serverTask?.id,
             taskTitle: serverTask?.title,
-            error: error?.message,
-            errorStack: error?.stack,
+            error: error instanceof Error ? error.message : error?.message || 'Unknown error',
+            errorStack: error instanceof Error ? error.stack : error?.stack,
             serverTaskData: serverTask
           });
           // Continue with next task instead of failing completely
