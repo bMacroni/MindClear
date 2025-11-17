@@ -590,6 +590,9 @@ export class TaskRepository {
           const task = await database.get<Task>('tasks').create((t: Task) => {
             // Set the server ID - this must be done first
             t._raw.id = serverTask.id;
+            // Set WatermelonDB sync metadata to mark as synced
+            t._raw._status = 'synced';
+            t._raw._changed = '';
             // Set task fields (only fields that exist in the schema)
             t.title = serverTask.title;
             t.description = serverTask.description || '';
@@ -604,8 +607,8 @@ export class TaskRepository {
             // Note: category is not in WatermelonDB schema, so we skip it here
             // It will be synced later by SyncService if needed
             t.userId = serverTask.user_id || userId;
-            // Use lifecycle status from server (not sync status)
-            t.status = lifecycleStatus;
+            // Set status to 'synced' to mark record as synced and prevent sync loop
+            t.status = 'synced';
             t.createdAt = serverTask.created_at ? new Date(serverTask.created_at) : new Date();
             t.updatedAt = serverTask.updated_at ? new Date(serverTask.updated_at) : new Date();
           });

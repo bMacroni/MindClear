@@ -51,12 +51,22 @@ export const BrainDumpLoadingScreen: React.FC<BrainDumpLoadingScreenProps> = ({ 
       );
     };
 
-    createDotAnimation(dotAnim1, 0).start();
-    createDotAnimation(dotAnim2, 200).start();
-    createDotAnimation(dotAnim3, 400).start();
+    const dotAnimation1 = createDotAnimation(dotAnim1, 0);
+    const dotAnimation2 = createDotAnimation(dotAnim2, 200);
+    const dotAnimation3 = createDotAnimation(dotAnim3, 400);
+
+    dotAnimation1.start();
+    dotAnimation2.start();
+    dotAnimation3.start();
 
     // Note: onComplete is called by parent component after save operations complete
     // This ensures smooth transition timing
+
+    return () => {
+      dotAnimation1.stop();
+      dotAnimation2.stop();
+      dotAnimation3.stop();
+    };
   }, [fadeAnim, scaleAnim, dotAnim1, dotAnim2, dotAnim3]);
 
   const dotOpacity1 = dotAnim1.interpolate({

@@ -124,6 +124,11 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
     low: null,
   });
   
+  // Refs for timeout cleanup to prevent memory leaks
+  const outerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const innerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+  
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
   // Function to measure overlay zone boundaries
@@ -208,6 +213,24 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       } catch {}
     })();
   }, [seeded.length]);
+
+  // Cleanup effect to clear timers and prevent setState/navigation on unmounted component
+  useEffect(() => {
+    isMountedRef.current = true;
+    
+    return () => {
+      isMountedRef.current = false;
+      // Clear both timers if they exist
+      if (outerTimeoutRef.current !== null) {
+        clearTimeout(outerTimeoutRef.current);
+        outerTimeoutRef.current = null;
+      }
+      if (innerTimeoutRef.current !== null) {
+        clearTimeout(innerTimeoutRef.current);
+        innerTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const handleDragStart = (taskId: string) => {
     setDraggingId(taskId);
@@ -296,6 +319,17 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
 
   const onSave = async () => {
     if (saving || tasks.length === 0) { return; }
+    
+    // Clear any existing timers before starting a new save operation
+    if (outerTimeoutRef.current !== null) {
+      clearTimeout(outerTimeoutRef.current);
+      outerTimeoutRef.current = null;
+    }
+    if (innerTimeoutRef.current !== null) {
+      clearTimeout(innerTimeoutRef.current);
+      innerTimeoutRef.current = null;
+    }
+    
     setSaving(true);
     
     // Show loading screen immediately for smooth transition
@@ -394,27 +428,54 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       const remainingTime = Math.max(0, minDuration - elapsed);
       
       // Wait for remaining time (if any) plus a small fade-out delay, then navigate
-      setTimeout(() => {
+      // Store timeout ID and check mounted flag to prevent memory leaks
+      outerTimeoutRef.current = setTimeout(() => {
+        // Check if component is still mounted before updating state
+        if (!isMountedRef.current) return;
+        
         setShowLoadingScreen(false);
         // Small delay before navigation to allow loading screen to fade out smoothly
-        setTimeout(() => {
+        innerTimeoutRef.current = setTimeout(() => {
+          // Check if component is still mounted before navigating
+          if (!isMountedRef.current) return;
           navigation.navigate('Tasks');
+          innerTimeoutRef.current = null;
         }, 200);
+        outerTimeoutRef.current = null;
       }, remainingTime);
     } catch (error: any) {
+      // Clear any pending timers on error
+      if (outerTimeoutRef.current !== null) {
+        clearTimeout(outerTimeoutRef.current);
+        outerTimeoutRef.current = null;
+      }
+      if (innerTimeoutRef.current !== null) {
+        clearTimeout(innerTimeoutRef.current);
+        innerTimeoutRef.current = null;
+      }
+      
       // Hide loading screen on error
-      setShowLoadingScreen(false);
+      if (isMountedRef.current) {
+        setShowLoadingScreen(false);
+      }
       
       // Handle specific focus constraint violation
       if (String(error?.message || '').includes('already have a task set as today\'s focus') || 
           error?.code === 'FOCUS_CONSTRAINT_VIOLATION') {
-        setToastMessage('Updated your existing focus task with the new priority.');
+        if (isMountedRef.current) {
+          setToastMessage('Updated your existing focus task with the new priority.');
+          setToastVisible(true);
+        }
       } else {
-        setToastMessage('Failed to save tasks. Please try again.');
+        if (isMountedRef.current) {
+          setToastMessage('Failed to save tasks. Please try again.');
+          setToastVisible(true);
+        }
       }
-      setToastVisible(true);
     } finally {
-      setSaving(false);
+      if (isMountedRef.current) {
+        setSaving(false);
+      }
     }
   };
 
