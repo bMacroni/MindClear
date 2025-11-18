@@ -149,6 +149,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // If user navigated with overlay ON from a previous screen, ensure tooltips will populate
       // by briefly toggling it off (state stays off due to blur reset anyway)
       try { setIsHelpOverlayActive(false); } catch (e) { if (__DEV__) console.warn('setIsHelpOverlayActive failed:', e); }
+      
       // Avoid showing a spinner if we already have content; fetch fresh in background
       loadData({ silent: true });
       return () => {

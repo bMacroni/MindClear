@@ -10,6 +10,7 @@ import { brainDumpAPI, tasksAPI } from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { useFocusEffect } from '@react-navigation/native';
+import { taskRepository } from '../../repositories/TaskRepository';
 
 type IncomingItem = {
   text: string;
@@ -103,11 +104,16 @@ export default function BrainDumpInputScreen({ navigation }: any) {
       let duplicatesRemovedCount = 0;
       try {
         // Remove items that already exist as tasks (by normalized title, excluding completed)
-        const existingTasks = await tasksAPI.getTasks();
+        // Use local database instead of API call for faster duplicate checking
+        const existingTasks = await taskRepository.getAllTasks();
         const existingActiveTitles = new Set(
-          (Array.isArray(existingTasks) ? existingTasks : [])
-            .filter((t: any) => String(t?.status || '').toLowerCase() !== 'completed')
-            .map((t: any) => normalizeKey(t?.title))
+          existingTasks
+            .filter((t) => {
+              const status = String(t?.status || '').toLowerCase();
+              // Exclude completed tasks and pending deletes
+              return status !== 'completed' && !status.startsWith('pending_delete');
+            })
+            .map((t) => normalizeKey(t?.title))
             .filter(Boolean)
         );
         const beforeCount = mergedItems.length;

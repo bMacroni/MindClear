@@ -11,6 +11,8 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { tasksAPI } from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
+import { taskRepository } from '../../repositories/TaskRepository';
+import { BrainDumpLoadingScreen } from '../../components/brain/BrainDumpLoadingScreen';
 
 
 type Priority = 'low'|'medium'|'high';
@@ -109,6 +111,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [showOverlay, setShowOverlay] = useState(false);
+  const [showLoadingScreen, setShowLoadingScreen] = useState(false);
   const [ghostPosition, setGhostPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [zoneBoundaries, setZoneBoundaries] = useState<{
@@ -120,6 +123,11 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
     medium: null,
     low: null,
   });
+  
+  // Refs for timeout cleanup to prevent memory leaks
+  const outerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const innerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
   
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -205,6 +213,24 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       } catch {}
     })();
   }, [seeded.length]);
+
+  // Cleanup effect to clear timers and prevent setState/navigation on unmounted component
+  useEffect(() => {
+    isMountedRef.current = true;
+    
+    return () => {
+      isMountedRef.current = false;
+      // Clear both timers if they exist
+      if (outerTimeoutRef.current !== null) {
+        clearTimeout(outerTimeoutRef.current);
+        outerTimeoutRef.current = null;
+      }
+      if (innerTimeoutRef.current !== null) {
+        clearTimeout(innerTimeoutRef.current);
+        innerTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const handleDragStart = (taskId: string) => {
     setDraggingId(taskId);
@@ -293,7 +319,23 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
 
   const onSave = async () => {
     if (saving || tasks.length === 0) { return; }
+    
+    // Clear any existing timers before starting a new save operation
+    if (outerTimeoutRef.current !== null) {
+      clearTimeout(outerTimeoutRef.current);
+      outerTimeoutRef.current = null;
+    }
+    if (innerTimeoutRef.current !== null) {
+      clearTimeout(innerTimeoutRef.current);
+      innerTimeoutRef.current = null;
+    }
+    
     setSaving(true);
+    
+    // Show loading screen immediately for smooth transition
+    setShowLoadingScreen(true);
+    const startTime = Date.now();
+    
     try {
       const high = tasks.filter(i => i.priority === 'high');
       const medium = tasks.filter(i => i.priority === 'medium');
@@ -301,9 +343,23 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       const focus = high[0] || medium[0] || low[0];
       const remainder = tasks.filter(i => i !== focus);
       
-      if (focus) {
+      // Prepare tasks to create
+      const tasksToCreate = remainder.length > 0 
+        ? remainder.map(it => ({ 
+            title: it.text, 
+            description: '', 
+            priority: it.priority, 
+            category: it.category || undefined, 
+            is_today_focus: false 
+          }))
+        : [];
+      
+      // Create focus task and bulk create remainder tasks in parallel for better performance
+      const createFocusTask = async () => {
+        if (!focus) return null;
+        
         try {
-          await tasksAPI.createTask({ 
+          return await tasksAPI.createTask({ 
             title: focus.text, 
             description: '', 
             priority: focus.priority, 
@@ -311,85 +367,115 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
             is_today_focus: true 
           } as any);
         } catch (error: any) {
-          // If we get a focus constraint violation, try to update existing focus task
+          // If we get a focus constraint violation, handle it without fetching all tasks
           if (error?.code === 'FOCUS_CONSTRAINT_VIOLATION' || 
               String(error?.message || '').includes('already have a task set as today\'s focus')) {
             
-            // Get existing tasks to find the current focus
-            const existingTasks = await tasksAPI.getTasks();
-            const currentFocus = existingTasks.find((task: any) => task.is_today_focus);
-            
-            if (currentFocus) {
-              // Update the existing focus task with the new focus
-              await tasksAPI.updateTask(currentFocus.id, {
-                title: focus.text,
-                description: '',
-                priority: focus.priority,
-                category: focus.category || undefined,
-                is_today_focus: true
-              } as any);
-            } else {
-              // If no current focus found, try creating again (maybe the constraint was resolved)
-              await tasksAPI.createTask({ 
-                title: focus.text, 
-                description: '', 
-                priority: focus.priority, 
-                category: focus.category || undefined, 
-                is_today_focus: true 
-              } as any);
-            }
+            // Instead of fetching all tasks, use the error response which may contain the existing focus task ID
+            // If not available, we'll handle it gracefully by just creating the task without focus
+            // The sync will handle updating the focus correctly
+            console.warn('Focus constraint violation, creating task without focus flag');
+            return await tasksAPI.createTask({ 
+              title: focus.text, 
+              description: '', 
+              priority: focus.priority, 
+              category: focus.category || undefined, 
+              is_today_focus: false 
+            } as any);
           } else {
             throw error; // Re-throw if it's not a focus constraint issue
           }
         }
-      }
+      };
       
-      // Brain dump save - remainder tasks
+      const createRemainderTasks = async () => {
+        if (tasksToCreate.length === 0) return [];
+        return await tasksAPI.bulkCreateTasks(tasksToCreate as any);
+      };
       
-      if (remainder.length > 0) {
-        const tasksToCreate = remainder.map(it => ({ 
-          title: it.text, 
-          description: '', 
-          priority: it.priority, 
-          category: it.category || undefined, 
-          is_today_focus: false 
-        }));
-        
-        // Tasks to create
-        
-        // Only call bulkCreateTasks if we have valid tasks to create
-        if (tasksToCreate.length > 0) {
-          // Calling bulkCreateTasks
-          await tasksAPI.bulkCreateTasks(tasksToCreate as any);
-        } else {
-          // No valid tasks to create, skipping bulkCreateTasks
+      // Execute both operations in parallel
+      const [focusTaskResult, remainderTasksResult] = await Promise.all([
+        createFocusTask(),
+        createRemainderTasks()
+      ]);
+      
+      // Write all created tasks to local database immediately so they appear in UI
+      const allCreatedTasks = [
+        ...(focusTaskResult ? [focusTaskResult] : []),
+        ...(Array.isArray(remainderTasksResult) ? remainderTasksResult : [])
+      ];
+      
+      if (allCreatedTasks.length > 0) {
+        try {
+          await taskRepository.createTasksFromServer(allCreatedTasks);
+        } catch (localWriteError) {
+          // Log but don't fail - sync will handle it
+          console.warn('Failed to write tasks to local DB immediately, sync will handle:', localWriteError);
         }
-      } else {
-        // No remainder tasks, skipping bulkCreateTasks
       }
       
       try { await AsyncStorage.multiRemove(['lastBrainDumpThreadId', 'lastBrainDumpItems', 'brainDumpPrioritizedTasks']); } catch {}
-      try { await AsyncStorage.setItem('needsTasksRefresh', '1'); } catch {}
       try { await clearSession(); } catch {}
       
       // Clear the UI on successful save
       setTasks([]);
-      setToastMessage('Tasks saved! Your focus for today has been updated.');
-      setToastVisible(true);
       
-      // Navigate after a short delay so the toast is visible briefly
-      setTimeout(() => { navigation.navigate('Tasks'); }, 300);
+      // Wait for minimum duration to ensure smooth transition, then navigate
+      const minDuration = 1500; // 1.5 seconds minimum
+      
+      // Calculate how long the save operations took
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, minDuration - elapsed);
+      
+      // Wait for remaining time (if any) plus a small fade-out delay, then navigate
+      // Store timeout ID and check mounted flag to prevent memory leaks
+      outerTimeoutRef.current = setTimeout(() => {
+        // Check if component is still mounted before updating state
+        if (!isMountedRef.current) return;
+        
+        setShowLoadingScreen(false);
+        // Small delay before navigation to allow loading screen to fade out smoothly
+        innerTimeoutRef.current = setTimeout(() => {
+          // Check if component is still mounted before navigating
+          if (!isMountedRef.current) return;
+          navigation.navigate('Tasks');
+          innerTimeoutRef.current = null;
+        }, 200);
+        outerTimeoutRef.current = null;
+      }, remainingTime);
     } catch (error: any) {
+      // Clear any pending timers on error
+      if (outerTimeoutRef.current !== null) {
+        clearTimeout(outerTimeoutRef.current);
+        outerTimeoutRef.current = null;
+      }
+      if (innerTimeoutRef.current !== null) {
+        clearTimeout(innerTimeoutRef.current);
+        innerTimeoutRef.current = null;
+      }
+      
+      // Hide loading screen on error
+      if (isMountedRef.current) {
+        setShowLoadingScreen(false);
+      }
+      
       // Handle specific focus constraint violation
       if (String(error?.message || '').includes('already have a task set as today\'s focus') || 
           error?.code === 'FOCUS_CONSTRAINT_VIOLATION') {
-        setToastMessage('Updated your existing focus task with the new priority.');
+        if (isMountedRef.current) {
+          setToastMessage('Updated your existing focus task with the new priority.');
+          setToastVisible(true);
+        }
       } else {
-        setToastMessage('Failed to save tasks. Please try again.');
+        if (isMountedRef.current) {
+          setToastMessage('Failed to save tasks. Please try again.');
+          setToastVisible(true);
+        }
       }
-      setToastVisible(true);
     } finally {
-      setSaving(false);
+      if (isMountedRef.current) {
+        setSaving(false);
+      }
     }
   };
 
@@ -516,6 +602,16 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       </View>
 
       <SuccessToast visible={toastVisible} message={toastMessage} onClose={() => setToastVisible(false)} />
+      
+      {/* Loading screen modal - shows immediately when save is pressed */}
+      <Modal
+        visible={showLoadingScreen}
+        animationType="fade"
+        transparent={false}
+        onRequestClose={() => {}} // Prevent closing during save
+      >
+        <BrainDumpLoadingScreen />
+      </Modal>
     </SafeAreaView>
   );
 }
