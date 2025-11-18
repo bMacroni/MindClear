@@ -72,6 +72,78 @@ export class GeminiService {
   }
 
   /**
+   * Normalizes a task category to one of the valid categories used in the app.
+   * Valid categories: 'career', 'health', 'personal', 'education', 'finance', 'relationships', 'other'
+   * @param {string|null|undefined} category - The category to normalize
+   * @returns {string|null} - Normalized category or null
+   */
+  _normalizeTaskCategory(category) {
+    if (!category || typeof category !== 'string') {
+      return null;
+    }
+
+    const lowerCategory = category.toLowerCase().trim();
+    const validCategories = ['career', 'health', 'personal', 'education', 'finance', 'relationships', 'other'];
+
+    // Check if it's already a valid category
+    if (validCategories.includes(lowerCategory)) {
+      return lowerCategory;
+    }
+
+    // Map common variations to valid categories
+    const categoryMap = {
+      work: 'career',
+      job: 'career',
+      business: 'career',
+      professional: 'career',
+      fitness: 'health',
+      wellbeing: 'health',
+      wellness: 'health',
+      medical: 'health',
+      doctor: 'health',
+      exercise: 'health',
+      workout: 'health',
+      learn: 'education',
+      study: 'education',
+      school: 'education',
+      learning: 'education',
+      money: 'finance',
+      budget: 'finance',
+      financial: 'finance',
+      banking: 'finance',
+      family: 'relationships',
+      friends: 'relationships',
+      social: 'relationships',
+      relationship: 'relationships',
+      love: 'relationships',
+      home: 'personal',
+      household: 'personal',
+      errands: 'personal',
+      chores: 'personal',
+      digital: 'personal', // Digital hygiene, digital maintenance tasks
+      hygiene: 'personal', // Personal hygiene, digital hygiene
+      maintenance: 'personal', // General maintenance tasks
+      cleaning: 'personal', // Cleaning and organization tasks
+      organization: 'personal', // Organization and decluttering
+    };
+
+    // Check for exact matches in the map
+    if (categoryMap[lowerCategory]) {
+      return categoryMap[lowerCategory];
+    }
+
+    // Check for partial matches (e.g., "digital hygiene" contains "health" concepts but should map to "other")
+    for (const key in categoryMap) {
+      if (lowerCategory.includes(key)) {
+        return categoryMap[key];
+      }
+    }
+
+    // If no match found, return null (will be handled as uncategorized)
+    return null;
+  }
+
+  /**
    * Parse brain dump text into structured items.
    * Returns an array of normalized items with fields:
    * [{ text, type: 'task'|'goal', confidence: number, category: string|null, stress_level: 'low'|'medium'|'high', priority: 'low'|'medium'|'high' }]
@@ -90,9 +162,34 @@ export class GeminiService {
       return buildFallback();
     }
 
-    const prompt = `You will receive a user's free-form brain dump. Extract a deduplicated list of items and classify each as either a short-term task or a longer-term goal (project/objective).\n
-For each item, return ONLY a JSON array of objects with fields:\n- text: string\n- type: "task" | "goal"\n- confidence: number in [0,1]\n- category: string | null (use user's existing task categories if applicable for tasks; null for goals is acceptable)\n- stress_level: "low" | "medium" | "high"\n
-Rules:\n- Tasks are concrete, one-off actions (e.g., "Email Dr. Lee", "Buy milk").\n- Goals are broader outcomes/projects (e.g., "Get in shape", "Plan a vacation").\n- Keep items concise.\n
+    const validTaskCategories = ['career', 'health', 'personal', 'education', 'finance', 'relationships', 'other'];
+    const prompt = `You will receive a user's free-form brain dump. Extract a deduplicated list of items and classify each as either a short-term task or a longer-term goal (project/objective).
+For each item, return ONLY a JSON array of objects with fields:
+- text: string
+- type: "task" | "goal"
+- confidence: number in [0,1]
+- category: string | null
+- stress_level: "low" | "medium" | "high"
+- priority: "low" | "medium" | "high"
+
+Category Rules (for tasks only):
+- You MUST use one of these exact category values: ${validTaskCategories.join(', ')}
+- If the task doesn't clearly fit any category, use "other" or null
+- For goals, category should be null
+- Examples:
+  * Work-related tasks → "career"
+  * Health, fitness, medical tasks → "health"
+  * Learning, studying, education → "education"
+  * Money, budgeting, financial → "finance"
+  * Family, friends, social → "relationships"
+  * Personal tasks, errands, chores → "personal"
+  * Unclear or miscellaneous → "other" or null
+
+Task vs Goal Rules:
+- Tasks are concrete, one-off actions (e.g., "Email Dr. Lee", "Buy milk", "Clear email spam")
+- Goals are broader outcomes/projects (e.g., "Get in shape", "Plan a vacation", "Learn Spanish")
+- Keep items concise.
+
 Respond ONLY with a JSON array.`;
 
     try {
@@ -112,14 +209,24 @@ Respond ONLY with a JSON array.`;
       }
       const normalized = Array.isArray(items) ? items
         .filter(it => it && typeof it.text === 'string' && it.text.trim() !== '')
-        .map(it => ({
-          text: String(it.text).trim(),
-          type: /^(task|goal)$/i.test(it.type) ? it.type.toLowerCase() : 'task',
-          confidence: typeof it.confidence === 'number' && it.confidence >= 0 && it.confidence <= 1 ? it.confidence : 0.7,
-          category: it.category || null,
-          stress_level: /^(low|medium|high)$/i.test(it.stress_level) ? it.stress_level.toLowerCase() : 'medium',
-          priority: /^(low|medium|high)$/i.test(it.stress_level) ? it.stress_level.toLowerCase() : 'medium'
-        })) : [];
+        .map(it => {
+          const itemType = /^(task|goal)$/i.test(it.type) ? it.type.toLowerCase() : 'task';
+          // Only normalize category for tasks, goals should have null category
+          const normalizedCategory = itemType === 'task' 
+            ? this._normalizeTaskCategory(it.category)
+            : null;
+          
+          return {
+            text: String(it.text).trim(),
+            type: itemType,
+            confidence: typeof it.confidence === 'number' && it.confidence >= 0 && it.confidence <= 1 ? it.confidence : 0.7,
+            category: normalizedCategory,
+            stress_level: /^(low|medium|high)$/i.test(it.stress_level) ? it.stress_level.toLowerCase() : 'medium',
+            priority: /^(low|medium|high)$/i.test(it.priority) ? it.priority.toLowerCase() : (
+              /^(low|medium|high)$/i.test(it.stress_level) ? it.stress_level.toLowerCase() : 'medium'
+            )
+          };
+        }) : [];
 
       return normalized.length > 0 ? normalized : buildFallback();
     } catch (err) {

@@ -578,13 +578,8 @@ export class TaskRepository {
             ? safeParseDate(serverTask.due_date)
             : undefined;
 
-          // Extract lifecycle status from server response
-          const lifecycleStatus = this.extractLifecycleStatus(serverTask.status || 'not_started');
-
           // Create task in local database
           // Match the pattern used by SyncService.processTaskChange
-          // Note: category is not set here because it's not in the WatermelonDB schema
-          // The sync service will handle category updates when syncing
           const task = await database.get<Task>('tasks').create((t: Task) => {
             // Set the server ID - this must be done first
             t._raw.id = serverTask.id;
@@ -599,8 +594,7 @@ export class TaskRepository {
             }
             t.goalId = serverTask.goal_id || null;
             t.isTodayFocus = serverTask.is_today_focus === true;
-            // Note: category is not in WatermelonDB schema, so we skip it here
-            // It will be synced later by SyncService if needed
+            t.category = serverTask.category ?? null;
             t.userId = serverTask.user_id || userId;
             // Set status to 'synced' to mark record as synced and prevent sync loop
             t.status = 'synced';
