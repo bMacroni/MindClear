@@ -230,4 +230,100 @@ describe('GeminiService - Duplication Issue', () => {
     expect(taskAction.action_type).toBe('create');
     expect(goalAction.action_type).toBe('create');
   });
+});
+
+describe('GeminiService - _normalizeTaskCategory', () => {
+  let geminiService;
+
+  beforeEach(() => {
+    geminiService = new GeminiService();
+    geminiService.enabled = true;
+  });
+
+  describe('exact matches', () => {
+    it('should return valid categories as-is', () => {
+      expect(geminiService._normalizeTaskCategory('career')).toBe('career');
+      expect(geminiService._normalizeTaskCategory('health')).toBe('health');
+      expect(geminiService._normalizeTaskCategory('personal')).toBe('personal');
+      expect(geminiService._normalizeTaskCategory('education')).toBe('education');
+      expect(geminiService._normalizeTaskCategory('finance')).toBe('finance');
+      expect(geminiService._normalizeTaskCategory('relationships')).toBe('relationships');
+      expect(geminiService._normalizeTaskCategory('other')).toBe('other');
+    });
+
+    it('should handle case-insensitive exact matches', () => {
+      expect(geminiService._normalizeTaskCategory('CAREER')).toBe('career');
+      expect(geminiService._normalizeTaskCategory('Health')).toBe('health');
+      expect(geminiService._normalizeTaskCategory('PERSONAL')).toBe('personal');
+    });
+
+    it('should return exact matches from categoryMap', () => {
+      expect(geminiService._normalizeTaskCategory('work')).toBe('career');
+      expect(geminiService._normalizeTaskCategory('workout')).toBe('health');
+      expect(geminiService._normalizeTaskCategory('homework')).toBe('education');
+      expect(geminiService._normalizeTaskCategory('home')).toBe('personal');
+    });
+  });
+
+  describe('partial matches with longest-first ordering', () => {
+    it('should match "workout" to health, not career (work)', () => {
+      // "workout" contains "work" but should match "workout" first (longer key)
+      expect(geminiService._normalizeTaskCategory('workout')).toBe('health');
+      expect(geminiService._normalizeTaskCategory('my workout routine')).toBe('health');
+      expect(geminiService._normalizeTaskCategory('workout session')).toBe('health');
+    });
+
+    it('should match "homework" to education, not personal (home)', () => {
+      // "homework" contains "home" but should match "homework" first (longer key)
+      expect(geminiService._normalizeTaskCategory('homework')).toBe('education');
+      expect(geminiService._normalizeTaskCategory('do homework')).toBe('education');
+      expect(geminiService._normalizeTaskCategory('homework assignment')).toBe('education');
+    });
+
+    it('should match "work" to career when it is just "work"', () => {
+      expect(geminiService._normalizeTaskCategory('work')).toBe('career');
+      expect(geminiService._normalizeTaskCategory('work meeting')).toBe('career');
+      expect(geminiService._normalizeTaskCategory('work project')).toBe('career');
+    });
+
+    it('should match "home" to personal when it is just "home"', () => {
+      expect(geminiService._normalizeTaskCategory('home')).toBe('personal');
+      expect(geminiService._normalizeTaskCategory('home maintenance')).toBe('personal');
+      expect(geminiService._normalizeTaskCategory('home chores')).toBe('personal');
+    });
+
+    it('should handle "digital hygiene" matching "hygiene" (personal)', () => {
+      // "digital hygiene" should match "hygiene" (longer than "digital")
+      expect(geminiService._normalizeTaskCategory('digital hygiene')).toBe('personal');
+    });
+
+    it('should prioritize longer specific matches over shorter generic ones', () => {
+      // "professional" (11 chars) should match before "work" (4 chars)
+      expect(geminiService._normalizeTaskCategory('professional development')).toBe('career');
+      // "organization" (12 chars) should match before "home" (4 chars)
+      expect(geminiService._normalizeTaskCategory('home organization')).toBe('personal');
+      // "wellbeing" (9 chars) should match before "well" (if it existed)
+      expect(geminiService._normalizeTaskCategory('wellbeing check')).toBe('health');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should return null for invalid input', () => {
+      expect(geminiService._normalizeTaskCategory(null)).toBe(null);
+      expect(geminiService._normalizeTaskCategory(undefined)).toBe(null);
+      expect(geminiService._normalizeTaskCategory('')).toBe(null);
+      expect(geminiService._normalizeTaskCategory(123)).toBe(null);
+      expect(geminiService._normalizeTaskCategory({})).toBe(null);
+    });
+
+    it('should handle whitespace', () => {
+      expect(geminiService._normalizeTaskCategory('  career  ')).toBe('career');
+      expect(geminiService._normalizeTaskCategory('  workout  ')).toBe('health');
+    });
+
+    it('should return null for unmatched categories', () => {
+      expect(geminiService._normalizeTaskCategory('unknown category')).toBe(null);
+      expect(geminiService._normalizeTaskCategory('xyzabc')).toBe(null);
+    });
+  });
 }); 

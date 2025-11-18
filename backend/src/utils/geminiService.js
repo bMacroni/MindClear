@@ -107,6 +107,7 @@ export class GeminiService {
       study: 'education',
       school: 'education',
       learning: 'education',
+      homework: 'education',
       money: 'finance',
       budget: 'finance',
       financial: 'finance',
@@ -132,8 +133,11 @@ export class GeminiService {
       return categoryMap[lowerCategory];
     }
 
-    // Check for partial matches (e.g., "digital hygiene" contains "health" concepts but should map to "other")
-    for (const key in categoryMap) {
+    // Check for partial matches (e.g., "digital hygiene" contains "hygiene" and should map to "personal")
+    // Keys are sorted by length (longest first) to ensure specific matches (e.g., "workout") 
+    // are found before shorter partial matches (e.g., "work")
+    const sortedKeys = Object.keys(categoryMap).sort((a, b) => b.length - a.length);
+    for (const key of sortedKeys) {
       if (lowerCategory.includes(key)) {
         return categoryMap[key];
       }
@@ -273,7 +277,8 @@ Respond ONLY with a JSON array.`;
         } catch (fallbackErr) {
           if (this.DEBUG) logger.error('Fallback model failed:', fallbackErr);
         }
-      }      throw err;
+      }
+      throw err;
     }
   }
 
@@ -1271,8 +1276,7 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
 
     const result = await this.model.generateContent(prompt);
     const response = await result.response;
-    const text = response.text();
-    // Try to parse the JSON response
+    const text = response.text ? await response.text() : '';    // Try to parse the JSON response
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
