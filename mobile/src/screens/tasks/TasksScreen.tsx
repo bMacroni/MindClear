@@ -7,6 +7,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { useWindowDimensions } from 'react-native';
 import { colors } from '../../themes/colors';
@@ -34,6 +35,8 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { OnboardingService } from '../../services/onboarding';
+import { hapticFeedback } from '../../utils/hapticFeedback';
 import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import { Q, Database } from '@nozbe/watermelondb';
@@ -102,6 +105,32 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [quickOpenedAt, setQuickOpenedAt] = useState<number | undefined>(undefined);
   const [quickTaskId, setQuickTaskId] = useState<string | undefined>(undefined);
   const [momentumEnabled, setMomentumEnabled] = useState<boolean>(false);
+  const [showFirstFocusHelp, setShowFirstFocusHelp] = useState(false);
+  const [firstFocusHelpDismissed, setFirstFocusHelpDismissed] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [animationCompleted, setAnimationCompleted] = useState(false);
+  const [showPurpleBorder, setShowPurpleBorder] = useState(false);
+  const taskAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  const taskSlideAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  const taskScaleAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  
+  // Helper to get or create animation values with stable references
+  const getAnimationValues = React.useCallback((taskId: string) => {
+    if (!taskAnimations.has(taskId)) {
+      taskAnimations.set(taskId, new Animated.Value(1));
+    }
+    if (!taskSlideAnimations.has(taskId)) {
+      taskSlideAnimations.set(taskId, new Animated.Value(0));
+    }
+    if (!taskScaleAnimations.has(taskId)) {
+      taskScaleAnimations.set(taskId, new Animated.Value(1));
+    }
+    return {
+      opacity: taskAnimations.get(taskId)!,
+      translateX: taskSlideAnimations.get(taskId)!,
+      scale: taskScaleAnimations.get(taskId)!,
+    };
+  }, []);
   const eodActionInFlightRef = React.useRef<boolean>(false);
   const eodFocusIdRef = React.useRef<string | undefined>(undefined);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
@@ -114,9 +143,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     'tasks-momentum-toggle': 'Momentum mode picks your next focus task automatically when you complete one.',
     'tasks-travel-toggle': 'Switch between allowing travel or home-only tasks for momentum mode.',
     'tasks-inbox-toggle': 'Open your Inbox to choose a new focus task or view remaining tasks.',
-    'tasks-focus-complete': 'Mark today’s focus task as done.',
+    'tasks-focus-complete': 'Mark today\'s focus task as done.',
     'tasks-focus-skip': 'Skip this focus and we will pick the next one.',
-    'tasks-focus-change': 'Manually choose a different task as Today’s Focus.',
+    'tasks-focus-change': 'Manually choose a different task as Today\'s Focus.',
+    'tasks-first-focus-help': 'Swipe right (or tap) to make this Today\'s Focus',
     'task-complete': 'Mark the task complete.',
     'task-schedule': 'Open quick scheduling options for this task.',
     'task-ai': 'Ask AI for help planning or breaking down this task.',
@@ -150,12 +180,38 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // by briefly toggling it off (state stays off due to blur reset anyway)
       try { setIsHelpOverlayActive(false); } catch (e) { if (__DEV__) console.warn('setIsHelpOverlayActive failed:', e); }
       
+      // Check if we should show first focus help
+      (async () => {
+        try {
+          const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown');
+          const helpDismissed = await AsyncStorage.getItem('firstFocusHelpDismissed');
+          const focus = getFocusTask();
+          
+          // Show help if: guidance was shown, help not dismissed, no focus set, and inbox has tasks
+          if (guidanceShown === 'true' && !helpDismissed && !focus && inboxTasks.length > 0) {
+            setShowFirstFocusHelp(true);
+            setFirstFocusHelpDismissed(false);
+            // Open inbox to show tasks
+            setShowInbox(true);
+            // Activate help overlay to show the help
+            setIsHelpOverlayActive(true);
+          } else {
+            setShowFirstFocusHelp(false);
+            if (helpDismissed === 'true') {
+              setFirstFocusHelpDismissed(true);
+            }
+          }
+        } catch (error) {
+          console.warn('Error checking first focus help conditions:', error);
+        }
+      })();
+      
       // Avoid showing a spinner if we already have content; fetch fresh in background
       loadData({ silent: true });
       return () => {
         try { setIsHelpOverlayActive(false); } catch {}
       };
-    }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent])
+    }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent, getFocusTask, inboxTasks])
   );
   const loadSchedulingPreferences = async () => {
     try {
@@ -190,11 +246,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       try {
         const prefs = await appPreferencesAPI.get();
         if (prefs && typeof prefs === 'object') {
-          setMomentumEnabled(!!(prefs as any).momentum_mode_enabled);
-          setTravelPreference((prefs as any).momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
+          setMomentumEnabled((prefs as any)?.momentum_mode_enabled ?? false);
+          setTravelPreference((prefs as any)?.momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
+        } else {
+          // Default to false if prefs is invalid
+          setMomentumEnabled(false);
+          setTravelPreference('allow_travel');
         }
       } catch (error) {
         console.warn('Failed to load preferences:', error);
+        // Default to false on error
+        setMomentumEnabled(false);
+        setTravelPreference('allow_travel');
       }
 
       // Trigger silent sync - await only if explicitly requested (e.g., manual refresh)
@@ -927,6 +990,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // Set the task as today's focus using repository (local-first)
       await taskRepository.setTaskAsFocus(task.id);
 
+      // Dismiss first focus help if it was showing
+      if (showFirstFocusHelp && !firstFocusHelpDismissed) {
+        setShowFirstFocusHelp(false);
+        setFirstFocusHelpDismissed(true);
+        setIsHelpOverlayActive(false);
+        try {
+          await AsyncStorage.setItem('firstFocusHelpDismissed', 'true');
+        } catch (error) {
+          console.warn('Failed to save first focus help dismissed flag:', error);
+        }
+      }
+
       // Show immediate feedback
       setToastMessage("Setting as Today's Focus...");
       setToastCalendarEvent(false);
@@ -1014,37 +1089,51 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       setShowInbox(true);
       setSelectingFocus(true);
     }
-  }, [tasks, userSchedulingPreferences]);
+  }, [tasks, userSchedulingPreferences, showFirstFocusHelp, firstFocusHelpDismissed, setIsHelpOverlayActive]);
 
-  const renderTaskItem = useCallback(({ item }: { item: Task }) => (
-    <TaskCard
-      task={convertTaskForTaskCard(item)}
-      onPress={(task) => {
-        // Find the original WatermelonDB Task by ID
-        const originalTask = tasks.find(t => t.id === task.id);
-        if (!originalTask) return;
-        
-        if (selectingFocus) {
-          handleTaskSelect(originalTask);
-        } else {
-          handleTaskPress(originalTask);
-        }
-      }}
-      onDelete={handleDeleteTask}
-      onToggleStatus={handleToggleStatus}
-      onAddToCalendar={handleAddToCalendar}
-      onToggleAutoSchedule={handleToggleAutoSchedule}
-      onScheduleNow={handleScheduleNow}
-      onOpenQuickSchedule={handleOpenQuickSchedule}
-      onQuickSchedule={handleQuickSchedule}
-      onAIHelp={(task) => {
-        // Find the original WatermelonDB Task by ID
-        const originalTask = tasks.find(t => t.id === task.id);
-        if (!originalTask) return;
-        handleAIHelp(originalTask);
-      }}
-    />
-  ), [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp]);
+  const renderTaskItem = useCallback(({ item, index }: { item: Task; index: number }) => {
+    const isFirstInboxTask = showFirstFocusHelp && !firstFocusHelpDismissed && index === 0 && !item.isTodayFocus;
+    const taskCard = (
+      <TaskCard
+        task={convertTaskForTaskCard(item)}
+        onPress={(task) => {
+          // Find the original WatermelonDB Task by ID
+          const originalTask = tasks.find(t => t.id === task.id);
+          if (!originalTask) return;
+          
+          if (selectingFocus) {
+            handleTaskSelect(originalTask);
+          } else {
+            handleTaskPress(originalTask);
+          }
+        }}
+        onDelete={handleDeleteTask}
+        onToggleStatus={handleToggleStatus}
+        onAddToCalendar={handleAddToCalendar}
+        onToggleAutoSchedule={handleToggleAutoSchedule}
+        onScheduleNow={handleScheduleNow}
+        onOpenQuickSchedule={handleOpenQuickSchedule}
+        onQuickSchedule={handleQuickSchedule}
+        onAIHelp={(task) => {
+          // Find the original WatermelonDB Task by ID
+          const originalTask = tasks.find(t => t.id === task.id);
+          if (!originalTask) return;
+          handleAIHelp(originalTask);
+        }}
+      />
+    );
+
+    // Wrap first inbox task with HelpTarget if showing first focus help
+    if (isFirstInboxTask) {
+      return (
+        <HelpTarget helpId="tasks-first-focus-help">
+          {taskCard}
+        </HelpTarget>
+      );
+    }
+
+    return taskCard;
+  }, [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp, showFirstFocusHelp, firstFocusHelpDismissed, tasks]);
 
   const keyExtractor = useCallback((item: Task) => item.id, []);
 
@@ -1124,11 +1213,100 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   const handleFocusDone = useCallback(async (task: Task) => {
     try {
-      // Update task status immediately using repository (local-first)
+      // Trigger haptic feedback immediately (wrap in try-catch for safety)
+      try {
+        hapticFeedback.heavy();
+      } catch (hapticError) {
+        console.warn('Haptic feedback failed:', hapticError);
+        // Continue even if haptic fails
+      }
+      
+      // Create animation values for task if not exists
+      if (!taskAnimations.has(task.id)) {
+        taskAnimations.set(task.id, new Animated.Value(1)); // Opacity starts at 1
+      }
+      if (!taskSlideAnimations.has(task.id)) {
+        taskSlideAnimations.set(task.id, new Animated.Value(0)); // TranslateX starts at 0
+      }
+      if (!taskScaleAnimations.has(task.id)) {
+        taskScaleAnimations.set(task.id, new Animated.Value(1)); // Scale starts at 1
+      }
+      const opacityAnim = taskAnimations.get(task.id)!;
+      const slideAnim = taskSlideAnimations.get(task.id)!;
+      const scaleAnim = taskScaleAnimations.get(task.id)!;
+      
+      // Set completing state FIRST so the Animated.View renders with the animation values
+      setCompletingTaskId(task.id);
+      setShowPurpleBorder(false); // Reset border state
+      
+      // Small delay to ensure the Animated.View is mounted and tracking the values
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Reset animation values to initial state AFTER view is mounted
+      opacityAnim.setValue(1);
+      slideAnim.setValue(0);
+      scaleAnim.setValue(1);
+      
+      // Start strikethrough animation (opacity reduction from 1 to 0.5) + show purple border
+      setShowPurpleBorder(true); // Show purple border immediately when strikethrough starts
+      await new Promise<void>((resolve) => {
+        Animated.timing(opacityAnim, {
+          toValue: 0.5,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => resolve());
+      });
+      
+      // Wait 800ms for pause (as specified in PRD: 500-800ms)
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Start shrink animation (slow scale down) - keep purple border
+      await new Promise<void>((resolve) => {
+        Animated.timing(scaleAnim, {
+          toValue: 0.3, // Shrink to 30% of original size
+          duration: 600, // Slow shrink animation
+          useNativeDriver: true,
+        }).start(() => resolve());
+      });
+      
+      // At the end of shrink, slide away to the right
+      const slideAwayAnimation = Animated.parallel([
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: width, // Slide off to the right edge of screen
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      // Wait for slide-away animation to complete
+      await new Promise<void>((resolve) => {
+        slideAwayAnimation.start(() => {
+          // Mark animation as completed so empty state can show immediately
+          setAnimationCompleted(true);
+          resolve();
+        });
+      });
+      
+      // Update database after animation completes
       await taskRepository.updateTaskStatus(task.id, 'completed');
-      setToastMessage('Great job! Focus task completed.');
-      setToastCalendarEvent(false);
-      setShowToast(true);
+      
+      // Force UI refresh to update task lists (inboxTasks, getFocusTask, etc.)
+      setTasksVersion(prev => prev + 1);
+      
+      // Small delay to ensure WatermelonDB processes the update
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
+      
+      // Clear completing state after database update and UI refresh
+      setCompletingTaskId(null);
+      setAnimationCompleted(false);
+      setShowPurpleBorder(false); // Reset border state
+      
+      // Remove toast notification - animation provides feedback instead
 
       if (task.isTodayFocus && momentumEnabled) {
         try {
@@ -1230,10 +1408,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           }
         }
       }
-    } catch {
+    } catch (error) {
+      console.error('Error completing focus task:', error);
+      // Reset animation state on error
+      setCompletingTaskId(null);
+      setAnimationCompleted(false);
+      setShowPurpleBorder(false); // Reset border state
       Alert.alert('Error', 'Failed to complete focus task');
     }
-  }, [momentumEnabled, travelPreference, userSchedulingPreferences]);
+  }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showPurpleBorder]);
 
   const handleEodMarkDone = useCallback(async () => {
     if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
@@ -1558,7 +1741,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                   </HelpTarget>
                 </View>
               </View>
-              {focus ? (
+              {focus && completingTaskId !== focus.id && !animationCompleted ? (
                 <View style={styles.focusCard}>
                   <Text style={styles.focusTaskTitle}>{focus.title}</Text>
                   <View style={styles.focusBadges}>
@@ -1587,10 +1770,42 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                     </HelpTarget>
                   </View>
                 </View>
+              ) : focus && completingTaskId === focus.id && !animationCompleted ? (
+                (() => {
+                  const animValues = getAnimationValues(focus.id);
+                  return (
+                    <Animated.View 
+                      key={`animated-focus-${focus.id}`}
+                      style={[
+                        styles.focusCard,
+                        {
+                          opacity: animValues.opacity,
+                          borderColor: showPurpleBorder ? '#9333EA' : colors.border.light, // Direct purple color when active
+                          borderWidth: 3, // Thicker border for visibility
+                          transform: [
+                            { scale: animValues.scale },
+                            { translateX: animValues.translateX },
+                          ],
+                        }
+                      ]}
+                    >
+                      <Text style={[
+                        styles.focusTaskTitle,
+                        styles.strikethroughText
+                      ]}>{focus.title}</Text>
+                      <View style={styles.focusBadges}>
+                        {!!focus.category && (
+                          <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                        )}
+                        <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                      </View>
+                    </Animated.View>
+                  );
+                })()
               ) : (
                 <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
-                  <Text style={styles.focusTaskTitle}>No focus set</Text>
-                  <Text style={styles.badgeText}>Set Today’s Focus to keep things simple.</Text>
+                  <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
+                  <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1837,6 +2052,15 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold as any,
+  },
+  strikethroughText: {
+    textDecorationLine: 'line-through',
+    opacity: 0.6,
+  },
+  emptyFocusSubtext: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    marginTop: spacing.xs,
   },
   focusBadges: {
     flexDirection: 'row',

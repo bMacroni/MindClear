@@ -1498,13 +1498,23 @@ export const appPreferencesAPI = {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {
+        // If 404 or empty response, return default preferences for new users
+        if (response.status === 404) {
+          return { momentum_mode_enabled: false, momentum_travel_preference: 'allow_travel' };
+        }
         const errorText = await response.text();
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
-      return response.json();
+      const data = await response.json();
+      // Ensure momentum_mode_enabled defaults to false if undefined/null
+      return {
+        momentum_mode_enabled: data?.momentum_mode_enabled ?? false,
+        momentum_travel_preference: data?.momentum_travel_preference ?? 'allow_travel',
+      };
     } catch (error) {
-      console.error('Error fetching app preferences:', error);
-      throw error;
+      // If network error or other failure, return default preferences
+      console.warn('Error fetching app preferences, using defaults:', error);
+      return { momentum_mode_enabled: false, momentum_travel_preference: 'allow_travel' };
     }
   },
   update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {

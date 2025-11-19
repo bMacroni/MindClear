@@ -2,6 +2,7 @@ export interface OnboardingState {
   isCompleted: boolean;
   lastCompletedAt?: Date;
   currentStep?: 'welcome' | 'waiting' | 'completed';
+  firstSession?: boolean;
 }
 
 export interface QuickAction {

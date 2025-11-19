@@ -6,6 +6,7 @@ import { colors } from '../themes/colors';
 import { RootStackParamList } from './types';
 import { authService } from '../services/auth';
 import { navigationRef } from './navigationRef';
+import { OnboardingService } from '../services/onboarding';
 
 // Import screens directly for now to fix lazy loading issues
 import LoginScreen from '@src/screens/auth/LoginScreen';
@@ -26,6 +27,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isFirstSession, setIsFirstSession] = useState<boolean | null>(null);
   const handledInitialLink = useRef(false);
   const cachedInitialToken = useRef<string | null>(null);
   // Use shared navigationRef for global route awareness
@@ -84,6 +86,16 @@ export default function AppNavigator() {
 
         const authenticated = authService.isAuthenticated();
         setIsAuthenticated(authenticated);
+        // Check first session if authenticated
+        if (authenticated) {
+          try {
+            const firstSession = await OnboardingService.isFirstSession();
+            setIsFirstSession(firstSession);
+          } catch (error) {
+            console.warn('AppNavigator: Error checking first session:', error);
+            setIsFirstSession(false); // Default to false (safer fallback)
+          }
+        }
       } catch (error) {
         console.error('AppNavigator: Error checking auth state:', error);
         setIsAuthenticated(false);
@@ -106,7 +118,35 @@ export default function AppNavigator() {
           navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
           cachedInitialToken.current = null; // Clear the cached token after navigation
         } else if (authState.isAuthenticated && !wasAuthenticated) {
-          navigationRef.current.reset({ index: 0, routes: [{ name: 'Main' }] });
+          // Check if this is first session and route to Brain Dump Input
+          // Use IIFE to handle async operation in callback
+          (async () => {
+            try {
+              const firstSession = await OnboardingService.isFirstSession();
+              if (firstSession) {
+                // Navigate to Main tab, then to BrainDump stack with BrainDumpInput screen
+                navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
+                // Use setTimeout to ensure Main tab is mounted before navigating to nested screen
+                setTimeout(() => {
+                  if (navigationRef.current) {
+                    navigationRef.current.navigate('Main', {
+                      screen: 'BrainDump',
+                      params: {
+                        screen: 'BrainDumpInput',
+                      },
+                    });
+                  }
+                }, 100);
+              } else {
+                // Returning user - use existing navigation
+                navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
+              }
+            } catch (error) {
+              console.warn('AppNavigator: Error checking first session for navigation:', error);
+              // Fallback to existing navigation on error
+              navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
+            }
+          })();
         } else if (!authState.isAuthenticated && wasAuthenticated) {
           navigationRef.current.reset({ index: 0, routes: [{ name: 'Login' }] });
         }

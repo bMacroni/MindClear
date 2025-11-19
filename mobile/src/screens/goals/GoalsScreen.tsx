@@ -1335,7 +1335,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
               <Text style={styles.emptyStateIcon}>🎯</Text>
               <Text style={styles.emptyStateTitle}>No goals yet</Text>
               <Text style={styles.emptyStateText}>
-                Start by adding your first goal.
+                Use the AI Chat to help you design your first Goal
               </Text>
               <Button
                 title="Add Goal"
