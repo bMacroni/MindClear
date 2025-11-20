@@ -47,15 +47,6 @@ import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
 import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
 
-// Development-only logging for EOD prompt debugging
-const EOD_DEBUG = false; // set true to enable debug logging
-const eodLog = (...args: any[]) => {
-  if (__DEV__ && EOD_DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log('[EOD]', ...args);
-  }
-};
-
 // Internal props interface - what the component actually uses
 interface InternalTasksScreenProps {
   tasks: Task[];
@@ -275,8 +266,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
     const awaitSync = !!options?.awaitSync;
-    console.log('[TasksScreen] loadData started', { silent, awaitSync });
-    const startTime = Date.now();
     
     try {
       // Don't show loading spinner on initial mount since we have observable data
@@ -314,25 +303,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
       if (awaitSync) {
         // For manual refresh, await sync completion
-        console.log('[TasksScreen] Awaiting sync completion...');
         await syncPromise;
-        console.log('[TasksScreen] Sync completed in', Date.now() - startTime, 'ms');
         if (!silent) {
           setLoading(false);
         }
       } else {
         // For normal load, don't block - sync runs in background
         // Since we're using WatermelonDB observables, the UI will update automatically
-        console.log('[TasksScreen] Sync running in background, total time:', Date.now() - startTime, 'ms');
         setLoading(false);
-        
-        // Log when sync completes in background
-        syncPromise.then(() => {
-          console.log('[TasksScreen] Background sync completed in', Date.now() - startTime, 'ms');
-        });
       }
     } catch (error) {
-      console.error('[TasksScreen] Error loading data:', error, 'Duration:', Date.now() - startTime, 'ms');
+      console.error('[TasksScreen] Error loading data:', error);
       if (!silent) {
         Alert.alert('Error', 'Failed to sync data');
       }
@@ -341,7 +322,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const handleRefresh = async () => {
-    console.log('[TasksScreen] Manual refresh triggered');
     setRefreshing(true);
     try {
       // Trigger sync in background without awaiting
@@ -357,7 +337,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       await new Promise(resolve => setTimeout(resolve, 500));
     } finally {
       setRefreshing(false);
-      console.log('[TasksScreen] Manual refresh completed (sync continues in background)');
     }
   };
 
@@ -1213,21 +1192,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   // End-of-day prompt logic: once per day if focus exists and is not completed
   useEffect(() => {
     const maybePromptEndOfDay = async () => {
-      eodLog('maybePromptEndOfDay invoked', { loading });
       if (loading) {return;}
       const focus = getFocusTask();
-      eodLog('focus task check', { hasFocus: !!focus, status: focus?.status, id: focus?.id, title: focus?.title, dueDate: focus?.dueDate });
       if (!focus) {return;}
       const todayStr = new Date().toISOString().slice(0, 10);
       try {
         const lastPrompt = await AsyncStorage.getItem('lastEODPromptDate');
-        eodLog('storage check', { lastPrompt, todayStr });
         if (lastPrompt === todayStr) {return;}
         if (getLifecycleStatus(focus.status) !== 'completed') {
           // prevent re-open if already visible
-          if (showEodPrompt) { eodLog('prompt already visible, skipping re-open'); return; }
+          if (showEodPrompt) { return; }
           eodFocusIdRef.current = focus.id;
-          eodLog('showing EOD prompt (capture focus id)', { id: focus.id });
           setShowEodPrompt(true);
         }
       } catch {}
@@ -1239,10 +1214,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const markEodPrompted = async () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     try {
-      eodLog('markEodPrompted -> set lastEODPromptDate', { todayStr });
       await AsyncStorage.setItem('lastEODPromptDate', todayStr);
     } catch (err) {
-      eodLog('markEodPrompted error', err);
+      // Silent failure - not critical
     }
   };
 
@@ -1479,10 +1453,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showGoldBorder]);
 
   const handleEodMarkDone = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
+    if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
     const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title });
     if (!focus) { 
       setShowEodPrompt(false);
       await markEodPrompted();
@@ -1493,9 +1466,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       await handleFocusDone(focus);
       setShowEodPrompt(false);
       await markEodPrompted();
-      eodLog('handleEodMarkDone success');
     } catch (err) {
-      eodLog('handleEodMarkDone error', err);
+      // Error already handled in handleFocusDone
     } finally {
       eodFocusIdRef.current = undefined;
       eodActionInFlightRef.current = false;
@@ -1503,10 +1475,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   }, [tasks, getFocusTask, handleFocusDone]);
 
   const handleEodRollover = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
+    if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
     const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prevDue: focus?.dueDate });
     if (!focus) { 
       // even if focus vanished, mark prompted so the modal doesn't re-open
       await markEodPrompted();
@@ -1525,15 +1496,12 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
     try {
       const tomorrowDate = new Date(yyyy, parseInt(mm) - 1, parseInt(dd));
-      eodLog('updating task dueDate -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
       // Update using repository (local-first)
       await taskRepository.updateTask(focus.id, { dueDate: tomorrowDate });
-      eodLog('update success, task updated', { updatedDue: `${yyyy}-${mm}-${dd}` });
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
     } catch {
-      eodLog('update failed');
       Alert.alert('Error', 'Failed to roll over task');
     }
     setShowEodPrompt(false);
@@ -1542,24 +1510,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   }, [tasks, getFocusTask, markEodPrompted]);
 
   const handleEodChooseNew = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodChooseNew ignored: action in flight'); return; }
+    if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
-    eodLog('handleEodChooseNew tapped');
     try {
       setShowEodPrompt(false);
       await markEodPrompted();
       navigation.navigate('BrainDump');
-      eodLog('handleEodChooseNew success');
     } catch (err) {
-      eodLog('handleEodChooseNew error', err);
+      // Silent failure - navigation will handle errors
     } finally {
       eodActionInFlightRef.current = false;
     }
   }, [navigation, markEodPrompted]);
-
-  useEffect(() => {
-    eodLog('showEodPrompt state changed', { visible: showEodPrompt });
-  }, [showEodPrompt]);
 
   const _handleFocusRollover = async (task: Task) => {
     try {
