@@ -109,7 +109,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [firstFocusHelpDismissed, setFirstFocusHelpDismissed] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
   const [animationCompleted, setAnimationCompleted] = useState(false);
-  const [showPurpleBorder, setShowPurpleBorder] = useState(false);
+  const [showGoldBorder, setShowGoldBorder] = useState(false);
   const taskAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   const taskSlideAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   const taskScaleAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
@@ -118,6 +118,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const animatedViewRef = useRef<any>(null);
   const mountResolverRef = useRef<(() => void) | null>(null);
   const isMountedRef = useRef<boolean>(false);
+  
+  // Ref to measure original focus card dimensions
+  const focusCardRef = useRef<React.ElementRef<typeof View> | null>(null);
+  const focusCardDimensions = useRef<{ width: number; height: number } | null>(null);
   
   // Helper to get or create animation values with stable references
   const getAnimationValues = React.useCallback((taskId: string) => {
@@ -232,8 +236,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             setFirstFocusHelpDismissed(false);
             // Open inbox to show tasks
             setShowInbox(true);
-            // Activate help overlay to show the help
-            setIsHelpOverlayActive(true);
+            // Do NOT activate help overlay - this prevents cycling through all help targets
+            // The HelpTarget wrapper will still render for the first focus help without global overlay
           } else {
             setShowFirstFocusHelp(false);
             if (helpDismissed === 'true') {
@@ -1247,7 +1251,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     const resetState = () => {
       setCompletingTaskId(null);
       setAnimationCompleted(false);
-      setShowPurpleBorder(false);
+      setShowGoldBorder(false);
     };
 
     // Run animations in separate try-catch - errors here should not trigger DB failure Alert
@@ -1276,7 +1280,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       
       // Set completing state FIRST so the Animated.View renders with the animation values
       setCompletingTaskId(task.id);
-      setShowPurpleBorder(false); // Reset border state
+      setShowGoldBorder(false); // Reset border state
       
       // Wait for Animated.View to be mounted using robust mount detection
       if (!isMountedRef.current) {
@@ -1297,8 +1301,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       slideAnim.setValue(0);
       scaleAnim.setValue(1);
       
-      // Start strikethrough animation (opacity reduction from 1 to 0.5) + show purple border
-      setShowPurpleBorder(true); // Show purple border immediately when strikethrough starts
+      // Start strikethrough animation (opacity reduction from 1 to 0.5) + show gold border
+      setShowGoldBorder(true); // Show gold border immediately when strikethrough starts
       await new Promise<void>((resolve) => {
         Animated.timing(opacityAnim, {
           toValue: 0.5,
@@ -1310,7 +1314,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // Wait 800ms for pause (as specified in PRD: 500-800ms)
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Start shrink animation (slow scale down) - keep purple border
+      // Start shrink animation (slow scale down) - keep gold border
       await new Promise<void>((resolve) => {
         Animated.timing(scaleAnim, {
           toValue: 0.3, // Shrink to 30% of original size
@@ -1472,7 +1476,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       resetState();
       Alert.alert('Error', 'Failed to complete focus task');
     }
-  }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showPurpleBorder]);
+  }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showGoldBorder]);
 
   const handleEodMarkDone = useCallback(async () => {
     if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
@@ -1798,7 +1802,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                 </View>
               </View>
               {focus && completingTaskId !== focus.id && !animationCompleted ? (
-                <View style={styles.focusCard}>
+                <View 
+                  ref={focusCardRef}
+                  style={styles.focusCard}
+                  onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    focusCardDimensions.current = { width, height };
+                  }}
+                >
                   <Text style={styles.focusTaskTitle}>{focus.title}</Text>
                   <View style={styles.focusBadges}>
                     {!!focus.category && (
@@ -1829,6 +1840,23 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
               ) : focus && completingTaskId === focus.id && !animationCompleted ? (
                 (() => {
                   const animValues = getAnimationValues(focus.id);
+                  const animatedStyle: any = {
+                    opacity: animValues.opacity,
+                    borderColor: showGoldBorder ? colors.accent.gold : colors.border.light, // Gold border when active
+                    borderWidth: 2, // Increased border width for visibility
+                    transform: [
+                      { scale: animValues.scale },
+                      { translateX: animValues.translateX },
+                    ],
+                  };
+                  
+                  // Apply measured dimensions to ensure initial size matches exactly
+                  const cardDimensions = focusCardDimensions.current;
+                  if (cardDimensions) {
+                    animatedStyle.width = cardDimensions.width;
+                    animatedStyle.height = cardDimensions.height;
+                  }
+                  
                   return (
                     <Animated.View 
                       ref={(ref) => {
@@ -1845,15 +1873,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                       key={`animated-focus-${focus.id}`}
                       style={[
                         styles.focusCard,
-                        {
-                          opacity: animValues.opacity,
-                          borderColor: showPurpleBorder ? '#9333EA' : colors.border.light, // Direct purple color when active
-                          borderWidth: 3, // Thicker border for visibility
-                          transform: [
-                            { scale: animValues.scale },
-                            { translateX: animValues.translateX },
-                          ],
-                        }
+                        animatedStyle,
                       ]}
                     >
                       <Text style={[
@@ -1865,6 +1885,20 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                           <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
                         )}
                         <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                      </View>
+                      {/* Include action buttons row to match original card size */}
+                      <View style={styles.focusActionsRow}>
+                        <View style={styles.focusIconBtn}>
+                          <Icon name="check" size={22} color={colors.text.primary} />
+                        </View>
+                        {momentumEnabled && (
+                          <View style={styles.focusIconBtn}>
+                            <Icon name="arrow-right" size={22} color={colors.text.primary} />
+                          </View>
+                        )}
+                        <View style={styles.focusIconBtn}>
+                          <Icon name="arrow-switch" size={22} color={colors.text.primary} />
+                        </View>
                       </View>
                     </Animated.View>
                   );
@@ -2100,7 +2134,7 @@ const styles = StyleSheet.create({
   },
   focusCard: {
     marginTop: spacing.sm,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border.light,
     backgroundColor: colors.secondary,
     borderRadius: borderRadius.md,
