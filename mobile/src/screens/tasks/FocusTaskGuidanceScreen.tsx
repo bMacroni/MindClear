@@ -41,10 +41,6 @@ export default function FocusTaskGuidanceScreen({ navigation }: any) {
           <View style={styles.keyPoints}>
             <View style={styles.point}>
               <Icon name="check" size={20} color={colors.primary} style={styles.pointIcon} />
-              <Text style={styles.pointText}>One task at a time keeps you clear</Text>
-            </View>
-            <View style={styles.point}>
-              <Icon name="check" size={20} color={colors.primary} style={styles.pointIcon} />
               <Text style={styles.pointText}>Swipe right or tap to set your focus</Text>
             </View>
             <View style={styles.point}>

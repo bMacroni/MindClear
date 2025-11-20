@@ -27,7 +27,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isFirstSession, setIsFirstSession] = useState<boolean | null>(null);
+
   const handledInitialLink = useRef(false);
   const cachedInitialToken = useRef<string | null>(null);
   // Use shared navigationRef for global route awareness
@@ -86,16 +86,7 @@ export default function AppNavigator() {
 
         const authenticated = authService.isAuthenticated();
         setIsAuthenticated(authenticated);
-        // Check first session if authenticated
-        if (authenticated) {
-          try {
-            const firstSession = await OnboardingService.isFirstSession();
-            setIsFirstSession(firstSession);
-          } catch (error) {
-            console.warn('AppNavigator: Error checking first session:', error);
-            setIsFirstSession(false); // Default to false (safer fallback)
-          }
-        }
+        // Note: First session check is handled in auth state change callback below
       } catch (error) {
         console.error('AppNavigator: Error checking auth state:', error);
         setIsAuthenticated(false);

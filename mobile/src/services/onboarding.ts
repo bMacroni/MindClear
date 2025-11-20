@@ -2,17 +2,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OnboardingState } from '../types/onboarding';
 
 const ONBOARDING_KEY = 'foci_onboarding_state';
-const FIRST_SESSION_KEY = 'firstSession';
+const FIRST_SESSION_COMPLETED_KEY = 'firstSessionCompleted';
 
 export class OnboardingService {
   static async getOnboardingState(): Promise<OnboardingState> {
     try {
       const stored = await AsyncStorage.getItem(ONBOARDING_KEY);
-      const firstSessionFlag = await this.getFirstSessionFlag();
+      const firstSession = await this.isFirstSession();
       const state = stored ? JSON.parse(stored) : { isCompleted: false };
       return {
         ...state,
-        firstSession: firstSessionFlag ?? undefined,
+        firstSession,
       };
     } catch {
       return { isCompleted: false };
@@ -32,17 +32,17 @@ export class OnboardingService {
 
   static async resetOnboarding(): Promise<void> {
     await AsyncStorage.removeItem(ONBOARDING_KEY);
-    await AsyncStorage.removeItem(FIRST_SESSION_KEY);
+    await AsyncStorage.removeItem(FIRST_SESSION_COMPLETED_KEY);
   }
 
   /**
    * Checks if this is the user's first session
-   * Returns true if firstSession key doesn't exist in AsyncStorage
+   * Returns true if FIRST_SESSION_COMPLETED_KEY doesn't exist in AsyncStorage
    */
   static async isFirstSession(): Promise<boolean> {
     try {
-      const firstSession = await AsyncStorage.getItem(FIRST_SESSION_KEY);
-      return firstSession === null;
+      const completedTimestamp = await AsyncStorage.getItem(FIRST_SESSION_COMPLETED_KEY);
+      return completedTimestamp === null;
     } catch {
       // Default to false (safer fallback - treat as returning user)
       return false;
@@ -51,11 +51,12 @@ export class OnboardingService {
 
   /**
    * Marks the first session as complete
-   * Sets firstSession flag to 'false' in AsyncStorage
+   * Stores an ISO timestamp when the first session is completed
    */
   static async markFirstSessionComplete(): Promise<void> {
     try {
-      await AsyncStorage.setItem(FIRST_SESSION_KEY, 'false');
+      const timestamp = new Date().toISOString();
+      await AsyncStorage.setItem(FIRST_SESSION_COMPLETED_KEY, timestamp);
     } catch (error) {
       console.warn('Failed to mark first session complete:', error);
     }
@@ -63,17 +64,17 @@ export class OnboardingService {
 
   /**
    * Gets the current firstSession flag
-   * Returns true if 'true', false if 'false', null if not set
+   * Returns true if key is missing (first session), false if key exists with a timestamp (not first session)
    */
-  static async getFirstSessionFlag(): Promise<boolean | null> {
+  static async getFirstSessionFlag(): Promise<boolean> {
     try {
-      const firstSession = await AsyncStorage.getItem(FIRST_SESSION_KEY);
-      if (firstSession === null) {
-        return null;
-      }
-      return firstSession === 'true';
+      const completedTimestamp = await AsyncStorage.getItem(FIRST_SESSION_COMPLETED_KEY);
+      // Missing key means first session (true)
+      // Stored timestamp means not first session (false)
+      return completedTimestamp === null;
     } catch {
-      return null;
+      // Default to true (treat as first session if we can't read)
+      return true;
     }
   }
 } 

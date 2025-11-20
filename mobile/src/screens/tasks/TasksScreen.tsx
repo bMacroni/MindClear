@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -41,7 +41,7 @@ import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import { Q, Database } from '@nozbe/watermelondb';
 import type { Observable } from 'rxjs';
-import { showToast } from '../../contexts/ToastContext';
+import { showToast as showToastMessage } from '../../contexts/ToastContext';
 import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
@@ -114,6 +114,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const taskSlideAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   const taskScaleAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   
+  // Refs for robust mount detection of Animated.View
+  const animatedViewRef = useRef<any>(null);
+  const mountResolverRef = useRef<(() => void) | null>(null);
+  const isMountedRef = useRef<boolean>(false);
+  
   // Helper to get or create animation values with stable references
   const getAnimationValues = React.useCallback((taskId: string) => {
     if (!taskAnimations.has(taskId)) {
@@ -131,6 +136,31 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       scale: taskScaleAnimations.get(taskId)!,
     };
   }, []);
+  
+  // Detect when Animated.View is mounted and signal readiness
+  useLayoutEffect(() => {
+    if (!completingTaskId) {
+      // Reset mount state when completingTaskId is cleared
+      isMountedRef.current = false;
+      mountResolverRef.current = null;
+      animatedViewRef.current = null;
+      return;
+    }
+    
+    // Reset mount state for new completing task
+    isMountedRef.current = false;
+    
+    // If the view ref is already set, signal mount immediately
+    if (animatedViewRef.current) {
+      isMountedRef.current = true;
+      // Resolve any pending mount promise
+      if (mountResolverRef.current) {
+        mountResolverRef.current();
+        mountResolverRef.current = null;
+      }
+    }
+  }, [completingTaskId]);
+  
   const eodActionInFlightRef = React.useRef<boolean>(false);
   const eodFocusIdRef = React.useRef<string | undefined>(undefined);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
@@ -154,6 +184,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     'task-delete': 'Delete this task.',
     'tasks-fab-add': 'Create a new task. You can add details like due date and duration.',
   }), []);
+
+  const getFocusTask = useCallback((): Task | undefined => {
+    return tasks.find(task => task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
+  }, [tasks]);
+
+  const inboxTasks = useMemo(() => {
+    return tasks.filter(task => !task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
+  }, [tasks]);
+
   useEffect(() => {
     loadData();
     loadSchedulingPreferences();
@@ -306,7 +345,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       syncService.silentSync().catch((error) => {
         console.warn('[TasksScreen] Manual sync failed:', error);
         // Show toast notification for sync failures
-        showToast('error', 'Sync failed. Please try again.');
+        showToastMessage('error', 'Sync failed. Please try again.');
       });
       
       // Show refresh indicator for a brief moment to give user feedback
@@ -943,14 +982,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     return tasks.filter(task => getLifecycleStatus(task.status) === 'completed');
   };
 
-  const getFocusTask = useCallback((): Task | undefined => {
-    return tasks.find(task => task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
-  }, [tasks]);
-
-  const inboxTasks = useMemo(() => {
-    return tasks.filter(task => !task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
-  }, [tasks]);
-
   const getAutoScheduledTasks = () => {
     return tasks.filter(task => task.autoScheduleEnabled);
   };
@@ -1212,6 +1243,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const handleFocusDone = useCallback(async (task: Task) => {
+    // Reset state cleanup function
+    const resetState = () => {
+      setCompletingTaskId(null);
+      setAnimationCompleted(false);
+      setShowPurpleBorder(false);
+    };
+
+    // Run animations in separate try-catch - errors here should not trigger DB failure Alert
     try {
       // Trigger haptic feedback immediately (wrap in try-catch for safety)
       try {
@@ -1239,8 +1278,19 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       setCompletingTaskId(task.id);
       setShowPurpleBorder(false); // Reset border state
       
-      // Small delay to ensure the Animated.View is mounted and tracking the values
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Wait for Animated.View to be mounted using robust mount detection
+      if (!isMountedRef.current) {
+        await new Promise<void>((resolve) => {
+          mountResolverRef.current = resolve;
+          // Fallback timeout to prevent infinite waiting (shouldn't be needed, but safety first)
+          setTimeout(() => {
+            if (mountResolverRef.current === resolve) {
+              mountResolverRef.current = null;
+              resolve();
+            }
+          }, 1000);
+        });
+      }
       
       // Reset animation values to initial state AFTER view is mounted
       opacityAnim.setValue(1);
@@ -1291,8 +1341,16 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           resolve();
         });
       });
-      
-      // Update database after animation completes
+    } catch (animationError) {
+      // Log animation errors but don't trigger DB failure Alert
+      console.error('Animation error in handleFocusDone:', animationError);
+      resetState();
+      // Continue to database update even if animation failed
+    }
+
+    // Database update in separate try-catch - only show Alert if this fails
+    try {
+      // Update database after animation completes (or even if animation failed)
       await taskRepository.updateTaskStatus(task.id, 'completed');
       
       // Force UI refresh to update task lists (inboxTasks, getFocusTask, etc.)
@@ -1302,12 +1360,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       await new Promise<void>(resolve => setTimeout(resolve, 100));
       
       // Clear completing state after database update and UI refresh
-      setCompletingTaskId(null);
-      setAnimationCompleted(false);
-      setShowPurpleBorder(false); // Reset border state
+      resetState();
       
       // Remove toast notification - animation provides feedback instead
 
+      // Momentum mode operations - errors are already handled, don't rethrow
       if (task.isTodayFocus && momentumEnabled) {
         try {
           // Get next focus task using local repository (offline-capable)
@@ -1406,14 +1463,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             setToastCalendarEvent(false);
             setShowToast(true);
           }
+          // Don't rethrow - momentum errors are already handled with user feedback
         }
       }
-    } catch (error) {
-      console.error('Error completing focus task:', error);
-      // Reset animation state on error
-      setCompletingTaskId(null);
-      setAnimationCompleted(false);
-      setShowPurpleBorder(false); // Reset border state
+    } catch (dbError) {
+      // Only show Alert for actual database update failures
+      console.error('Database update error in handleFocusDone:', dbError);
+      resetState();
       Alert.alert('Error', 'Failed to complete focus task');
     }
   }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showPurpleBorder]);
@@ -1775,6 +1831,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                   const animValues = getAnimationValues(focus.id);
                   return (
                     <Animated.View 
+                      ref={(ref) => {
+                        animatedViewRef.current = ref;
+                        // Signal mount when ref is set and we have a completing task
+                        if (ref && completingTaskId === focus.id && !isMountedRef.current) {
+                          isMountedRef.current = true;
+                          if (mountResolverRef.current) {
+                            mountResolverRef.current();
+                            mountResolverRef.current = null;
+                          }
+                        }
+                      }}
                       key={`animated-focus-${focus.id}`}
                       style={[
                         styles.focusCard,
