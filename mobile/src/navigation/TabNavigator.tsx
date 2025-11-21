@@ -14,6 +14,7 @@ import BrainDumpRefinementScreen from '../screens/brain/BrainDumpRefinementScree
 import BrainDumpOnboardingScreen from '../screens/brain/BrainDumpOnboardingScreen';
 import BrainDumpPrioritizationScreen from '../screens/brain/BrainDumpPrioritizationScreen';
 import BrainDumpEntryScreen from '../screens/brain/BrainDumpEntryScreen';
+import FocusTaskGuidanceScreen from '../screens/tasks/FocusTaskGuidanceScreen';
 import GoalsScreen from '../screens/goals/GoalsScreen';
 import TasksScreen from '../screens/tasks/TasksScreen';
 import CalendarScreen from '../screens/calendar/CalendarScreen';
@@ -61,6 +62,7 @@ export default function TabNavigator() {
               <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} />
               <BrainStack.Screen name="BrainDumpRefinement" component={BrainDumpRefinementScreen} />
               <BrainStack.Screen name="BrainDumpPrioritization" component={BrainDumpPrioritizationScreen} />
+              <BrainStack.Screen name="FocusTaskGuidance" component={FocusTaskGuidanceScreen} />
             </BrainStack.Navigator>
           </BrainDumpProvider>
         )}

@@ -170,7 +170,7 @@ export const goalsAPI = {
       }
       return await response.json();
     } catch (_error) {
-      console.error('🔍 API: Error creating milestone:', _error);
+      console.error('Error creating milestone:', _error);
       throw _error;
     }
   },
@@ -190,7 +190,7 @@ export const goalsAPI = {
         throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error deleting milestone:', _error);
+      console.error('Error deleting milestone:', _error);
       throw _error;
     }
   },
@@ -216,7 +216,7 @@ export const goalsAPI = {
       }
       return await response.json();
     } catch (_error) {
-      console.error('🔍 API: Error creating step:', _error);
+      console.error('Error creating step:', _error);
       throw _error;
     }
   },
@@ -236,7 +236,7 @@ export const goalsAPI = {
         throw new Error(`HTTP error! status: ${response.status}, body: ${text}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error deleting step:', _error);
+      console.error('Error deleting step:', _error);
       throw _error;
     }
   },
@@ -283,7 +283,7 @@ export const goalsAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
@@ -299,7 +299,7 @@ export const goalsAPI = {
         // Silent for expected timeouts; caller handles gracefully
         throw _error;
       }
-      console.error('🔍 API: Error fetching goals:', _error);
+      console.error('Error fetching goals:', _error);
       
       // Try to get cached goals if offline
       const { offlineService } = await import('./offline');
@@ -328,14 +328,14 @@ export const goalsAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error fetching goal by ID:', _error);
+      console.error('Error fetching goal by ID:', _error);
       throw _error;
     }
   },
@@ -358,7 +358,7 @@ export const goalsAPI = {
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error updating milestone:', _error);
+      console.error('Error updating milestone:', _error);
       throw _error;
     }
   },
@@ -381,7 +381,7 @@ export const goalsAPI = {
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error updating step:', _error);
+      console.error('Error updating step:', _error);
       throw _error;
     }
   },
@@ -407,7 +407,7 @@ export const goalsAPI = {
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error updating goal:', _error);
+      console.error('Error updating goal:', _error);
       throw _error;
     }
   },
@@ -428,7 +428,7 @@ export const goalsAPI = {
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error deleting goal:', _error);
+      console.error('Error deleting goal:', _error);
       throw _error;
     }
   },
@@ -476,7 +476,7 @@ export const tasksAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
@@ -492,7 +492,7 @@ export const tasksAPI = {
         // Silent for expected timeouts; caller handles gracefully
         throw _error;
       }
-      console.error('🔍 API: Error fetching tasks:', _error);
+      console.error('Error fetching tasks:', _error);
       
       // Try to get cached tasks if offline
       const { offlineService } = await import('./offline');
@@ -562,14 +562,14 @@ export const tasksAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error fetching task by ID:', _error);
+      console.error('Error fetching task by ID:', _error);
       throw _error;
     }
   },
@@ -648,7 +648,7 @@ export const tasksAPI = {
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error updating task:', _error);
+      console.error('Error updating task:', _error);
       
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
@@ -682,7 +682,7 @@ export const tasksAPI = {
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error deleting task:', _error);
+      console.error('Error deleting task:', _error);
       
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
@@ -733,7 +733,7 @@ export const tasksAPI = {
       }
       return response.json();
     } catch (error) {
-      console.error('🔍 API: Error fetching next focus task:', error);
+      console.error('Error fetching next focus task:', error);
       throw error;
     }
   },
@@ -971,14 +971,14 @@ export const autoSchedulingAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error auto-scheduling tasks:', _error);
+      console.error('Error auto-scheduling tasks:', _error);
       throw _error;
     }
   },
@@ -996,14 +996,14 @@ export const autoSchedulingAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error fetching scheduling preferences:', _error);
+      console.error('Error fetching scheduling preferences:', _error);
       throw _error;
     }
   },
@@ -1023,14 +1023,14 @@ export const autoSchedulingAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error updating scheduling preferences:', _error);
+      console.error('Error updating scheduling preferences:', _error);
       throw _error;
     }
   },
@@ -1048,14 +1048,14 @@ export const autoSchedulingAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
       return data;
     } catch (_error) {
-      console.error('🔍 API: Error fetching task scheduling status:', _error);
+      console.error('Error fetching task scheduling status:', _error);
       throw _error;
     }
   },
@@ -1075,11 +1075,11 @@ export const autoSchedulingAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
     } catch (_error) {
-      console.error('🔍 API: Error toggling task auto-scheduling:', _error);
+      console.error('Error toggling task auto-scheduling:', _error);
       throw _error;
     }
   },
@@ -1097,7 +1097,7 @@ export const autoSchedulingAPI = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('🔍 API: Error response body:', errorText);
+        console.error('Error response body:', errorText);
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
@@ -1108,7 +1108,7 @@ export const autoSchedulingAPI = {
         end_time: new Date(slot.end_time),
       }));
     } catch (_error) {
-      console.error('🔍 API: Error fetching available time slots:', _error);
+      console.error('Error fetching available time slots:', _error);
       throw _error;
     }
   },
@@ -1207,19 +1207,14 @@ export const usersAPI = {
     try {
       const token = await getAuthToken();
       const url = `${getSecureApiBaseUrl()}/tasks/notifications?status=${status}`;
-      logger.debug('🔔 API: Making request to:', url);
-      
       const response = await fetch(url, {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${token}` },
       });
       
-      logger.debug('🔔 API: Response status:', response.status);
-      logger.debug('🔔 API: Response ok:', response.ok);
-      
       if (!response.ok) {
           const errorText = await response.text();
-          console.error('🔔 API: Error response body:', errorText);
+          console.error('Error response body:', errorText);
           throw new Error(`Failed to get notifications: ${response.status} - ${errorText}`);
       }
       return response.json();
@@ -1498,13 +1493,23 @@ export const appPreferencesAPI = {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {
+        // If 404 or empty response, return default preferences for new users
+        if (response.status === 404) {
+          return { momentum_mode_enabled: false, momentum_travel_preference: 'allow_travel' };
+        }
         const errorText = await response.text();
         throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
-      return response.json();
+      const data = await response.json();
+      // Ensure momentum_mode_enabled defaults to false if undefined/null
+      return {
+        momentum_mode_enabled: data?.momentum_mode_enabled ?? false,
+        momentum_travel_preference: data?.momentum_travel_preference ?? 'allow_travel',
+      };
     } catch (error) {
-      console.error('Error fetching app preferences:', error);
-      throw error;
+      // If network error or other failure, return default preferences
+      console.warn('Error fetching app preferences, using defaults:', error);
+      return { momentum_mode_enabled: false, momentum_travel_preference: 'allow_travel' };
     }
   },
   update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {

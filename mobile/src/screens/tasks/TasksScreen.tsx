@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { useWindowDimensions } from 'react-native';
 import { colors } from '../../themes/colors';
@@ -34,24 +35,17 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { OnboardingService } from '../../services/onboarding';
+import { hapticFeedback } from '../../utils/hapticFeedback';
 import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import { Q, Database } from '@nozbe/watermelondb';
 import type { Observable } from 'rxjs';
-import { showToast } from '../../contexts/ToastContext';
+import { showToast as showToastMessage } from '../../contexts/ToastContext';
 import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
 import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
-
-// Development-only logging for EOD prompt debugging
-const EOD_DEBUG = false; // set true to enable debug logging
-const eodLog = (...args: any[]) => {
-  if (__DEV__ && EOD_DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log('[EOD]', ...args);
-  }
-};
 
 // Internal props interface - what the component actually uses
 interface InternalTasksScreenProps {
@@ -102,6 +96,66 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [quickOpenedAt, setQuickOpenedAt] = useState<number | undefined>(undefined);
   const [quickTaskId, setQuickTaskId] = useState<string | undefined>(undefined);
   const [momentumEnabled, setMomentumEnabled] = useState<boolean>(false);
+  const [showFirstFocusHelp, setShowFirstFocusHelp] = useState(false);
+  const [firstFocusHelpDismissed, setFirstFocusHelpDismissed] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [animationCompleted, setAnimationCompleted] = useState(false);
+  const [showGoldBorder, setShowGoldBorder] = useState(false);
+  const taskAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  const taskSlideAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  const taskScaleAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  
+  // Refs for robust mount detection of Animated.View
+  const animatedViewRef = useRef<any>(null);
+  const mountResolverRef = useRef<(() => void) | null>(null);
+  const isMountedRef = useRef<boolean>(false);
+  
+  // Ref to measure original focus card dimensions
+  const focusCardRef = useRef<React.ElementRef<typeof View> | null>(null);
+  const focusCardDimensions = useRef<{ width: number; height: number } | null>(null);
+  
+  // Helper to get or create animation values with stable references
+  const getAnimationValues = React.useCallback((taskId: string) => {
+    if (!taskAnimations.has(taskId)) {
+      taskAnimations.set(taskId, new Animated.Value(1));
+    }
+    if (!taskSlideAnimations.has(taskId)) {
+      taskSlideAnimations.set(taskId, new Animated.Value(0));
+    }
+    if (!taskScaleAnimations.has(taskId)) {
+      taskScaleAnimations.set(taskId, new Animated.Value(1));
+    }
+    return {
+      opacity: taskAnimations.get(taskId)!,
+      translateX: taskSlideAnimations.get(taskId)!,
+      scale: taskScaleAnimations.get(taskId)!,
+    };
+  }, []);
+  
+  // Detect when Animated.View is mounted and signal readiness
+  useLayoutEffect(() => {
+    if (!completingTaskId) {
+      // Reset mount state when completingTaskId is cleared
+      isMountedRef.current = false;
+      mountResolverRef.current = null;
+      animatedViewRef.current = null;
+      return;
+    }
+    
+    // Reset mount state for new completing task
+    isMountedRef.current = false;
+    
+    // If the view ref is already set, signal mount immediately
+    if (animatedViewRef.current) {
+      isMountedRef.current = true;
+      // Resolve any pending mount promise
+      if (mountResolverRef.current) {
+        mountResolverRef.current();
+        mountResolverRef.current = null;
+      }
+    }
+  }, [completingTaskId]);
+  
   const eodActionInFlightRef = React.useRef<boolean>(false);
   const eodFocusIdRef = React.useRef<string | undefined>(undefined);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
@@ -114,9 +168,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     'tasks-momentum-toggle': 'Momentum mode picks your next focus task automatically when you complete one.',
     'tasks-travel-toggle': 'Switch between allowing travel or home-only tasks for momentum mode.',
     'tasks-inbox-toggle': 'Open your Inbox to choose a new focus task or view remaining tasks.',
-    'tasks-focus-complete': 'Mark today’s focus task as done.',
+    'tasks-focus-complete': 'Mark today\'s focus task as done.',
     'tasks-focus-skip': 'Skip this focus and we will pick the next one.',
-    'tasks-focus-change': 'Manually choose a different task as Today’s Focus.',
+    'tasks-focus-change': 'Manually choose a different task as Today\'s Focus.',
+    'tasks-first-focus-help': 'Swipe right (or tap) to make this Today\'s Focus',
     'task-complete': 'Mark the task complete.',
     'task-schedule': 'Open quick scheduling options for this task.',
     'task-ai': 'Ask AI for help planning or breaking down this task.',
@@ -124,6 +179,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     'task-delete': 'Delete this task.',
     'tasks-fab-add': 'Create a new task. You can add details like due date and duration.',
   }), []);
+
+  const getFocusTask = useCallback((): Task | undefined => {
+    return tasks.find(task => task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
+  }, [tasks]);
+
+  const inboxTasks = useMemo(() => {
+    return tasks.filter(task => !task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
+  }, [tasks]);
+
   useEffect(() => {
     loadData();
     loadSchedulingPreferences();
@@ -150,12 +214,38 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // by briefly toggling it off (state stays off due to blur reset anyway)
       try { setIsHelpOverlayActive(false); } catch (e) { if (__DEV__) console.warn('setIsHelpOverlayActive failed:', e); }
       
+      // Check if we should show first focus help
+      (async () => {
+        try {
+          const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown');
+          const helpDismissed = await AsyncStorage.getItem('firstFocusHelpDismissed');
+          const focus = getFocusTask();
+          
+          // Show help if: guidance was shown, help not dismissed, no focus set, and inbox has tasks
+          if (guidanceShown === 'true' && !helpDismissed && !focus && inboxTasks.length > 0) {
+            setShowFirstFocusHelp(true);
+            setFirstFocusHelpDismissed(false);
+            // Open inbox to show tasks
+            setShowInbox(true);
+            // Do NOT activate help overlay - this prevents cycling through all help targets
+            // The HelpTarget wrapper will still render for the first focus help without global overlay
+          } else {
+            setShowFirstFocusHelp(false);
+            if (helpDismissed === 'true') {
+              setFirstFocusHelpDismissed(true);
+            }
+          }
+        } catch (error) {
+          console.warn('Error checking first focus help conditions:', error);
+        }
+      })();
+      
       // Avoid showing a spinner if we already have content; fetch fresh in background
       loadData({ silent: true });
       return () => {
         try { setIsHelpOverlayActive(false); } catch {}
       };
-    }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent])
+    }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent, getFocusTask, inboxTasks])
   );
   const loadSchedulingPreferences = async () => {
     try {
@@ -176,8 +266,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
     const awaitSync = !!options?.awaitSync;
-    console.log('[TasksScreen] loadData started', { silent, awaitSync });
-    const startTime = Date.now();
     
     try {
       // Don't show loading spinner on initial mount since we have observable data
@@ -190,11 +278,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       try {
         const prefs = await appPreferencesAPI.get();
         if (prefs && typeof prefs === 'object') {
-          setMomentumEnabled(!!(prefs as any).momentum_mode_enabled);
-          setTravelPreference((prefs as any).momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
+          setMomentumEnabled((prefs as any)?.momentum_mode_enabled ?? false);
+          setTravelPreference((prefs as any)?.momentum_travel_preference === 'home_only' ? 'home_only' : 'allow_travel');
+        } else {
+          // Default to false if prefs is invalid
+          setMomentumEnabled(false);
+          setTravelPreference('allow_travel');
         }
       } catch (error) {
         console.warn('Failed to load preferences:', error);
+        // Default to false on error
+        setMomentumEnabled(false);
+        setTravelPreference('allow_travel');
       }
 
       // Trigger silent sync - await only if explicitly requested (e.g., manual refresh)
@@ -208,25 +303,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
       if (awaitSync) {
         // For manual refresh, await sync completion
-        console.log('[TasksScreen] Awaiting sync completion...');
         await syncPromise;
-        console.log('[TasksScreen] Sync completed in', Date.now() - startTime, 'ms');
         if (!silent) {
           setLoading(false);
         }
       } else {
         // For normal load, don't block - sync runs in background
         // Since we're using WatermelonDB observables, the UI will update automatically
-        console.log('[TasksScreen] Sync running in background, total time:', Date.now() - startTime, 'ms');
         setLoading(false);
-        
-        // Log when sync completes in background
-        syncPromise.then(() => {
-          console.log('[TasksScreen] Background sync completed in', Date.now() - startTime, 'ms');
-        });
       }
     } catch (error) {
-      console.error('[TasksScreen] Error loading data:', error, 'Duration:', Date.now() - startTime, 'ms');
+      console.error('[TasksScreen] Error loading data:', error);
       if (!silent) {
         Alert.alert('Error', 'Failed to sync data');
       }
@@ -235,7 +322,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const handleRefresh = async () => {
-    console.log('[TasksScreen] Manual refresh triggered');
     setRefreshing(true);
     try {
       // Trigger sync in background without awaiting
@@ -243,7 +329,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       syncService.silentSync().catch((error) => {
         console.warn('[TasksScreen] Manual sync failed:', error);
         // Show toast notification for sync failures
-        showToast('error', 'Sync failed. Please try again.');
+        showToastMessage('error', 'Sync failed. Please try again.');
       });
       
       // Show refresh indicator for a brief moment to give user feedback
@@ -251,7 +337,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       await new Promise(resolve => setTimeout(resolve, 500));
     } finally {
       setRefreshing(false);
-      console.log('[TasksScreen] Manual refresh completed (sync continues in background)');
     }
   };
 
@@ -880,14 +965,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     return tasks.filter(task => getLifecycleStatus(task.status) === 'completed');
   };
 
-  const getFocusTask = useCallback((): Task | undefined => {
-    return tasks.find(task => task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
-  }, [tasks]);
-
-  const inboxTasks = useMemo(() => {
-    return tasks.filter(task => !task.isTodayFocus && getLifecycleStatus(task.status) !== 'completed');
-  }, [tasks]);
-
   const getAutoScheduledTasks = () => {
     return tasks.filter(task => task.autoScheduleEnabled);
   };
@@ -926,6 +1003,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     try {
       // Set the task as today's focus using repository (local-first)
       await taskRepository.setTaskAsFocus(task.id);
+
+      // Dismiss first focus help if it was showing
+      if (showFirstFocusHelp && !firstFocusHelpDismissed) {
+        setShowFirstFocusHelp(false);
+        setFirstFocusHelpDismissed(true);
+        setIsHelpOverlayActive(false);
+        try {
+          await AsyncStorage.setItem('firstFocusHelpDismissed', 'true');
+        } catch (error) {
+          console.warn('Failed to save first focus help dismissed flag:', error);
+        }
+      }
 
       // Show immediate feedback
       setToastMessage("Setting as Today's Focus...");
@@ -1014,37 +1103,51 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       setShowInbox(true);
       setSelectingFocus(true);
     }
-  }, [tasks, userSchedulingPreferences]);
+  }, [tasks, userSchedulingPreferences, showFirstFocusHelp, firstFocusHelpDismissed, setIsHelpOverlayActive]);
 
-  const renderTaskItem = useCallback(({ item }: { item: Task }) => (
-    <TaskCard
-      task={convertTaskForTaskCard(item)}
-      onPress={(task) => {
-        // Find the original WatermelonDB Task by ID
-        const originalTask = tasks.find(t => t.id === task.id);
-        if (!originalTask) return;
-        
-        if (selectingFocus) {
-          handleTaskSelect(originalTask);
-        } else {
-          handleTaskPress(originalTask);
-        }
-      }}
-      onDelete={handleDeleteTask}
-      onToggleStatus={handleToggleStatus}
-      onAddToCalendar={handleAddToCalendar}
-      onToggleAutoSchedule={handleToggleAutoSchedule}
-      onScheduleNow={handleScheduleNow}
-      onOpenQuickSchedule={handleOpenQuickSchedule}
-      onQuickSchedule={handleQuickSchedule}
-      onAIHelp={(task) => {
-        // Find the original WatermelonDB Task by ID
-        const originalTask = tasks.find(t => t.id === task.id);
-        if (!originalTask) return;
-        handleAIHelp(originalTask);
-      }}
-    />
-  ), [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp]);
+  const renderTaskItem = useCallback(({ item, index }: { item: Task; index: number }) => {
+    const isFirstInboxTask = showFirstFocusHelp && !firstFocusHelpDismissed && index === 0 && !item.isTodayFocus;
+    const taskCard = (
+      <TaskCard
+        task={convertTaskForTaskCard(item)}
+        onPress={(task) => {
+          // Find the original WatermelonDB Task by ID
+          const originalTask = tasks.find(t => t.id === task.id);
+          if (!originalTask) return;
+          
+          if (selectingFocus) {
+            handleTaskSelect(originalTask);
+          } else {
+            handleTaskPress(originalTask);
+          }
+        }}
+        onDelete={handleDeleteTask}
+        onToggleStatus={handleToggleStatus}
+        onAddToCalendar={handleAddToCalendar}
+        onToggleAutoSchedule={handleToggleAutoSchedule}
+        onScheduleNow={handleScheduleNow}
+        onOpenQuickSchedule={handleOpenQuickSchedule}
+        onQuickSchedule={handleQuickSchedule}
+        onAIHelp={(task) => {
+          // Find the original WatermelonDB Task by ID
+          const originalTask = tasks.find(t => t.id === task.id);
+          if (!originalTask) return;
+          handleAIHelp(originalTask);
+        }}
+      />
+    );
+
+    // Wrap first inbox task with HelpTarget if showing first focus help
+    if (isFirstInboxTask) {
+      return (
+        <HelpTarget helpId="tasks-first-focus-help">
+          {taskCard}
+        </HelpTarget>
+      );
+    }
+
+    return taskCard;
+  }, [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp, showFirstFocusHelp, firstFocusHelpDismissed, tasks]);
 
   const keyExtractor = useCallback((item: Task) => item.id, []);
 
@@ -1089,21 +1192,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   // End-of-day prompt logic: once per day if focus exists and is not completed
   useEffect(() => {
     const maybePromptEndOfDay = async () => {
-      eodLog('maybePromptEndOfDay invoked', { loading });
       if (loading) {return;}
       const focus = getFocusTask();
-      eodLog('focus task check', { hasFocus: !!focus, status: focus?.status, id: focus?.id, title: focus?.title, dueDate: focus?.dueDate });
       if (!focus) {return;}
       const todayStr = new Date().toISOString().slice(0, 10);
       try {
         const lastPrompt = await AsyncStorage.getItem('lastEODPromptDate');
-        eodLog('storage check', { lastPrompt, todayStr });
         if (lastPrompt === todayStr) {return;}
         if (getLifecycleStatus(focus.status) !== 'completed') {
           // prevent re-open if already visible
-          if (showEodPrompt) { eodLog('prompt already visible, skipping re-open'); return; }
+          if (showEodPrompt) { return; }
           eodFocusIdRef.current = focus.id;
-          eodLog('showing EOD prompt (capture focus id)', { id: focus.id });
           setShowEodPrompt(true);
         }
       } catch {}
@@ -1115,21 +1214,135 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const markEodPrompted = async () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     try {
-      eodLog('markEodPrompted -> set lastEODPromptDate', { todayStr });
       await AsyncStorage.setItem('lastEODPromptDate', todayStr);
     } catch (err) {
-      eodLog('markEodPrompted error', err);
+      // Silent failure - not critical
     }
   };
 
   const handleFocusDone = useCallback(async (task: Task) => {
-    try {
-      // Update task status immediately using repository (local-first)
-      await taskRepository.updateTaskStatus(task.id, 'completed');
-      setToastMessage('Great job! Focus task completed.');
-      setToastCalendarEvent(false);
-      setShowToast(true);
+    // Reset state cleanup function
+    const resetState = () => {
+      setCompletingTaskId(null);
+      setAnimationCompleted(false);
+      setShowGoldBorder(false);
+    };
 
+    // Run animations in separate try-catch - errors here should not trigger DB failure Alert
+    try {
+      // Trigger haptic feedback immediately (wrap in try-catch for safety)
+      try {
+        hapticFeedback.heavy();
+      } catch (hapticError) {
+        console.warn('Haptic feedback failed:', hapticError);
+        // Continue even if haptic fails
+      }
+      
+      // Create animation values for task if not exists
+      if (!taskAnimations.has(task.id)) {
+        taskAnimations.set(task.id, new Animated.Value(1)); // Opacity starts at 1
+      }
+      if (!taskSlideAnimations.has(task.id)) {
+        taskSlideAnimations.set(task.id, new Animated.Value(0)); // TranslateX starts at 0
+      }
+      if (!taskScaleAnimations.has(task.id)) {
+        taskScaleAnimations.set(task.id, new Animated.Value(1)); // Scale starts at 1
+      }
+      const opacityAnim = taskAnimations.get(task.id)!;
+      const slideAnim = taskSlideAnimations.get(task.id)!;
+      const scaleAnim = taskScaleAnimations.get(task.id)!;
+      
+      // Set completing state FIRST so the Animated.View renders with the animation values
+      setCompletingTaskId(task.id);
+      setShowGoldBorder(false); // Reset border state
+      
+      // Wait for Animated.View to be mounted using robust mount detection
+      if (!isMountedRef.current) {
+        await new Promise<void>((resolve) => {
+          mountResolverRef.current = resolve;
+          // Fallback timeout to prevent infinite waiting (shouldn't be needed, but safety first)
+          setTimeout(() => {
+            if (mountResolverRef.current === resolve) {
+              mountResolverRef.current = null;
+              resolve();
+            }
+          }, 1000);
+        });
+      }
+      
+      // Reset animation values to initial state AFTER view is mounted
+      opacityAnim.setValue(1);
+      slideAnim.setValue(0);
+      scaleAnim.setValue(1);
+      
+      // Start strikethrough animation (opacity reduction from 1 to 0.5) + show gold border
+      setShowGoldBorder(true); // Show gold border immediately when strikethrough starts
+      await new Promise<void>((resolve) => {
+        Animated.timing(opacityAnim, {
+          toValue: 0.5,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => resolve());
+      });
+      
+      // Wait 800ms for pause (as specified in PRD: 500-800ms)
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Start shrink animation (slow scale down) - keep gold border
+      await new Promise<void>((resolve) => {
+        Animated.timing(scaleAnim, {
+          toValue: 0.3, // Shrink to 30% of original size
+          duration: 600, // Slow shrink animation
+          useNativeDriver: true,
+        }).start(() => resolve());
+      });
+      
+      // At the end of shrink, slide away to the right
+      const slideAwayAnimation = Animated.parallel([
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: width, // Slide off to the right edge of screen
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]);
+      
+      // Wait for slide-away animation to complete
+      await new Promise<void>((resolve) => {
+        slideAwayAnimation.start(() => {
+          // Mark animation as completed so empty state can show immediately
+          setAnimationCompleted(true);
+          resolve();
+        });
+      });
+    } catch (animationError) {
+      // Log animation errors but don't trigger DB failure Alert
+      console.error('Animation error in handleFocusDone:', animationError);
+      resetState();
+      // Continue to database update even if animation failed
+    }
+
+    // Database update in separate try-catch - only show Alert if this fails
+    try {
+      // Update database after animation completes (or even if animation failed)
+      await taskRepository.updateTaskStatus(task.id, 'completed');
+      
+      // Force UI refresh to update task lists (inboxTasks, getFocusTask, etc.)
+      setTasksVersion(prev => prev + 1);
+      
+      // Small delay to ensure WatermelonDB processes the update
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
+      
+      // Clear completing state after database update and UI refresh
+      resetState();
+      
+      // Remove toast notification - animation provides feedback instead
+
+      // Momentum mode operations - errors are already handled, don't rethrow
       if (task.isTodayFocus && momentumEnabled) {
         try {
           // Get next focus task using local repository (offline-capable)
@@ -1228,18 +1441,21 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             setToastCalendarEvent(false);
             setShowToast(true);
           }
+          // Don't rethrow - momentum errors are already handled with user feedback
         }
       }
-    } catch {
+    } catch (dbError) {
+      // Only show Alert for actual database update failures
+      console.error('Database update error in handleFocusDone:', dbError);
+      resetState();
       Alert.alert('Error', 'Failed to complete focus task');
     }
-  }, [momentumEnabled, travelPreference, userSchedulingPreferences]);
+  }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showGoldBorder]);
 
   const handleEodMarkDone = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodMarkDone ignored: action in flight'); return; }
+    if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
     const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodMarkDone tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title });
     if (!focus) { 
       setShowEodPrompt(false);
       await markEodPrompted();
@@ -1250,9 +1466,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       await handleFocusDone(focus);
       setShowEodPrompt(false);
       await markEodPrompted();
-      eodLog('handleEodMarkDone success');
     } catch (err) {
-      eodLog('handleEodMarkDone error', err);
+      // Error already handled in handleFocusDone
     } finally {
       eodFocusIdRef.current = undefined;
       eodActionInFlightRef.current = false;
@@ -1260,10 +1475,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   }, [tasks, getFocusTask, handleFocusDone]);
 
   const handleEodRollover = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodRollover ignored: action in flight'); return; }
+    if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
     const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    eodLog('handleEodRollover tapped', { hasFocus: !!focus, capturedId: eodFocusIdRef.current, id: focus?.id, title: focus?.title, prevDue: focus?.dueDate });
     if (!focus) { 
       // even if focus vanished, mark prompted so the modal doesn't re-open
       await markEodPrompted();
@@ -1282,15 +1496,12 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
     try {
       const tomorrowDate = new Date(yyyy, parseInt(mm) - 1, parseInt(dd));
-      eodLog('updating task dueDate -> tomorrow', { taskId: focus.id, date: `${yyyy}-${mm}-${dd}` });
       // Update using repository (local-first)
       await taskRepository.updateTask(focus.id, { dueDate: tomorrowDate });
-      eodLog('update success, task updated', { updatedDue: `${yyyy}-${mm}-${dd}` });
       setToastMessage('Rolled over to tomorrow.');
       setToastCalendarEvent(false);
       setShowToast(true);
     } catch {
-      eodLog('update failed');
       Alert.alert('Error', 'Failed to roll over task');
     }
     setShowEodPrompt(false);
@@ -1299,24 +1510,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   }, [tasks, getFocusTask, markEodPrompted]);
 
   const handleEodChooseNew = useCallback(async () => {
-    if (eodActionInFlightRef.current) { eodLog('handleEodChooseNew ignored: action in flight'); return; }
+    if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
-    eodLog('handleEodChooseNew tapped');
     try {
       setShowEodPrompt(false);
       await markEodPrompted();
       navigation.navigate('BrainDump');
-      eodLog('handleEodChooseNew success');
     } catch (err) {
-      eodLog('handleEodChooseNew error', err);
+      // Silent failure - navigation will handle errors
     } finally {
       eodActionInFlightRef.current = false;
     }
   }, [navigation, markEodPrompted]);
-
-  useEffect(() => {
-    eodLog('showEodPrompt state changed', { visible: showEodPrompt });
-  }, [showEodPrompt]);
 
   const _handleFocusRollover = async (task: Task) => {
     try {
@@ -1558,8 +1763,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                   </HelpTarget>
                 </View>
               </View>
-              {focus ? (
-                <View style={styles.focusCard}>
+              {focus && completingTaskId !== focus.id && !animationCompleted ? (
+                <View 
+                  ref={focusCardRef}
+                  style={styles.focusCard}
+                  onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    focusCardDimensions.current = { width, height };
+                  }}
+                >
                   <Text style={styles.focusTaskTitle}>{focus.title}</Text>
                   <View style={styles.focusBadges}>
                     {!!focus.category && (
@@ -1587,10 +1799,76 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                     </HelpTarget>
                   </View>
                 </View>
+              ) : focus && completingTaskId === focus.id && !animationCompleted ? (
+                (() => {
+                  const animValues = getAnimationValues(focus.id);
+                  const animatedStyle: any = {
+                    opacity: animValues.opacity,
+                    borderColor: showGoldBorder ? colors.accent.gold : colors.border.light, // Gold border when active
+                    borderWidth: 2, // Increased border width for visibility
+                    transform: [
+                      { scale: animValues.scale },
+                      { translateX: animValues.translateX },
+                    ],
+                  };
+                  
+                  // Apply measured dimensions to ensure initial size matches exactly
+                  const cardDimensions = focusCardDimensions.current;
+                  if (cardDimensions) {
+                    animatedStyle.width = cardDimensions.width;
+                    animatedStyle.height = cardDimensions.height;
+                  }
+                  
+                  return (
+                    <Animated.View 
+                      ref={(ref) => {
+                        animatedViewRef.current = ref;
+                        // Signal mount when ref is set and we have a completing task
+                        if (ref && completingTaskId === focus.id && !isMountedRef.current) {
+                          isMountedRef.current = true;
+                          if (mountResolverRef.current) {
+                            mountResolverRef.current();
+                            mountResolverRef.current = null;
+                          }
+                        }
+                      }}
+                      key={`animated-focus-${focus.id}`}
+                      style={[
+                        styles.focusCard,
+                        animatedStyle,
+                      ]}
+                    >
+                      <Text style={[
+                        styles.focusTaskTitle,
+                        styles.strikethroughText
+                      ]}>{focus.title}</Text>
+                      <View style={styles.focusBadges}>
+                        {!!focus.category && (
+                          <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                        )}
+                        <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                      </View>
+                      {/* Include action buttons row to match original card size */}
+                      <View style={styles.focusActionsRow}>
+                        <View style={styles.focusIconBtn}>
+                          <Icon name="check" size={22} color={colors.text.primary} />
+                        </View>
+                        {momentumEnabled && (
+                          <View style={styles.focusIconBtn}>
+                            <Icon name="arrow-right" size={22} color={colors.text.primary} />
+                          </View>
+                        )}
+                        <View style={styles.focusIconBtn}>
+                          <Icon name="arrow-switch" size={22} color={colors.text.primary} />
+                        </View>
+                      </View>
+                    </Animated.View>
+                  );
+                })()
               ) : (
                 <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
-                  <Text style={styles.focusTaskTitle}>No focus set</Text>
-                  <Text style={styles.badgeText}>Set Today’s Focus to keep things simple.</Text>
+                  <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
+                  <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1818,7 +2096,7 @@ const styles = StyleSheet.create({
   },
   focusCard: {
     marginTop: spacing.sm,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border.light,
     backgroundColor: colors.secondary,
     borderRadius: borderRadius.md,
@@ -1837,6 +2115,15 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold as any,
+  },
+  strikethroughText: {
+    textDecorationLine: 'line-through',
+    opacity: 0.6,
+  },
+  emptyFocusSubtext: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    marginTop: spacing.xs,
   },
   focusBadges: {
     flexDirection: 'row',

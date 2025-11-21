@@ -339,16 +339,6 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
       const nextMilestone = nextMilestoneObj?.title || '';
       const nextStep = nextMilestoneObj?.steps?.find((s: any) => !s.completed)?.text || '';
       
-      if (__DEV__ && goal.id) {
-        console.log(`Goal "${goal.title}" (${goal.id}):`);
-        console.log(`  - Found ${milestones.length} milestones in grouping`);
-        console.log(`  - Processed ${milestonesWithSteps.length} milestones with steps`);
-        milestonesWithSteps.forEach((m: any, idx: number) => {
-          console.log(`    Milestone ${idx + 1}: "${m.title || '(no title)'}" (completed: ${m.completed}, steps: ${m.steps?.length || 0})`);
-        });
-        console.log(`  - Current milestone: "${nextMilestone || '(none)'}"`);
-        console.log(`  - Next step: "${nextStep.substring(0, 50) || '(none)'}..."`);
-      }
       
       return {
         id: goal.id,
@@ -1335,7 +1325,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
               <Text style={styles.emptyStateIcon}>🎯</Text>
               <Text style={styles.emptyStateTitle}>No goals yet</Text>
               <Text style={styles.emptyStateText}>
-                Start by adding your first goal.
+                Use the AI Chat to help you design your first Goal
               </Text>
               <Button
                 title="Add Goal"

@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { taskRepository } from '../../repositories/TaskRepository';
 import { BrainDumpLoadingScreen } from '../../components/brain/BrainDumpLoadingScreen';
+import { OnboardingService } from '../../services/onboarding';
 
 
 type Priority = 'low'|'medium'|'high';
@@ -435,10 +436,30 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
         
         setShowLoadingScreen(false);
         // Small delay before navigation to allow loading screen to fade out smoothly
-        innerTimeoutRef.current = setTimeout(() => {
+        innerTimeoutRef.current = setTimeout(async () => {
           // Check if component is still mounted before navigating
           if (!isMountedRef.current) return;
-          navigation.navigate('Tasks');
+          
+          // Check if first session and guidance not shown yet
+          try {
+            const isFirstSession = await OnboardingService.isFirstSession();
+            const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown');
+            
+            if (isFirstSession && !guidanceShown) {
+              // Navigate to Focus Task Guidance screen for first-time users
+              navigation.navigate('FocusTaskGuidance');
+              // Mark first session as complete (but not full onboarding)
+              await OnboardingService.markFirstSessionComplete();
+            } else {
+              // Navigate to Tasks tab for returning users
+              navigation.navigate('Tasks');
+            }
+          } catch (error) {
+            console.warn('Error checking first session for navigation:', error);
+            // Fallback to Tasks tab on error
+            navigation.navigate('Tasks');
+          }
+          
           innerTimeoutRef.current = null;
         }, 200);
         outerTimeoutRef.current = null;
