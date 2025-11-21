@@ -30,6 +30,7 @@ export default function AppNavigator() {
 
   const handledInitialLink = useRef(false);
   const cachedInitialToken = useRef<string | null>(null);
+  const prevAuthRef = useRef<boolean>(false);
   // Use shared navigationRef for global route awareness
 
   // Handle initial URL only once on app launch
@@ -86,6 +87,7 @@ export default function AppNavigator() {
 
         const authenticated = authService.isAuthenticated();
         setIsAuthenticated(authenticated);
+        prevAuthRef.current = authenticated;
         // Note: First session check is handled in auth state change callback below
       } catch (error) {
         console.error('AppNavigator: Error checking auth state:', error);
@@ -99,8 +101,9 @@ export default function AppNavigator() {
 
     // Listen for auth state changes
     const unsubscribe = authService.subscribe((authState) => {
-      const wasAuthenticated = isAuthenticated;
-      setIsAuthenticated(authState.isAuthenticated);
+      const wasAuthenticated = prevAuthRef.current;
+      const isNowAuthenticated = authState.isAuthenticated;
+      setIsAuthenticated(isNowAuthenticated);
 
       // Handle navigation when auth state changes
       if (navigationRef.current && !authState.isLoading) {
@@ -108,7 +111,7 @@ export default function AppNavigator() {
         if (cachedInitialToken.current) {
           navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
           cachedInitialToken.current = null; // Clear the cached token after navigation
-        } else if (authState.isAuthenticated && !wasAuthenticated) {
+        } else if (isNowAuthenticated && !wasAuthenticated) {
           // Check if this is first session and route to Brain Dump Input
           // Use IIFE to handle async operation in callback
           (async () => {
@@ -138,10 +141,13 @@ export default function AppNavigator() {
               navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
             }
           })();
-        } else if (!authState.isAuthenticated && wasAuthenticated) {
+        } else if (!isNowAuthenticated && wasAuthenticated) {
           navigationRef.current.reset({ index: 0, routes: [{ name: 'Login' }] });
         }
       }
+
+      // Update the previous auth state ref for next comparison
+      prevAuthRef.current = isNowAuthenticated;
     });
 
     return () => {
