@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 
 /**
  * Script to enable focus notifications for testing

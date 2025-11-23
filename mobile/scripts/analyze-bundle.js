@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 
 /**
  * Bundle Analysis Script for MindGarden Mobile App
