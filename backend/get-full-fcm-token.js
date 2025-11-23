@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 
 /**
  * Script to get the full FCM token for Firebase Console testing

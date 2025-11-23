@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 
 /**
  * Image Optimization Script for MindGarden Mobile App
