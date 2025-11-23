@@ -1430,7 +1430,7 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
     
     // Check required fields exist
     for (const field of requiredFields) {
-      if (!json.hasOwnProperty(field)) {
+      if (!Object.prototype.hasOwnProperty.call(json, field)) {
         return false;
       }
     }

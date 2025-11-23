@@ -57,7 +57,7 @@ describe('Incremental Sync API Methods', () => {
       // Test response type detection logic
       const isIncremental = (response: any) => 
         response && typeof response === 'object' && !Array.isArray(response) && 
-        response.hasOwnProperty('changed') && response.hasOwnProperty('deleted');
+        Object.prototype.hasOwnProperty.call(response, 'changed') && Object.prototype.hasOwnProperty.call(response, 'deleted');
 
       const isFullSync = (response: any) => Array.isArray(response);
 
