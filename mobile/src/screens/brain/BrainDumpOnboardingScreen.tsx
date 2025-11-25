@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -9,9 +10,16 @@ import { typography } from '../../themes/typography';
 const { width } = Dimensions.get('window');
 
 export default function BrainDumpOnboardingScreen({ navigation }: any) {
-  const handleDismiss = () => {
-    navigation.goBack();
-  };
+  const handleDismiss = useCallback(async () => {
+    try {
+      await AsyncStorage.setItem('brainDumpOnboardingDismissed', 'true');
+      navigation.replace('BrainDumpInput');
+    } catch (error) {
+      console.warn('Error saving onboarding dismissal:', error);
+      // Navigate anyway even if saving fails
+      navigation.replace('BrainDumpInput');
+    }
+  }, [navigation]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>

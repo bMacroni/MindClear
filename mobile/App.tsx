@@ -186,7 +186,7 @@ function App() {
             if (currentUser && !channel) {
               const supabase = getSupabaseClient();
               channel = supabase.channel(`user-${currentUser.id}-changes`)
-                .on('broadcast', { event: 'update' }, (payload) => {
+                .on('broadcast', { event: 'update' }, (_payload) => {
                   syncService.sync();
                 })
                 .subscribe();

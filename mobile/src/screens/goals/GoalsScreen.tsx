@@ -375,15 +375,15 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   // Update local goals when observable goals, milestones, or steps change
   useEffect(() => {
-    if (observableGoals) {
-      transformGoals(observableGoals, database).then((transformedGoals) => {
-        setGoals(transformedGoals);
-        setGoalsLoading(false);
-      }).catch((error) => {
-        console.error('Error transforming goals:', error);
-        setGoalsLoading(false);
-      });
-    }
+    // Always process goals, even if observableGoals is undefined/null (treat as empty array)
+    const goalsToTransform = observableGoals || [];
+    transformGoals(goalsToTransform, database).then((transformedGoals) => {
+      setGoals(transformedGoals);
+      setGoalsLoading(false);
+    }).catch((error) => {
+      console.error('Error transforming goals:', error);
+      setGoalsLoading(false);
+    });
   }, [observableGoals, observableMilestones, observableSteps, transformGoals, database]);
 
   // Reset help overlay when this screen gains focus

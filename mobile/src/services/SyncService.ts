@@ -1157,10 +1157,14 @@ class SyncService {
       if (Array.isArray(goalsResponseValue)) {
         // Full sync response
         changedGoals = goalsResponseValue;
+        console.log(`Pull: Received ${changedGoals.length} goals from server (full sync)`);
       } else if (goalsResponseValue && typeof goalsResponseValue === 'object') {
         // Incremental sync response
         changedGoals = goalsResponseValue.changed || [];
         deletedGoalIds = goalsResponseValue.deleted || [];
+        console.log(`Pull: Received ${changedGoals.length} changed goals and ${deletedGoalIds.length} deleted goal IDs from server`);
+      } else {
+        console.warn(`Pull: Unexpected goals response format:`, goalsResponseValue);
       }
 
       // Fallback: If incremental sync returned no goals, and local milestones are empty while local goals exist,
@@ -1234,6 +1238,18 @@ class SyncService {
         return;
       }
 
+      console.log(`Pull: Processing ${allChanges.length} changed records and ${allDeletedIds.length} deleted records`);
+      
+      // Separate goals from other records to process them first
+      const goalRecords = allChanges.filter(changeData => 
+        changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined
+      );
+      const otherRecords = allChanges.filter(changeData => 
+        !(changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined)
+      );
+      
+      console.log(`Pull: Found ${goalRecords.length} goals and ${otherRecords.length} other records`);
+      
       await database.write(async () => {
         // Process deletions first
         if (allDeletedIds.length > 0) {
@@ -1286,34 +1302,74 @@ class SyncService {
           // Messages are cascade deleted when threads are deleted
         }
 
-        // Process changed records
-        for (const changeData of allChanges) {
-          // Determine record type based on the data structure
-          if (changeData.start?.dateTime || changeData.start_time) {
-            // This is a calendar event
-            await this.processEventChange(changeData, database);
-          } else if (changeData.priority !== undefined || changeData.estimated_duration_minutes !== undefined) {
-            // This is a task
-            await this.processTaskChange(changeData, database);
-          } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
-            // This is a goal
+        // Process changed records - process goals FIRST to ensure they're created
+        let goalsProcessed = 0;
+        let tasksProcessed = 0;
+        let eventsProcessed = 0;
+        let milestonesProcessed = 0;
+        let stepsProcessed = 0;
+        let threadsProcessed = 0;
+        let messagesProcessed = 0;
+        let unknownProcessed = 0;
+        
+        // Process goals first
+        console.log(`Pull: Processing ${goalRecords.length} goals first...`);
+        for (const changeData of goalRecords) {
+          try {
+            console.log(`Pull: Processing goal ${changeData.id}: ${changeData.title}`);
             await this.processGoalChange(changeData, database);
-          } else if (changeData.goal_id !== undefined && changeData.title !== undefined) {
-            // This is a milestone
-            await this.processMilestoneChange(changeData, database);
-          } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
-            // This is a milestone step
-            await this.processMilestoneStepChange(changeData, database);
-          } else if (changeData.thread_id !== undefined && changeData.role !== undefined) {
-            // This is a conversation message
-            await this.processMessageChange(changeData, database);
-          } else if (changeData.title !== undefined && (changeData.is_active !== undefined || changeData.is_pinned !== undefined)) {
-            // This is a conversation thread (has title and thread-specific fields)
-            await this.processThreadChange(changeData, database);
-          } else {
-            console.warn(`Pull: Unknown record type for change data:`, changeData);
+            goalsProcessed++;
+          } catch (recordError) {
+            console.error(`Pull: Failed to process goal ${changeData.id}:`, recordError);
           }
         }
+        console.log(`Pull: Completed processing ${goalsProcessed} goals`);
+        
+        // Then process other records
+        console.log(`Pull: Processing ${otherRecords.length} other records...`);
+        for (const changeData of otherRecords) {
+          try {
+            // Determine record type based on the data structure
+            if (changeData.start?.dateTime || changeData.start_time) {
+              // This is a calendar event
+              await this.processEventChange(changeData, database);
+              eventsProcessed++;
+            } else if (changeData.priority !== undefined || changeData.estimated_duration_minutes !== undefined) {
+              // This is a task
+              await this.processTaskChange(changeData, database);
+              tasksProcessed++;
+            } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
+              // This is a goal - should have been processed already, skip
+              console.warn(`Pull: Goal ${changeData.id} found in other records loop (should have been processed already)`);
+              goalsProcessed++;
+            } else if (changeData.goal_id !== undefined && changeData.title !== undefined) {
+              // This is a milestone
+              await this.processMilestoneChange(changeData, database);
+              milestonesProcessed++;
+            } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
+              // This is a milestone step
+              await this.processMilestoneStepChange(changeData, database);
+              stepsProcessed++;
+            } else if (changeData.thread_id !== undefined && changeData.role !== undefined) {
+              // This is a conversation message
+              await this.processMessageChange(changeData, database);
+              messagesProcessed++;
+            } else if (changeData.title !== undefined && (changeData.is_active !== undefined || changeData.is_pinned !== undefined)) {
+              // This is a conversation thread (has title and thread-specific fields)
+              await this.processThreadChange(changeData, database);
+              threadsProcessed++;
+            } else {
+              console.warn(`Pull: Unknown record type for change data:`, changeData);
+              unknownProcessed++;
+            }
+          } catch (recordError) {
+            // Log error but continue processing other records
+            console.error(`Pull: Failed to process record:`, changeData, recordError);
+            // Don't re-throw - continue with next record to avoid failing entire sync
+          }
+        }
+        
+        console.log(`Pull: Processed ${goalsProcessed} goals, ${tasksProcessed} tasks, ${eventsProcessed} events, ${milestonesProcessed} milestones, ${stepsProcessed} steps, ${threadsProcessed} threads, ${messagesProcessed} messages, ${unknownProcessed} unknown`);
       });
 
       // After a successful pull, save the server's timestamp
@@ -1700,39 +1756,51 @@ class SyncService {
   }
 
   private async processGoalChange(goalData: any, database: Database) {
-    const parsedTargetDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
-    if (goalData.target_completion_date && !parsedTargetDate) {
-      console.error(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
-    }
+    try {
+      console.log(`Pull: processGoalChange called for goal ${goalData.id}, title: ${goalData.title}`);
+      const parsedTargetDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
+      if (goalData.target_completion_date && !parsedTargetDate) {
+        console.error(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
+      }
 
-    const goalCollection = database.get<Goal>('goals');
-    const existingGoals = await goalCollection.query(Q.where('id', goalData.id)).fetch();
-    const localGoal = existingGoals.length > 0 ? existingGoals[0] : null;
+      const goalCollection = database.get<Goal>('goals');
+      console.log(`Pull: Querying for existing goal ${goalData.id}`);
+      const existingGoals = await goalCollection.query(Q.where('id', goalData.id)).fetch();
+      const localGoal = existingGoals.length > 0 ? existingGoals[0] : null;
+      console.log(`Pull: Found existing goal: ${!!localGoal}`);
 
-    if (localGoal) {
-      // Update existing goal
-      await localGoal.update((record: Goal) => {
-        record.title = goalData.title;
-        record.description = goalData.description;
-        record.targetCompletionDate = parsedTargetDate;
-        record.progressPercentage = goalData.progress_percentage;
-        record.category = goalData.category;
-        record.isActive = goalData.is_active;
-        record.status = 'synced';
-      });
-    } else {
-      // Create new goal
-      await goalCollection.create((record: Goal) => {
-        record._raw.id = goalData.id;
-        record.title = goalData.title;
-        record.description = goalData.description;
-        record.targetCompletionDate = parsedTargetDate;
-        record.progressPercentage = goalData.progress_percentage;
-        record.category = goalData.category;
-        record.isActive = goalData.is_active;
-        record.userId = goalData.user_id;
-        record.status = 'synced';
-      });
+      if (localGoal) {
+        // Update existing goal
+        console.log(`Pull: Updating existing goal ${goalData.id}`);
+        await localGoal.update((record: Goal) => {
+          record.title = goalData.title;
+          record.description = goalData.description;
+          record.targetCompletionDate = parsedTargetDate;
+          record.progressPercentage = goalData.progress_percentage;
+          record.category = goalData.category;
+          record.isActive = goalData.is_active;
+          record.status = 'synced';
+        });
+        console.log(`Pull: Updated goal ${goalData.id}: ${goalData.title}`);
+      } else {
+        // Create new goal
+        console.log(`Pull: Creating new goal ${goalData.id}`);
+        await goalCollection.create((record: Goal) => {
+          record._raw.id = goalData.id;
+          record.title = goalData.title;
+          record.description = goalData.description;
+          record.targetCompletionDate = parsedTargetDate;
+          record.progressPercentage = goalData.progress_percentage;
+          record.category = goalData.category;
+          record.isActive = goalData.is_active;
+          record.userId = goalData.user_id;
+          record.status = 'synced';
+        });
+        console.log(`Pull: Created goal ${goalData.id}: ${goalData.title}`);
+      }
+    } catch (error) {
+      console.error(`Pull: Error processing goal ${goalData.id}:`, error);
+      throw error; // Re-throw to let outer error handler catch it
     }
 
     // Also upsert nested milestones and steps if present on the goal payload
