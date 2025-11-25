@@ -285,78 +285,10 @@ class SyncService {
             case 'pending_create':
             case 'sync_failed_create':
               serverResponse = await enhancedAPI.createTask(recordData);
-              // If server returned a different ID, migrate local task ID to server ID
-              // This prevents duplicate tasks when the server generates a new ID
-              if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
-                try {
-                  const oldTaskId = record.id;
-                  const newTaskId = serverResponse.id;
-                  
-                  // Store task data before migration
-                  const taskData = {
-                    title: record.title,
-                    description: record.description,
-                    priority: record.priority,
-                    estimatedDurationMinutes: record.estimatedDurationMinutes,
-                    dueDate: record.dueDate,
-                    goalId: record.goalId,
-                    isTodayFocus: record.isTodayFocus,
-                    autoScheduleEnabled: record.autoScheduleEnabled,
-                    category: record.category,
-                    location: record.location,
-                    calendarEventId: record.calendarEventId,
-                    userId: record.userId,
-                    status: this.extractLifecycleStatus(record.status as string).lifecycleStatus,
-                    createdAt: record.createdAt,
-                  };
-                  
-                  // Find any calendar events that reference the old task ID
-                  const calendarEvents = await database.get('calendar_events')
-                    .query(Q.where('task_id', oldTaskId))
-                    .fetch();
-                  
-                  // Migrate the task: create new task with server ID, update calendar events, delete old task
-                  await database.write(async () => {
-                    // Fetch the task fresh inside the write transaction
-                    const taskToDelete = await database.get<Task>('tasks').find(oldTaskId);
-                    
-                    // Create new task with server ID
-                    await database.get<Task>('tasks').create((t: Task) => {
-                      t._raw.id = newTaskId;
-                      t.title = taskData.title;
-                      t.description = taskData.description;
-                      t.priority = taskData.priority;
-                      t.estimatedDurationMinutes = taskData.estimatedDurationMinutes;
-                      t.dueDate = taskData.dueDate;
-                      t.goalId = taskData.goalId;
-                      t.isTodayFocus = taskData.isTodayFocus;
-                      t.autoScheduleEnabled = taskData.autoScheduleEnabled;
-                      t.category = taskData.category;
-                      t.location = taskData.location;
-                      t.calendarEventId = taskData.calendarEventId;
-                      t.userId = taskData.userId;
-                      t.status = taskData.status;
-                      t.createdAt = taskData.createdAt;
-                      t.updatedAt = new Date();
-                    });
-                    
-                    // Update all calendar events to point to new task ID
-                    for (const event of calendarEvents) {
-                      await event.update((e: any) => {
-                        e.taskId = newTaskId;
-                      });
-                    }
-                    
-                    // Delete old task record
-                    await taskToDelete.destroyPermanently();
-                  });
-                  
-                  // Skip the normal update logic since we've migrated to new ID
-                  continue;
-                } catch (migrationError) {
-                  console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
-                }
-              }
+              // If server returned a different ID, we'll let the pull operation handle the ID migration
+              // via duplicate detection. For now, just mark the task as synced with its current ID.
+              // The pull operation will detect the duplicate and migrate it properly.
+              // This avoids the _raw.id error that occurs when trying to migrate during push.
               break;
             case 'pending_update':
             case 'sync_failed_update':
@@ -365,76 +297,10 @@ class SyncService {
               if (!this.isUUID(record.id)) {
                 console.warn(`Push: Task ${record.id} has pending_update but non-UUID ID, treating as create`);
                 serverResponse = await enhancedAPI.createTask(recordData);
-                // If server returned a different ID, migrate local task ID to server ID
-                if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
-                  try {
-                    const oldTaskId = record.id;
-                    const newTaskId = serverResponse.id;
-                    
-                    // Store task data before migration
-                    const taskData = {
-                      title: record.title,
-                      description: record.description,
-                      priority: record.priority,
-                      estimatedDurationMinutes: record.estimatedDurationMinutes,
-                      dueDate: record.dueDate,
-                      goalId: record.goalId,
-                      isTodayFocus: record.isTodayFocus,
-                      autoScheduleEnabled: record.autoScheduleEnabled,
-                      category: record.category,
-                      location: record.location,
-                      calendarEventId: record.calendarEventId,
-                      userId: record.userId,
-                      status: this.extractLifecycleStatus(record.status as string).lifecycleStatus,
-                      createdAt: record.createdAt,
-                    };
-                    
-                    // Find any calendar events that reference the old task ID
-                    const calendarEvents = await database.get('calendar_events')
-                      .query(Q.where('task_id', oldTaskId))
-                      .fetch();
-                    
-                    // Migrate the task: create new task with server ID, update calendar events, delete old task
-                    await database.write(async () => {
-                      // Fetch the task fresh inside the write transaction
-                      const taskToDelete = await database.get<Task>('tasks').find(oldTaskId);
-                      
-                      // Create new task with server ID
-                      await database.get<Task>('tasks').create((t: Task) => {
-                        t._raw.id = newTaskId;
-                        t.title = taskData.title;
-                        t.description = taskData.description;
-                        t.priority = taskData.priority;
-                        t.estimatedDurationMinutes = taskData.estimatedDurationMinutes;
-                        t.dueDate = taskData.dueDate;
-                        t.goalId = taskData.goalId;
-                        t.isTodayFocus = taskData.isTodayFocus;
-                        t.autoScheduleEnabled = taskData.autoScheduleEnabled;
-                        t.category = taskData.category;
-                        t.location = taskData.location;
-                        t.calendarEventId = taskData.calendarEventId;
-                        t.userId = taskData.userId;
-                        t.status = taskData.status;
-                        t.createdAt = taskData.createdAt;
-                        t.updatedAt = new Date();
-                      });
-                      
-                      // Update all calendar events to point to new task ID
-                      for (const event of calendarEvents) {
-                        await event.update((e: any) => {
-                          e.taskId = newTaskId;
-                        });
-                      }
-                      
-                      // Delete old task record
-                      await taskToDelete.destroyPermanently();
-                    });
-                    
-                    continue;
-                  } catch (migrationError) {
-                    console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
-                  }
-                }
+                // If server returned a different ID, we'll let the pull operation handle the ID migration
+                // via duplicate detection. For now, just mark the task as synced with its current ID.
+                // The pull operation will detect the duplicate and migrate it properly.
+                // This avoids the _raw.id error that occurs when trying to migrate during push.
               } else {
                 serverResponse = await enhancedAPI.updateTask(record.id, recordData);
               }
@@ -1717,19 +1583,31 @@ class SyncService {
       // This indicates it's the same task that was just created locally and is being synced
       const potentialDuplicate = allTasks.find(task => {
         const statusStr = task.status as string;
+        // Check if task has pending_create status OR is a pure lifecycle status (was just synced)
+        // Pure lifecycle statuses indicate the task was just pushed and is waiting for ID migration
         const hasPendingCreate = statusStr === 'pending_create' || 
                                  statusStr?.startsWith('pending_create:') ||
                                  statusStr === 'sync_failed_create' ||
                                  statusStr?.startsWith('sync_failed_create:');
         
-        // Match by title (exact match) and check if it's a pending create
+        // Also check for pure lifecycle status (not_started, in_progress, completed)
+        // These indicate the task was just synced but hasn't been migrated to server ID yet
+        const isPureLifecycleStatus = statusStr === 'not_started' || 
+                                      statusStr === 'in_progress' || 
+                                      statusStr === 'completed';
+        
+        // Match by title (exact match)
         const titleMatch = task.title === taskData.title;
         
         // Also check if descriptions match (if both exist)
         const descriptionMatch = !taskData.description || !task.description || 
                                  task.description === taskData.description;
         
-        return hasPendingCreate && titleMatch && descriptionMatch;
+        // Match if it's a pending create OR a pure lifecycle status (recently synced)
+        // AND the IDs don't match (local ID vs server ID)
+        const idMismatch = task.id !== taskData.id;
+        
+        return idMismatch && (hasPendingCreate || isPureLifecycleStatus) && titleMatch && descriptionMatch;
       });
       
       if (potentialDuplicate) {

@@ -5,6 +5,7 @@ import { authService } from './auth';
 import secureConfigService from './secureConfig';
 import logger from '../utils/logger';
 import { enhancedAPI } from './enhancedApi';
+import { secureStorage } from './secureStorage';
 
 // Helper function to get secure API base URL
 const getSecureApiBaseUrl = (): string => {
@@ -195,14 +196,17 @@ class GoogleAuthService {
         
         // Verify refresh token was stored (critical for persistent login)
         if (data.refresh_token) {
-          const { secureStorage } = await import('./secureStorage');
-          const storedRefreshToken = await secureStorage.get('auth_refresh_token');
-          if (storedRefreshToken && storedRefreshToken === data.refresh_token) {
-            if (__DEV__) {
-              logger.info('[GoogleAuth] Refresh token verified and stored successfully');
+          try {
+            const storedRefreshToken = await secureStorage.get('auth_refresh_token');
+            if (storedRefreshToken && storedRefreshToken === data.refresh_token) {
+              if (__DEV__) {
+                logger.info('[GoogleAuth] Refresh token verified and stored successfully');
+              }
+            } else {
+              logger.warn('[GoogleAuth] WARNING: Refresh token was not stored correctly. Persistent login may not work.');
             }
-          } else {
-            logger.error('[GoogleAuth] WARNING: Refresh token was not stored correctly. Persistent login may not work.');
+          } catch (error) {
+            logger.warn('[GoogleAuth] WARNING: Failed to verify refresh token storage. Treating as not stored.', error);
           }
         } else {
           logger.warn('[GoogleAuth] WARNING: No refresh token received from backend. Persistent login will not work.');

@@ -89,8 +89,8 @@ export async function apiFetch<T = any>(
       logger.info('Received 401, attempting token refresh...');
       try {
         // Use single-flight refresh to avoid concurrent refresh races
-        const refreshSuccess = await authService.refreshToken();
-        if (refreshSuccess) {
+        const refreshResult = await authService.refreshToken();
+        if (refreshResult.success) {
           logger.info('Token refresh successful, retrying request...');
           // Get the new token and retry the request
           const newToken = await authService.getAuthToken();
@@ -119,7 +119,12 @@ export async function apiFetch<T = any>(
             logger.warn('Token refresh succeeded but new token not available. User may need to sign in again.');
           }
         } else {
-          logger.warn('Token refresh failed. User may need to sign in again if this persists.');
+          const errorType = refreshResult.error || 'unknown';
+          if (errorType === 'auth') {
+            logger.warn('Token refresh failed due to authentication error. User may need to sign in again.');
+          } else {
+            logger.warn(`Token refresh failed (${errorType}). User may need to sign in again if this persists.`);
+          }
         }
       } catch (error) {
         logger.error('Token refresh error during API call:', error);
