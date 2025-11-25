@@ -255,7 +255,6 @@ class SyncService {
             // If task ID is not a UUID, it was never synced to server
             // Just delete it locally without attempting server deletion
             if (!this.isUUID(record.id)) {
-              console.log(`Push: Deleting local-only task ${record.id} (never synced to server)`);
               await database.write(async () => {
                 await record.destroyPermanently();
               });
@@ -264,10 +263,8 @@ class SyncService {
             }
             // Delete task on server
             try {
-              console.log(`Push: Deleting task ${record.id} from server`);
               await enhancedAPI.deleteTask(record.id);
               // Immediately delete local record after successful server deletion
-              console.log(`Push: Task ${record.id} deleted from server, removing from local database`);
               await database.write(async () => {
                 await record.destroyPermanently();
               });
@@ -630,7 +627,6 @@ class SyncService {
               // If getThread returns 404, thread was already deleted - treat as success
               const is404 = checkError?.status === 404 || checkError?.response?.status === 404;
               if (is404) {
-                console.log(`Push: Thread ${record.id} delete timed out but thread already deleted, cleaning up locally`);
                 await database.write(async () => {
                   await (record as any).destroyPermanently();
                 });
@@ -1612,7 +1608,6 @@ class SyncService {
       
       if (potentialDuplicate) {
         // This is likely the same task - migrate it to use the server ID instead of creating a duplicate
-        console.log(`Pull: Found potential duplicate task "${taskData.title}" with local ID ${potentialDuplicate.id}, migrating to server ID ${taskData.id}`);
         
         // Find any calendar events that reference the old task ID
         const calendarEvents = await database.get('calendar_events')

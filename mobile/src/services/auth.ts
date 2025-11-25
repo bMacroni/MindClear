@@ -264,12 +264,11 @@ class AuthService {
   // Handle logout when refresh token is missing
   private async handleMissingRefreshTokenLogout(): Promise<void> {
     logger.warn('Token expired and no refresh token available. Logging out.');
-    await secureStorage.multiRemove(['auth_token', 'auth_user', 'authToken', 'authUser']);
+    await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'authToken', 'authUser']);
     this.stopBackgroundRefresh();
     this.setUnauthenticatedState();
     this.notifyListeners();
   }
-
   // Get current auth state
   public getAuthState(): AuthState {
     return { ...this.authState };

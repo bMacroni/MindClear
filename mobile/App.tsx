@@ -187,9 +187,6 @@ function App() {
               const supabase = getSupabaseClient();
               channel = supabase.channel(`user-${currentUser.id}-changes`)
                 .on('broadcast', { event: 'update' }, (payload) => {
-                  if (__DEV__) {
-                    console.log('Realtime update received!', payload);
-                  }
                   syncService.sync();
                 })
                 .subscribe();
@@ -200,9 +197,6 @@ function App() {
               tokenRefreshUnsubscribe();
             }
             tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (token: string) => {
-              if (__DEV__) {
-                console.log('FCM token refreshed:', token.substring(0, 20) + '...');
-              }
               try {
                 await notificationService.registerTokenWithBackend(token);
               } catch (error) {
