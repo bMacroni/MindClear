@@ -151,13 +151,21 @@ function App() {
 
         if (!mounted) return; // Check again after async operation
 
-        // Set up sync triggers only after successful initialization
+        // Set up sync triggers and token refresh only after successful initialization
         appStateSubscription = AppState.addEventListener(
           'change',
           nextAppState => {
             if (nextAppState === 'active') {
-              // Only trigger sync if user is authenticated
+              // Check and refresh token if needed when app comes to foreground
+              // This handles cases where app was killed and background timer was lost
               if (authService.isAuthenticated()) {
+                // Proactively refresh token if expired or expiring soon
+                authService.checkAndRefreshTokenIfNeeded().catch(error => {
+                  if (__DEV__) {
+                    console.warn('Failed to refresh token on app foreground:', error);
+                  }
+                });
+                // Trigger sync after token check
                 syncService.sync();
               }
             }

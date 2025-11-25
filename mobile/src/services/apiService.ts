@@ -115,10 +115,14 @@ export async function apiFetch<T = any>(
             } finally {
               clearTimeout(retryId);
             }
+          } else {
+            logger.warn('Token refresh succeeded but new token not available. User may need to sign in again.');
           }
+        } else {
+          logger.warn('Token refresh failed. User may need to sign in again if this persists.');
         }
       } catch (error) {
-        logger.error('Token refresh failed:', error);
+        logger.error('Token refresh error during API call:', error);
         // Treat refresh as failed - do not retry, let the 401 response flow through
         // This ensures proper API error response path instead of throwing
       }

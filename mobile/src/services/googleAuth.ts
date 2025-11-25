@@ -193,6 +193,21 @@ class GoogleAuthService {
         await authService.setSession(data.token, data.user, data.refresh_token);
         if (__DEV__) logger.info('[GoogleAuth] Session set successfully');
         
+        // Verify refresh token was stored (critical for persistent login)
+        if (data.refresh_token) {
+          const { secureStorage } = await import('./secureStorage');
+          const storedRefreshToken = await secureStorage.get('auth_refresh_token');
+          if (storedRefreshToken && storedRefreshToken === data.refresh_token) {
+            if (__DEV__) {
+              logger.info('[GoogleAuth] Refresh token verified and stored successfully');
+            }
+          } else {
+            logger.error('[GoogleAuth] WARNING: Refresh token was not stored correctly. Persistent login may not work.');
+          }
+        } else {
+          logger.warn('[GoogleAuth] WARNING: No refresh token received from backend. Persistent login will not work.');
+        }
+        
         // If we have a user ID, trigger the OAuth flow for calendar permissions
         if (data.user?.id) {
           await this.triggerCalendarOAuth(data.user.id);

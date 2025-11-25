@@ -30,7 +30,7 @@ export interface ConversationThreadWithMessages {
 
 export const conversationService = {
   async listThreads(): Promise<ConversationThread[]> {
-    const res = await apiFetch<ConversationThread[]>('/ai/threads', { method: 'GET' }, 25000);
+    const res = await apiFetch<ConversationThread[]>('/ai/threads', { method: 'GET' }, 30000);
     if (!res.ok) throw new Error((res.data as any)?.error || 'Failed to load threads');
     return res.data as ConversationThread[];
   },

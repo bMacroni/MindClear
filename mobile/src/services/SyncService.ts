@@ -289,7 +289,68 @@ class SyncService {
               // This prevents duplicate tasks when the server generates a new ID
               if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
                 try {
-                  await taskRepository.updateTaskServerId(record.id, serverResponse.id);
+                  const oldTaskId = record.id;
+                  const newTaskId = serverResponse.id;
+                  
+                  // Store task data before migration
+                  const taskData = {
+                    title: record.title,
+                    description: record.description,
+                    priority: record.priority,
+                    estimatedDurationMinutes: record.estimatedDurationMinutes,
+                    dueDate: record.dueDate,
+                    goalId: record.goalId,
+                    isTodayFocus: record.isTodayFocus,
+                    autoScheduleEnabled: record.autoScheduleEnabled,
+                    category: record.category,
+                    location: record.location,
+                    calendarEventId: record.calendarEventId,
+                    userId: record.userId,
+                    status: this.extractLifecycleStatus(record.status as string).lifecycleStatus,
+                    createdAt: record.createdAt,
+                  };
+                  
+                  // Find any calendar events that reference the old task ID
+                  const calendarEvents = await database.get('calendar_events')
+                    .query(Q.where('task_id', oldTaskId))
+                    .fetch();
+                  
+                  // Migrate the task: create new task with server ID, update calendar events, delete old task
+                  await database.write(async () => {
+                    // Fetch the task fresh inside the write transaction
+                    const taskToDelete = await database.get<Task>('tasks').find(oldTaskId);
+                    
+                    // Create new task with server ID
+                    await database.get<Task>('tasks').create((t: Task) => {
+                      t._raw.id = newTaskId;
+                      t.title = taskData.title;
+                      t.description = taskData.description;
+                      t.priority = taskData.priority;
+                      t.estimatedDurationMinutes = taskData.estimatedDurationMinutes;
+                      t.dueDate = taskData.dueDate;
+                      t.goalId = taskData.goalId;
+                      t.isTodayFocus = taskData.isTodayFocus;
+                      t.autoScheduleEnabled = taskData.autoScheduleEnabled;
+                      t.category = taskData.category;
+                      t.location = taskData.location;
+                      t.calendarEventId = taskData.calendarEventId;
+                      t.userId = taskData.userId;
+                      t.status = taskData.status;
+                      t.createdAt = taskData.createdAt;
+                      t.updatedAt = new Date();
+                    });
+                    
+                    // Update all calendar events to point to new task ID
+                    for (const event of calendarEvents) {
+                      await event.update((e: any) => {
+                        e.taskId = newTaskId;
+                      });
+                    }
+                    
+                    // Delete old task record
+                    await taskToDelete.destroyPermanently();
+                  });
+                  
                   // Skip the normal update logic since we've migrated to new ID
                   continue;
                 } catch (migrationError) {
@@ -307,7 +368,68 @@ class SyncService {
                 // If server returned a different ID, migrate local task ID to server ID
                 if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
                   try {
-                    await taskRepository.updateTaskServerId(record.id, serverResponse.id);
+                    const oldTaskId = record.id;
+                    const newTaskId = serverResponse.id;
+                    
+                    // Store task data before migration
+                    const taskData = {
+                      title: record.title,
+                      description: record.description,
+                      priority: record.priority,
+                      estimatedDurationMinutes: record.estimatedDurationMinutes,
+                      dueDate: record.dueDate,
+                      goalId: record.goalId,
+                      isTodayFocus: record.isTodayFocus,
+                      autoScheduleEnabled: record.autoScheduleEnabled,
+                      category: record.category,
+                      location: record.location,
+                      calendarEventId: record.calendarEventId,
+                      userId: record.userId,
+                      status: this.extractLifecycleStatus(record.status as string).lifecycleStatus,
+                      createdAt: record.createdAt,
+                    };
+                    
+                    // Find any calendar events that reference the old task ID
+                    const calendarEvents = await database.get('calendar_events')
+                      .query(Q.where('task_id', oldTaskId))
+                      .fetch();
+                    
+                    // Migrate the task: create new task with server ID, update calendar events, delete old task
+                    await database.write(async () => {
+                      // Fetch the task fresh inside the write transaction
+                      const taskToDelete = await database.get<Task>('tasks').find(oldTaskId);
+                      
+                      // Create new task with server ID
+                      await database.get<Task>('tasks').create((t: Task) => {
+                        t._raw.id = newTaskId;
+                        t.title = taskData.title;
+                        t.description = taskData.description;
+                        t.priority = taskData.priority;
+                        t.estimatedDurationMinutes = taskData.estimatedDurationMinutes;
+                        t.dueDate = taskData.dueDate;
+                        t.goalId = taskData.goalId;
+                        t.isTodayFocus = taskData.isTodayFocus;
+                        t.autoScheduleEnabled = taskData.autoScheduleEnabled;
+                        t.category = taskData.category;
+                        t.location = taskData.location;
+                        t.calendarEventId = taskData.calendarEventId;
+                        t.userId = taskData.userId;
+                        t.status = taskData.status;
+                        t.createdAt = taskData.createdAt;
+                        t.updatedAt = new Date();
+                      });
+                      
+                      // Update all calendar events to point to new task ID
+                      for (const event of calendarEvents) {
+                        await event.update((e: any) => {
+                          e.taskId = newTaskId;
+                        });
+                      }
+                      
+                      // Delete old task record
+                      await taskToDelete.destroyPermanently();
+                    });
+                    
                     continue;
                   } catch (migrationError) {
                     console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
@@ -619,12 +741,39 @@ class SyncService {
           const isPendingDelete = (record as any).status === 'pending_delete' ||
             (typeof (record as any).status === 'string' && (record as any).status.includes('pending_delete'));
           const statusCode = error?.response?.status;
+          const isTimeout = statusCode === 408 || error?.data?.code === 'TIMEOUT' || 
+                           (error instanceof Error && error.message?.toLowerCase().includes('timeout'));
+          
           if (isPendingDelete && (statusCode === 404 || statusCode === 410)) {
             await database.write(async () => {
               await (record as any).destroyPermanently();
             });
             // Skip error tracking for idempotent delete
             continue;
+          }
+          
+          // Handle timeout errors for pending_delete: check if thread was already deleted
+          if (isPendingDelete && isTimeout && record instanceof ConversationThread) {
+            try {
+              // Check if thread still exists on server
+              await conversationService.getThread(record.id, { timeoutMs: 10000 });
+              // Thread still exists - mark as failed for retry
+              console.warn(`Push: Thread ${record.id} delete timed out but thread still exists, will retry`);
+              // Will be marked as sync_failed_delete below
+            } catch (checkError: any) {
+              // If getThread returns 404, thread was already deleted - treat as success
+              const is404 = checkError?.status === 404 || checkError?.response?.status === 404;
+              if (is404) {
+                console.log(`Push: Thread ${record.id} delete timed out but thread already deleted, cleaning up locally`);
+                await database.write(async () => {
+                  await (record as any).destroyPermanently();
+                });
+                // Skip error tracking for idempotent delete
+                continue;
+              }
+              // Other errors (network, auth) - will be marked as failed for retry
+              console.warn(`Push: Failed to verify thread ${record.id} deletion status after timeout:`, checkError);
+            }
           }
         } catch (localDeleteErr) {
           console.warn('Push: Failed to finalize local delete after server 404/410', localDeleteErr);
@@ -1529,9 +1678,7 @@ class SyncService {
 
   private async processTaskChange(taskData: TaskPayload, database: Database) {
     const taskCollection = database.get<Task>('tasks');
-    const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
-    const localTask = existingTasks.length > 0 ? existingTasks[0] : null;
-
+    
     // Parse due_date once and validate
     const parsedDueDate = taskData.due_date ? safeParseDate(taskData.due_date) : undefined;
     if (taskData.due_date && !parsedDueDate) {
@@ -1546,6 +1693,11 @@ class SyncService {
       ? this.extractLifecycleStatus(taskData.status)
       : null;
     const serverLifecycleStatus = serverStatusInfo?.lifecycleStatus ?? null;
+    
+    // First, try to find task by exact ID match
+    const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
+    let localTask = existingTasks.length > 0 ? existingTasks[0] : null;
+    
     const localStatusInfo = localTask 
       ? this.extractLifecycleStatus(localTask.status as string)
       : null;
@@ -1555,6 +1707,81 @@ class SyncService {
     const lifecycleStatus = serverLifecycleStatus !== null
       ? serverLifecycleStatus
       : (localLifecycleStatus !== null ? localLifecycleStatus : 'not_started');
+    
+    // If no exact ID match, check for potential duplicate by title and content
+    // This handles the case where a local task was created and synced, but the ID migration
+    // hasn't completed yet, or there's a race condition between push and pull
+    if (!localTask) {
+      const allTasks = await taskCollection.query().fetch();
+      // Look for a task with matching title and similar content that has pending_create status
+      // This indicates it's the same task that was just created locally and is being synced
+      const potentialDuplicate = allTasks.find(task => {
+        const statusStr = task.status as string;
+        const hasPendingCreate = statusStr === 'pending_create' || 
+                                 statusStr?.startsWith('pending_create:') ||
+                                 statusStr === 'sync_failed_create' ||
+                                 statusStr?.startsWith('sync_failed_create:');
+        
+        // Match by title (exact match) and check if it's a pending create
+        const titleMatch = task.title === taskData.title;
+        
+        // Also check if descriptions match (if both exist)
+        const descriptionMatch = !taskData.description || !task.description || 
+                                 task.description === taskData.description;
+        
+        return hasPendingCreate && titleMatch && descriptionMatch;
+      });
+      
+      if (potentialDuplicate) {
+        // This is likely the same task - migrate it to use the server ID instead of creating a duplicate
+        console.log(`Pull: Found potential duplicate task "${taskData.title}" with local ID ${potentialDuplicate.id}, migrating to server ID ${taskData.id}`);
+        
+        // Find any calendar events that reference the old task ID
+        const calendarEvents = await database.get('calendar_events')
+          .query(Q.where('task_id', potentialDuplicate.id))
+          .fetch();
+        
+        // Migrate the task: create new task with server ID, update calendar events, delete old task
+        await database.write(async () => {
+          // Create new task with server ID and server data
+          const newTask = await taskCollection.create((record: Task) => {
+            record._raw.id = taskData.id;
+            record.title = taskData.title;
+            record.description = taskData.description;
+            record.priority = taskData.priority;
+            record.estimatedDurationMinutes = taskData.estimated_duration_minutes;
+            if (parsedDueDate) {
+              record.dueDate = parsedDueDate;
+            }
+            record.goalId = taskData.goal_id;
+            record.isTodayFocus = taskData.is_today_focus;
+            record.userId = taskData.user_id || '';
+            record.status = lifecycleStatus;
+            // Preserve original creation time from local task
+            record.createdAt = potentialDuplicate.createdAt;
+            record.updatedAt = new Date();
+            // Preserve other fields from local task that might not be in server data
+            record.autoScheduleEnabled = potentialDuplicate.autoScheduleEnabled;
+            record.category = potentialDuplicate.category;
+            record.location = potentialDuplicate.location;
+            record.calendarEventId = potentialDuplicate.calendarEventId;
+          });
+          
+          // Update all calendar events to point to new task ID
+          for (const event of calendarEvents) {
+            await event.update((e: any) => {
+              e.taskId = taskData.id;
+            });
+          }
+          
+          // Delete old task record with local ID
+          await potentialDuplicate.destroyPermanently();
+        });
+        
+        // Return early since we've already processed this task
+        return;
+      }
+    }
 
     if (localTask) {
       // Update existing task
