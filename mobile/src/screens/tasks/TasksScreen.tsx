@@ -75,6 +75,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [showModal, setShowModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false); // Ref to track saving state for double-submission prevention
   const [bulkScheduling, setBulkScheduling] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -423,7 +424,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const handleSaveTask = useCallback(async (taskData: any) => {
+    // Prevent double-submission: if already saving, ignore subsequent calls
+    // Use ref instead of state to avoid dependency array issues and race conditions
+    if (savingRef.current) {
+      return;
+    }
+    
     try {
+      savingRef.current = true;
       setSaving(true);
       
       // Convert TaskForm's snake_case format to repository's camelCase format
@@ -455,6 +463,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       console.error('Error saving task:', error);
       Alert.alert('Error', 'Failed to save task');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [editingTask]);

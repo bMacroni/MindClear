@@ -255,7 +255,6 @@ class SyncService {
             // If task ID is not a UUID, it was never synced to server
             // Just delete it locally without attempting server deletion
             if (!this.isUUID(record.id)) {
-              console.log(`Push: Deleting local-only task ${record.id} (never synced to server)`);
               await database.write(async () => {
                 await record.destroyPermanently();
               });
@@ -264,10 +263,8 @@ class SyncService {
             }
             // Delete task on server
             try {
-              console.log(`Push: Deleting task ${record.id} from server`);
               await enhancedAPI.deleteTask(record.id);
               // Immediately delete local record after successful server deletion
-              console.log(`Push: Task ${record.id} deleted from server, removing from local database`);
               await database.write(async () => {
                 await record.destroyPermanently();
               });
@@ -285,17 +282,10 @@ class SyncService {
             case 'pending_create':
             case 'sync_failed_create':
               serverResponse = await enhancedAPI.createTask(recordData);
-              // If server returned a different ID, migrate local task ID to server ID
-              // This prevents duplicate tasks when the server generates a new ID
-              if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
-                try {
-                  await taskRepository.updateTaskServerId(record.id, serverResponse.id);
-                  // Skip the normal update logic since we've migrated to new ID
-                  continue;
-                } catch (migrationError) {
-                  console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
-                }
-              }
+              // If server returned a different ID, we'll let the pull operation handle the ID migration
+              // via duplicate detection. For now, just mark the task as synced with its current ID.
+              // The pull operation will detect the duplicate and migrate it properly.
+              // This avoids the _raw.id error that occurs when trying to migrate during push.
               break;
             case 'pending_update':
             case 'sync_failed_update':
@@ -304,15 +294,10 @@ class SyncService {
               if (!this.isUUID(record.id)) {
                 console.warn(`Push: Task ${record.id} has pending_update but non-UUID ID, treating as create`);
                 serverResponse = await enhancedAPI.createTask(recordData);
-                // If server returned a different ID, migrate local task ID to server ID
-                if (serverResponse && serverResponse.id && serverResponse.id !== record.id) {
-                  try {
-                    await taskRepository.updateTaskServerId(record.id, serverResponse.id);
-                    continue;
-                  } catch (migrationError) {
-                    console.warn('Push: Failed to migrate task ID to server ID, will proceed with normal update.', migrationError);
-                  }
-                }
+                // If server returned a different ID, we'll let the pull operation handle the ID migration
+                // via duplicate detection. For now, just mark the task as synced with its current ID.
+                // The pull operation will detect the duplicate and migrate it properly.
+                // This avoids the _raw.id error that occurs when trying to migrate during push.
               } else {
                 serverResponse = await enhancedAPI.updateTask(record.id, recordData);
               }
@@ -619,12 +604,38 @@ class SyncService {
           const isPendingDelete = (record as any).status === 'pending_delete' ||
             (typeof (record as any).status === 'string' && (record as any).status.includes('pending_delete'));
           const statusCode = error?.response?.status;
+          const isTimeout = statusCode === 408 || error?.data?.code === 'TIMEOUT' || 
+                           (error instanceof Error && error.message?.toLowerCase().includes('timeout'));
+          
           if (isPendingDelete && (statusCode === 404 || statusCode === 410)) {
             await database.write(async () => {
               await (record as any).destroyPermanently();
             });
             // Skip error tracking for idempotent delete
             continue;
+          }
+          
+          // Handle timeout errors for pending_delete: check if thread was already deleted
+          if (isPendingDelete && isTimeout && record instanceof ConversationThread) {
+            try {
+              // Check if thread still exists on server
+              await conversationService.getThread(record.id, { timeoutMs: 10000 });
+              // Thread still exists - mark as failed for retry
+              console.warn(`Push: Thread ${record.id} delete timed out but thread still exists, will retry`);
+              // Will be marked as sync_failed_delete below
+            } catch (checkError: any) {
+              // If getThread returns 404, thread was already deleted - treat as success
+              const is404 = checkError?.status === 404 || checkError?.response?.status === 404;
+              if (is404) {
+                await database.write(async () => {
+                  await (record as any).destroyPermanently();
+                });
+                // Skip error tracking for idempotent delete
+                continue;
+              }
+              // Other errors (network, auth) - will be marked as failed for retry
+              console.warn(`Push: Failed to verify thread ${record.id} deletion status after timeout:`, checkError);
+            }
           }
         } catch (localDeleteErr) {
           console.warn('Push: Failed to finalize local delete after server 404/410', localDeleteErr);
@@ -1146,10 +1157,14 @@ class SyncService {
       if (Array.isArray(goalsResponseValue)) {
         // Full sync response
         changedGoals = goalsResponseValue;
+        console.log(`Pull: Received ${changedGoals.length} goals from server (full sync)`);
       } else if (goalsResponseValue && typeof goalsResponseValue === 'object') {
         // Incremental sync response
         changedGoals = goalsResponseValue.changed || [];
         deletedGoalIds = goalsResponseValue.deleted || [];
+        console.log(`Pull: Received ${changedGoals.length} changed goals and ${deletedGoalIds.length} deleted goal IDs from server`);
+      } else {
+        console.warn(`Pull: Unexpected goals response format:`, goalsResponseValue);
       }
 
       // Fallback: If incremental sync returned no goals, and local milestones are empty while local goals exist,
@@ -1223,6 +1238,18 @@ class SyncService {
         return;
       }
 
+      console.log(`Pull: Processing ${allChanges.length} changed records and ${allDeletedIds.length} deleted records`);
+      
+      // Separate goals from other records to process them first
+      const goalRecords = allChanges.filter(changeData => 
+        changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined
+      );
+      const otherRecords = allChanges.filter(changeData => 
+        !(changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined)
+      );
+      
+      console.log(`Pull: Found ${goalRecords.length} goals and ${otherRecords.length} other records`);
+      
       await database.write(async () => {
         // Process deletions first
         if (allDeletedIds.length > 0) {
@@ -1275,34 +1302,74 @@ class SyncService {
           // Messages are cascade deleted when threads are deleted
         }
 
-        // Process changed records
-        for (const changeData of allChanges) {
-          // Determine record type based on the data structure
-          if (changeData.start?.dateTime || changeData.start_time) {
-            // This is a calendar event
-            await this.processEventChange(changeData, database);
-          } else if (changeData.priority !== undefined || changeData.estimated_duration_minutes !== undefined) {
-            // This is a task
-            await this.processTaskChange(changeData, database);
-          } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
-            // This is a goal
+        // Process changed records - process goals FIRST to ensure they're created
+        let goalsProcessed = 0;
+        let tasksProcessed = 0;
+        let eventsProcessed = 0;
+        let milestonesProcessed = 0;
+        let stepsProcessed = 0;
+        let threadsProcessed = 0;
+        let messagesProcessed = 0;
+        let unknownProcessed = 0;
+        
+        // Process goals first
+        console.log(`Pull: Processing ${goalRecords.length} goals first...`);
+        for (const changeData of goalRecords) {
+          try {
+            console.log(`Pull: Processing goal ${changeData.id}: ${changeData.title}`);
             await this.processGoalChange(changeData, database);
-          } else if (changeData.goal_id !== undefined && changeData.title !== undefined) {
-            // This is a milestone
-            await this.processMilestoneChange(changeData, database);
-          } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
-            // This is a milestone step
-            await this.processMilestoneStepChange(changeData, database);
-          } else if (changeData.thread_id !== undefined && changeData.role !== undefined) {
-            // This is a conversation message
-            await this.processMessageChange(changeData, database);
-          } else if (changeData.title !== undefined && (changeData.is_active !== undefined || changeData.is_pinned !== undefined)) {
-            // This is a conversation thread (has title and thread-specific fields)
-            await this.processThreadChange(changeData, database);
-          } else {
-            console.warn(`Pull: Unknown record type for change data:`, changeData);
+            goalsProcessed++;
+          } catch (recordError) {
+            console.error(`Pull: Failed to process goal ${changeData.id}:`, recordError);
           }
         }
+        console.log(`Pull: Completed processing ${goalsProcessed} goals`);
+        
+        // Then process other records
+        console.log(`Pull: Processing ${otherRecords.length} other records...`);
+        for (const changeData of otherRecords) {
+          try {
+            // Determine record type based on the data structure
+            if (changeData.start?.dateTime || changeData.start_time) {
+              // This is a calendar event
+              await this.processEventChange(changeData, database);
+              eventsProcessed++;
+            } else if (changeData.priority !== undefined || changeData.estimated_duration_minutes !== undefined) {
+              // This is a task
+              await this.processTaskChange(changeData, database);
+              tasksProcessed++;
+            } else if (changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined) {
+              // This is a goal - should have been processed already, skip
+              console.warn(`Pull: Goal ${changeData.id} found in other records loop (should have been processed already)`);
+              goalsProcessed++;
+            } else if (changeData.goal_id !== undefined && changeData.title !== undefined) {
+              // This is a milestone
+              await this.processMilestoneChange(changeData, database);
+              milestonesProcessed++;
+            } else if (changeData.milestone_id !== undefined && changeData.text !== undefined) {
+              // This is a milestone step
+              await this.processMilestoneStepChange(changeData, database);
+              stepsProcessed++;
+            } else if (changeData.thread_id !== undefined && changeData.role !== undefined) {
+              // This is a conversation message
+              await this.processMessageChange(changeData, database);
+              messagesProcessed++;
+            } else if (changeData.title !== undefined && (changeData.is_active !== undefined || changeData.is_pinned !== undefined)) {
+              // This is a conversation thread (has title and thread-specific fields)
+              await this.processThreadChange(changeData, database);
+              threadsProcessed++;
+            } else {
+              console.warn(`Pull: Unknown record type for change data:`, changeData);
+              unknownProcessed++;
+            }
+          } catch (recordError) {
+            // Log error but continue processing other records
+            console.error(`Pull: Failed to process record:`, changeData, recordError);
+            // Don't re-throw - continue with next record to avoid failing entire sync
+          }
+        }
+        
+        console.log(`Pull: Processed ${goalsProcessed} goals, ${tasksProcessed} tasks, ${eventsProcessed} events, ${milestonesProcessed} milestones, ${stepsProcessed} steps, ${threadsProcessed} threads, ${messagesProcessed} messages, ${unknownProcessed} unknown`);
       });
 
       // After a successful pull, save the server's timestamp
@@ -1529,9 +1596,7 @@ class SyncService {
 
   private async processTaskChange(taskData: TaskPayload, database: Database) {
     const taskCollection = database.get<Task>('tasks');
-    const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
-    const localTask = existingTasks.length > 0 ? existingTasks[0] : null;
-
+    
     // Parse due_date once and validate
     const parsedDueDate = taskData.due_date ? safeParseDate(taskData.due_date) : undefined;
     if (taskData.due_date && !parsedDueDate) {
@@ -1546,6 +1611,11 @@ class SyncService {
       ? this.extractLifecycleStatus(taskData.status)
       : null;
     const serverLifecycleStatus = serverStatusInfo?.lifecycleStatus ?? null;
+    
+    // First, try to find task by exact ID match
+    const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
+    let localTask = existingTasks.length > 0 ? existingTasks[0] : null;
+    
     const localStatusInfo = localTask 
       ? this.extractLifecycleStatus(localTask.status as string)
       : null;
@@ -1555,6 +1625,92 @@ class SyncService {
     const lifecycleStatus = serverLifecycleStatus !== null
       ? serverLifecycleStatus
       : (localLifecycleStatus !== null ? localLifecycleStatus : 'not_started');
+    
+    // If no exact ID match, check for potential duplicate by title and content
+    // This handles the case where a local task was created and synced, but the ID migration
+    // hasn't completed yet, or there's a race condition between push and pull
+    if (!localTask) {
+      const allTasks = await taskCollection.query().fetch();
+      // Look for a task with matching title and similar content that has pending_create status
+      // This indicates it's the same task that was just created locally and is being synced
+      const potentialDuplicate = allTasks.find(task => {
+        const statusStr = task.status as string;
+        // Check if task has pending_create status OR is a pure lifecycle status (was just synced)
+        // Pure lifecycle statuses indicate the task was just pushed and is waiting for ID migration
+        const hasPendingCreate = statusStr === 'pending_create' || 
+                                 statusStr?.startsWith('pending_create:') ||
+                                 statusStr === 'sync_failed_create' ||
+                                 statusStr?.startsWith('sync_failed_create:');
+        
+        // Also check for pure lifecycle status (not_started, in_progress, completed)
+        // These indicate the task was just synced but hasn't been migrated to server ID yet
+        const isPureLifecycleStatus = statusStr === 'not_started' || 
+                                      statusStr === 'in_progress' || 
+                                      statusStr === 'completed';
+        
+        // Match by title (exact match)
+        const titleMatch = task.title === taskData.title;
+        
+        // Also check if descriptions match (if both exist)
+        const descriptionMatch = !taskData.description || !task.description || 
+                                 task.description === taskData.description;
+        
+        // Match if it's a pending create OR a pure lifecycle status (recently synced)
+        // AND the IDs don't match (local ID vs server ID)
+        const idMismatch = task.id !== taskData.id;
+        
+        return idMismatch && (hasPendingCreate || isPureLifecycleStatus) && titleMatch && descriptionMatch;
+      });
+      
+      if (potentialDuplicate) {
+        // This is likely the same task - migrate it to use the server ID instead of creating a duplicate
+        
+        // Find any calendar events that reference the old task ID
+        const calendarEvents = await database.get('calendar_events')
+          .query(Q.where('task_id', potentialDuplicate.id))
+          .fetch();
+        
+        // Migrate the task: create new task with server ID, update calendar events, delete old task
+        await database.write(async () => {
+          // Create new task with server ID and server data
+          const newTask = await taskCollection.create((record: Task) => {
+            record._raw.id = taskData.id;
+            record.title = taskData.title;
+            record.description = taskData.description;
+            record.priority = taskData.priority;
+            record.estimatedDurationMinutes = taskData.estimated_duration_minutes;
+            if (parsedDueDate) {
+              record.dueDate = parsedDueDate;
+            }
+            record.goalId = taskData.goal_id;
+            record.isTodayFocus = taskData.is_today_focus;
+            record.userId = taskData.user_id || '';
+            record.status = lifecycleStatus;
+            // Preserve original creation time from local task
+            record.createdAt = potentialDuplicate.createdAt;
+            record.updatedAt = new Date();
+            // Preserve other fields from local task that might not be in server data
+            record.autoScheduleEnabled = potentialDuplicate.autoScheduleEnabled;
+            record.category = potentialDuplicate.category;
+            record.location = potentialDuplicate.location;
+            record.calendarEventId = potentialDuplicate.calendarEventId;
+          });
+          
+          // Update all calendar events to point to new task ID
+          for (const event of calendarEvents) {
+            await event.update((e: any) => {
+              e.taskId = taskData.id;
+            });
+          }
+          
+          // Delete old task record with local ID
+          await potentialDuplicate.destroyPermanently();
+        });
+        
+        // Return early since we've already processed this task
+        return;
+      }
+    }
 
     if (localTask) {
       // Update existing task
@@ -1600,39 +1756,51 @@ class SyncService {
   }
 
   private async processGoalChange(goalData: any, database: Database) {
-    const parsedTargetDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
-    if (goalData.target_completion_date && !parsedTargetDate) {
-      console.error(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
-    }
+    try {
+      console.log(`Pull: processGoalChange called for goal ${goalData.id}, title: ${goalData.title}`);
+      const parsedTargetDate = goalData.target_completion_date ? safeParseDate(goalData.target_completion_date) : undefined;
+      if (goalData.target_completion_date && !parsedTargetDate) {
+        console.error(`Pull: Failed to parse target_completion_date for goal ${goalData.id}:`, goalData.target_completion_date);
+      }
 
-    const goalCollection = database.get<Goal>('goals');
-    const existingGoals = await goalCollection.query(Q.where('id', goalData.id)).fetch();
-    const localGoal = existingGoals.length > 0 ? existingGoals[0] : null;
+      const goalCollection = database.get<Goal>('goals');
+      console.log(`Pull: Querying for existing goal ${goalData.id}`);
+      const existingGoals = await goalCollection.query(Q.where('id', goalData.id)).fetch();
+      const localGoal = existingGoals.length > 0 ? existingGoals[0] : null;
+      console.log(`Pull: Found existing goal: ${!!localGoal}`);
 
-    if (localGoal) {
-      // Update existing goal
-      await localGoal.update((record: Goal) => {
-        record.title = goalData.title;
-        record.description = goalData.description;
-        record.targetCompletionDate = parsedTargetDate;
-        record.progressPercentage = goalData.progress_percentage;
-        record.category = goalData.category;
-        record.isActive = goalData.is_active;
-        record.status = 'synced';
-      });
-    } else {
-      // Create new goal
-      await goalCollection.create((record: Goal) => {
-        record._raw.id = goalData.id;
-        record.title = goalData.title;
-        record.description = goalData.description;
-        record.targetCompletionDate = parsedTargetDate;
-        record.progressPercentage = goalData.progress_percentage;
-        record.category = goalData.category;
-        record.isActive = goalData.is_active;
-        record.userId = goalData.user_id;
-        record.status = 'synced';
-      });
+      if (localGoal) {
+        // Update existing goal
+        console.log(`Pull: Updating existing goal ${goalData.id}`);
+        await localGoal.update((record: Goal) => {
+          record.title = goalData.title;
+          record.description = goalData.description;
+          record.targetCompletionDate = parsedTargetDate;
+          record.progressPercentage = goalData.progress_percentage;
+          record.category = goalData.category;
+          record.isActive = goalData.is_active;
+          record.status = 'synced';
+        });
+        console.log(`Pull: Updated goal ${goalData.id}: ${goalData.title}`);
+      } else {
+        // Create new goal
+        console.log(`Pull: Creating new goal ${goalData.id}`);
+        await goalCollection.create((record: Goal) => {
+          record._raw.id = goalData.id;
+          record.title = goalData.title;
+          record.description = goalData.description;
+          record.targetCompletionDate = parsedTargetDate;
+          record.progressPercentage = goalData.progress_percentage;
+          record.category = goalData.category;
+          record.isActive = goalData.is_active;
+          record.userId = goalData.user_id;
+          record.status = 'synced';
+        });
+        console.log(`Pull: Created goal ${goalData.id}: ${goalData.title}`);
+      }
+    } catch (error) {
+      console.error(`Pull: Error processing goal ${goalData.id}:`, error);
+      throw error; // Re-throw to let outer error handler catch it
     }
 
     // Also upsert nested milestones and steps if present on the goal payload

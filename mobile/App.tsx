@@ -151,13 +151,25 @@ function App() {
 
         if (!mounted) return; // Check again after async operation
 
-        // Set up sync triggers only after successful initialization
+        // Set up sync triggers and token refresh only after successful initialization
         appStateSubscription = AppState.addEventListener(
           'change',
-          nextAppState => {
+          async (nextAppState) => {
             if (nextAppState === 'active') {
-              // Only trigger sync if user is authenticated
+              // Check and refresh token if needed when app comes to foreground
+              // This handles cases where app was killed and background timer was lost
               if (authService.isAuthenticated()) {
+                try {
+                  // Proactively refresh token if expired or expiring soon
+                  // Await to ensure token state is updated before starting sync
+                  await authService.checkAndRefreshTokenIfNeeded();
+                } catch (error) {
+                  if (__DEV__) {
+                    console.warn('Failed to refresh token on app foreground:', error);
+                  }
+                }
+                // Trigger sync after token check completes (regardless of success/failure)
+                // Token state is now updated, so sync can proceed
                 syncService.sync();
               }
             }
@@ -174,10 +186,7 @@ function App() {
             if (currentUser && !channel) {
               const supabase = getSupabaseClient();
               channel = supabase.channel(`user-${currentUser.id}-changes`)
-                .on('broadcast', { event: 'update' }, (payload) => {
-                  if (__DEV__) {
-                    console.log('Realtime update received!', payload);
-                  }
+                .on('broadcast', { event: 'update' }, (_payload) => {
                   syncService.sync();
                 })
                 .subscribe();
@@ -188,9 +197,6 @@ function App() {
               tokenRefreshUnsubscribe();
             }
             tokenRefreshUnsubscribe = messaging().onTokenRefresh(async (token: string) => {
-              if (__DEV__) {
-                console.log('FCM token refreshed:', token.substring(0, 20) + '...');
-              }
               try {
                 await notificationService.registerTokenWithBackend(token);
               } catch (error) {
