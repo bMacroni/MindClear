@@ -7,12 +7,14 @@ import { RootStackParamList } from './types';
 import { authService } from '../services/auth';
 import { navigationRef } from './navigationRef';
 import { OnboardingService } from '../services/onboarding';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import screens directly for now to fix lazy loading issues
 import LoginScreen from '@src/screens/auth/LoginScreen';
 import SignupScreen from '@src/screens/auth/SignupScreen';
 import ForgotPasswordScreen from '@src/screens/auth/ForgotPasswordScreen';
 import ResetPasswordScreen from '@src/screens/auth/ResetPasswordScreen';
+import BetaThankYouScreen from '@src/screens/beta/BetaThankYouScreen';
 import TabNavigator from './TabNavigator';
 import GoalFormScreen from '../screens/goals/GoalFormScreen';
 import GoalDetailScreen from '../screens/goals/GoalDetailScreen';
@@ -21,6 +23,8 @@ import TaskDetailScreen from '../screens/tasks/TaskDetailScreen';
 import NotificationScreen from '../screens/notifications/NotificationScreen';
 import MobileAnalyticsDashboard from '../components/analytics/MobileAnalyticsDashboard';
 import { parseAccessTokenFromUrl } from '@src/utils/deeplink';
+
+const BETA_SCREEN_SEEN_KEY = 'beta_thank_you_seen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -88,6 +92,25 @@ export default function AppNavigator() {
         const authenticated = authService.isAuthenticated();
         setIsAuthenticated(authenticated);
         prevAuthRef.current = authenticated;
+        
+        // If already authenticated on app start, check if beta screen should be shown
+        if (authenticated && navigationRef.current) {
+          try {
+            const hasSeenBetaScreen = await AsyncStorage.getItem(BETA_SCREEN_SEEN_KEY);
+            if (!hasSeenBetaScreen) {
+              // Show beta screen on next navigation cycle
+              setTimeout(() => {
+                if (navigationRef.current) {
+                  navigationRef.current.reset({ index: 0, routes: [{ name: 'BetaThankYou' }] });
+                  AsyncStorage.setItem(BETA_SCREEN_SEEN_KEY, 'true').catch((err) => {
+                    console.warn('AppNavigator: Error saving beta screen seen flag:', err);
+                  });
+                }
+              }, 100);            }
+          } catch (error) {
+            console.warn('AppNavigator: Error checking beta screen on app start:', error);
+          }
+        }
         // Note: First session check is handled in auth state change callback below
       } catch (error) {
         console.error('AppNavigator: Error checking auth state:', error);
@@ -112,10 +135,22 @@ export default function AppNavigator() {
           navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
           cachedInitialToken.current = null; // Clear the cached token after navigation
         } else if (isNowAuthenticated && !wasAuthenticated) {
-          // Check if this is first session and route to Brain Dump Input
+          // Check if user has seen beta screen, then check first session
           // Use IIFE to handle async operation in callback
           (async () => {
             try {
+              // Check if user has seen the beta thank you screen
+              const hasSeenBetaScreen = await AsyncStorage.getItem(BETA_SCREEN_SEEN_KEY);
+              
+              if (!hasSeenBetaScreen) {
+                // First time login - show beta thank you screen
+                navigationRef.current?.reset({ index: 0, routes: [{ name: 'BetaThankYou' }] });
+                // Mark as seen
+                await AsyncStorage.setItem(BETA_SCREEN_SEEN_KEY, 'true');
+                return;
+              }
+
+              // User has seen beta screen, proceed with normal flow
               const firstSession = await OnboardingService.isFirstSession();
               if (firstSession) {
                 // Navigate to Main tab, then to BrainDump stack with BrainDumpInput screen
@@ -136,7 +171,7 @@ export default function AppNavigator() {
                 navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
               }
             } catch (error) {
-              console.warn('AppNavigator: Error checking first session for navigation:', error);
+              console.warn('AppNavigator: Error checking beta screen or first session for navigation:', error);
               // Fallback to existing navigation on error
               navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
             }
@@ -205,6 +240,10 @@ export default function AppNavigator() {
         <Stack.Screen 
           name="ResetPassword" 
           component={ResetPasswordScreen} 
+        />
+        <Stack.Screen 
+          name="BetaThankYou" 
+          component={BetaThankYouScreen} 
         />
         <Stack.Screen 
           name="Main" 
