@@ -102,10 +102,11 @@ export default function AppNavigator() {
               setTimeout(() => {
                 if (navigationRef.current) {
                   navigationRef.current.reset({ index: 0, routes: [{ name: 'BetaThankYou' }] });
-                  AsyncStorage.setItem(BETA_SCREEN_SEEN_KEY, 'true');
+                  AsyncStorage.setItem(BETA_SCREEN_SEEN_KEY, 'true').catch((err) => {
+                    console.warn('AppNavigator: Error saving beta screen seen flag:', err);
+                  });
                 }
-              }, 100);
-            }
+              }, 100);            }
           } catch (error) {
             console.warn('AppNavigator: Error checking beta screen on app start:', error);
           }
