@@ -5,6 +5,15 @@ import {authService} from '../services/auth';
 import logger from '../utils/logger';
 import { safeParseDate } from '../utils/dateUtils';
 
+// Lazy import to avoid circular dependency
+let syncServiceModule: { syncService: { getIsSyncing: () => boolean } } | null = null;
+const getSyncService = () => {
+  if (!syncServiceModule) {
+    syncServiceModule = require('../services/SyncService');
+  }
+  return syncServiceModule.syncService;
+};
+
 /**
  * TaskRepository handles all task-related database operations.
  * 
@@ -168,6 +177,7 @@ export class TaskRepository {
 
   /**
    * Deletes a task by marking it as pending deletion.
+   * Includes retry logic to handle WatermelonDB write queue congestion during sync.
    * @param id - The ID of the task to delete
    * @returns Promise<void>
    */
@@ -176,12 +186,48 @@ export class TaskRepository {
     const task = await this.getTaskById(id);
     if (!task) return; // No-op for non-existent tasks (idempotent)
     
-    await database.write(async () => {
-      await task.update(t => {
-        t.status = 'pending_delete';
-        t.updatedAt = new Date();
-      });
-    });
+    const maxAttempts = 3;
+    const baseDelay = 300; // ms
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // If sync is running and this isn't our last attempt, wait a bit first
+        const syncService = getSyncService();
+        if (syncService?.getIsSyncing() && attempt < maxAttempts) {
+          logger.info(`deleteTask: Sync in progress, waiting before attempt ${attempt}`);
+          await new Promise(resolve => setTimeout(resolve, baseDelay * attempt));
+        }
+        
+        await database.write(async () => {
+          await task.update(t => {
+            t.status = 'pending_delete';
+            t.updatedAt = new Date();
+          });
+        });
+        
+        // Success - exit the retry loop
+        return;
+      } catch (error: any) {
+        const isLastAttempt = attempt === maxAttempts;
+        
+        if (isLastAttempt) {
+          logger.error(`deleteTask: Failed after ${maxAttempts} attempts`, {
+            taskId: id,
+            error: error?.message || 'Unknown error'
+          });
+          throw error;
+        }
+        
+        // Log and retry
+        logger.warn(`deleteTask: Attempt ${attempt} failed, retrying...`, {
+          taskId: id,
+          error: error?.message || 'Unknown error'
+        });
+        
+        // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt - 1)));
+      }
+    }
   }
 
   /**

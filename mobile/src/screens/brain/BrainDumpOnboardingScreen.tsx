@@ -27,7 +27,7 @@ export default function BrainDumpOnboardingScreen({ navigation }: any) {
         <View style={styles.step}>
           <View style={styles.iconCircle}><Icon name="pencil" size={24} color={colors.primary} /></View>
           <Text style={styles.stepTitle}>Dump</Text>
-          <Text style={styles.stepText}>Write down everything on your mind.</Text>
+          <Text style={styles.stepText}>Input everything on your mind.</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.step}>

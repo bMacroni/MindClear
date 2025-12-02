@@ -37,6 +37,23 @@ class SyncService {
   private isSyncing = false;
   private logger = console;
 
+  /**
+   * Returns whether a sync operation is currently in progress.
+   * Use this to check if the write queue might be busy.
+   */
+  getIsSyncing(): boolean {
+    return this.isSyncing;
+  }
+
+  /**
+   * Yields to the event loop to allow other operations to process.
+   * This prevents the sync from monopolizing the write queue and allows
+   * user operations (like delete) to execute between sync operations.
+   */
+  private async yieldToEventLoop(): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
   // Simple UUID v4/v1 checker (relaxed to accept standard UUIDs)
   private isUUID(value: string | undefined | null): boolean {
     if (!value) return false;
@@ -696,6 +713,10 @@ class SyncService {
         // like a failed queue or marking the record as sync_failed.
         // For now, we'll just log the error and continue.
       }
+      
+      // Yield to event loop to allow user operations (like delete) to process
+      // This prevents sync from monopolizing the write queue
+      await this.yieldToEventLoop();
     }
 
     // Handle messages separately - they require calling /ai/chat endpoint
@@ -709,6 +730,9 @@ class SyncService {
         console.error(`Push: Failed to sync message ${message.id}`, JSON.stringify(error, null, 2));
         messagePushErrors.push({ recordId: message.id, error });
       }
+      
+      // Yield to event loop to allow user operations to process
+      await this.yieldToEventLoop();
     }
 
     // Combine push errors with message push errors
@@ -1671,41 +1695,42 @@ class SyncService {
           .fetch();
         
         // Migrate the task: create new task with server ID, update calendar events, delete old task
-        await database.write(async () => {
-          // Create new task with server ID and server data
-          const newTask = await taskCollection.create((record: Task) => {
-            record._raw.id = taskData.id;
-            record.title = taskData.title;
-            record.description = taskData.description;
-            record.priority = taskData.priority;
-            record.estimatedDurationMinutes = taskData.estimated_duration_minutes;
-            if (parsedDueDate) {
-              record.dueDate = parsedDueDate;
-            }
-            record.goalId = taskData.goal_id;
-            record.isTodayFocus = taskData.is_today_focus;
-            record.userId = taskData.user_id || '';
-            record.status = lifecycleStatus;
-            // Preserve original creation time from local task
-            record.createdAt = potentialDuplicate.createdAt;
-            record.updatedAt = new Date();
-            // Preserve other fields from local task that might not be in server data
-            record.autoScheduleEnabled = potentialDuplicate.autoScheduleEnabled;
-            record.category = potentialDuplicate.category;
-            record.location = potentialDuplicate.location;
-            record.calendarEventId = potentialDuplicate.calendarEventId;
-          });
-          
-          // Update all calendar events to point to new task ID
-          for (const event of calendarEvents) {
-            await event.update((e: any) => {
-              e.taskId = taskData.id;
-            });
+        // NOTE: This method is called from within a database.write() block in pullData,
+        // so we must NOT wrap these operations in another database.write() (would cause deadlock)
+        
+        // Create new task with server ID and server data
+        const newTask = await taskCollection.create((record: Task) => {
+          record._raw.id = taskData.id;
+          record.title = taskData.title;
+          record.description = taskData.description;
+          record.priority = taskData.priority;
+          record.estimatedDurationMinutes = taskData.estimated_duration_minutes;
+          if (parsedDueDate) {
+            record.dueDate = parsedDueDate;
           }
-          
-          // Delete old task record with local ID
-          await potentialDuplicate.destroyPermanently();
+          record.goalId = taskData.goal_id;
+          record.isTodayFocus = taskData.is_today_focus;
+          record.userId = taskData.user_id || '';
+          record.status = lifecycleStatus;
+          // Preserve original creation time from local task
+          record.createdAt = potentialDuplicate.createdAt;
+          record.updatedAt = new Date();
+          // Preserve other fields from local task that might not be in server data
+          record.autoScheduleEnabled = potentialDuplicate.autoScheduleEnabled;
+          record.category = potentialDuplicate.category;
+          record.location = potentialDuplicate.location;
+          record.calendarEventId = potentialDuplicate.calendarEventId;
         });
+        
+        // Update all calendar events to point to new task ID
+        for (const event of calendarEvents) {
+          await event.update((e: any) => {
+            e.taskId = taskData.id;
+          });
+        }
+        
+        // Delete old task record with local ID
+        await potentialDuplicate.destroyPermanently();
         
         // Return early since we've already processed this task
         return;
