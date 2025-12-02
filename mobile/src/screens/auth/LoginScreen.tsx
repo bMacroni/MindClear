@@ -23,7 +23,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
 
   const handlePrivacyPolicyPress = async () => {
-    const privacyPolicyUrl = 'https://www.mind-clear.com/privacy.html';
+    const privacyPolicyUrl = 'https://www.mind-clear.com/privacy';
     
     try {
       const canOpen = await Linking.canOpenURL(privacyPolicyUrl);
