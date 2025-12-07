@@ -151,7 +151,7 @@ export class GoalRepository {
     // Verify ownership - ensure the goal belongs to the current user
     const goal = await this.getGoalById(goalId);
     if (!goal) {
-      throw new AuthorizationError('You do not have permission to create a milestone for this goal');
+      throw new NotFoundError('Goal not found or inaccessible');
     }
     
     return await database.write(async () => {
@@ -254,7 +254,7 @@ export class GoalRepository {
     // Ownership is enforced by fetching goal first
     const goal = await this.getGoalById(goalId);
     if (!goal) {
-      throw new AuthorizationError('You do not have permission to view milestones for this goal');
+      throw new NotFoundError('Goal not found or inaccessible');
     }
 
     const milestones = await database.get<Milestone>('milestones')

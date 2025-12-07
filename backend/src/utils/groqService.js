@@ -12,6 +12,8 @@ class GroqService {
     this.baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
     this.model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
     this.conversationHistory = new Map();
+    this.historyLocks = new Map(); // per-conversation mutex
+    this.MAX_CONVERSATIONS = 1000;
     this.MAX_HISTORY_MESSAGES = 20; // keep parity with Gemini trimming
   }
 
@@ -53,14 +55,45 @@ class GroqService {
     return threadId ? `${userId}:${threadId}` : `${userId}:null`;
   }
 
-  _addToHistory(userId, threadId, messageObj) {
-    const key = this._getHistoryKey(userId, threadId);
-    const list = this.conversationHistory.get(key) || [];
-    list.push(messageObj);
-    if (list.length > this.MAX_HISTORY_MESSAGES) {
-      list.splice(0, list.length - this.MAX_HISTORY_MESSAGES);
+  _evictOldestIfNeeded() {
+    if (this.conversationHistory.size >= this.MAX_CONVERSATIONS) {
+      const oldestKey = this.conversationHistory.keys().next().value;
+      if (oldestKey) {
+        this.conversationHistory.delete(oldestKey);
+      }
     }
-    this.conversationHistory.set(key, list);
+  }
+
+  async _addToHistory(userId, threadId, messageObj) {
+    const key = this._getHistoryKey(userId, threadId);
+    const currentLock = this.historyLocks.get(key) || Promise.resolve();
+
+    let release;
+    const nextLock = new Promise(resolve => {
+      release = resolve;
+    });
+    const chainedLock = currentLock.then(() => nextLock);
+    this.historyLocks.set(key, chainedLock);
+
+    await currentLock;
+
+    try {
+      const isNewConversation = !this.conversationHistory.has(key);
+      if (isNewConversation) {
+        this._evictOldestIfNeeded();
+      }
+      const list = this.conversationHistory.get(key) || [];
+      list.push(messageObj);
+      if (list.length > this.MAX_HISTORY_MESSAGES) {
+        list.splice(0, list.length - this.MAX_HISTORY_MESSAGES);
+      }
+      this.conversationHistory.set(key, list);
+    } finally {
+      release();
+      if (this.historyLocks.get(key) === chainedLock) {
+        this.historyLocks.delete(key);
+      }
+    }
   }
 
   async _loadHistoryFromDatabase(userId, threadId) {
@@ -170,8 +203,8 @@ class GroqService {
       content = this._sanitizeMessageForFrontend(content);
 
       // Append assistant reply to history cache
-      this._addToHistory(userId, threadId, { role: 'user', content: message });
-      this._addToHistory(userId, threadId, { role: 'assistant', content });
+      await this._addToHistory(userId, threadId, { role: 'user', content: message });
+      await this._addToHistory(userId, threadId, { role: 'assistant', content });
 
       return {
         message: content || 'I had trouble generating a fast response. Please try again.',
