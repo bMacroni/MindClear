@@ -529,31 +529,55 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const handleSaveGoal = async (goalData: GoalData) => {
     try {
       const goalCategory = mapToValidCategory(goalData.category);
-      // 1. Create the goal
-      const newGoal = await goalRepository.createGoal({
-        title: goalData.title,
-        description: goalData.description,
-        targetCompletionDate: goalData.dueDate ? safeParseDate(goalData.dueDate) : undefined,
-        category: goalCategory,
-      });
-  
-      // 2. Create milestones and steps
-      for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
-        const newMilestone = await goalRepository.createMilestone(newGoal.id, {
-          title: milestone.title,
-          description: '', // Milestone description not provided in GoalData
-          order: milestoneIndex,
-        });
-  
-        for (const [stepIndex, step] of milestone.steps.entries()) {
-          await goalRepository.createMilestoneStep(newMilestone.id, {
-            text: step.text,
-            order: stepIndex,
+      // If a goal with the same title exists, append milestones/steps to it instead of creating a duplicate
+      const existingGoal = goalData.title ? await goalRepository.findGoalByTitle(goalData.title) : null;
+
+      if (existingGoal) {
+        const existingMilestones = await goalRepository.getMilestonesForGoal(existingGoal.id);
+        const baseOrder = existingMilestones.length;
+
+        for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
+          const newMilestone = await goalRepository.createMilestone(existingGoal.id, {
+            title: milestone.title,
+            description: '',
+            order: baseOrder + milestoneIndex,
           });
+
+          for (const [stepIndex, step] of milestone.steps.entries()) {
+            await goalRepository.createMilestoneStep(newMilestone.id, {
+              text: step.text,
+              order: stepIndex,
+            });
+          }
         }
+
+        Alert.alert('Success', 'Goal updated with new milestones.');
+      } else {
+        // Create a new goal
+        const newGoal = await goalRepository.createGoal({
+          title: goalData.title,
+          description: goalData.description,
+          targetCompletionDate: goalData.dueDate ? safeParseDate(goalData.dueDate) : undefined,
+          category: goalCategory,
+        });
+
+        for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
+          const newMilestone = await goalRepository.createMilestone(newGoal.id, {
+            title: milestone.title,
+            description: '', // Milestone description not provided in GoalData
+            order: milestoneIndex,
+          });
+
+          for (const [stepIndex, step] of milestone.steps.entries()) {
+            await goalRepository.createMilestoneStep(newMilestone.id, {
+              text: step.text,
+              order: stepIndex,
+            });
+          }
+        }
+
+        Alert.alert('Success', 'Goal has been saved successfully!');
       }
-  
-      Alert.alert('Success', 'Goal has been saved successfully!');
       // Optional: trigger a sync
       syncService.silentSync().catch(err => {
         logger.warn('Background sync failed after saving goal:', err);

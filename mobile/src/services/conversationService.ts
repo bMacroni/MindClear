@@ -143,12 +143,11 @@ export const conversationService = {
     modelMode?: 'fast' | 'smart';
     provider?: string;
   }> {
-    const res = await apiService.post<{ message: string; actions: any[]; threadId: string | null }>(
+    const res = await apiService.post<{ message: string; actions: any[]; threadId: string | null; modelMode?: 'fast' | 'smart'; provider?: string }>(
       '/ai/chat',
       { message, threadId: threadId || undefined, modelMode },
       { timeoutMs: 60000 } // Longer timeout for AI responses
-    );
-    
+    );    
     if (!res.ok) {
       throw new Error((res.data as any)?.error || 'Failed to send message');
     }

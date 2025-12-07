@@ -11,22 +11,70 @@ class GroqService {
     this.enabled = Boolean(this.apiKey);
     this.baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
     this.model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    this.conversationHistory = new Map();
+    this.MAX_HISTORY_MESSAGES = 20; // keep parity with Gemini trimming
   }
 
   _sanitizeMessageForFrontend(message) {
     try {
       if (typeof message !== 'string') return message;
       const trimmed = message.trim();
-      const match = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
-      if (!match || !match[1]) return message;
-      const obj = JSON.parse(match[1]);
-      const category = String(obj?.category || '').toLowerCase();
-      if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
-        return obj.message.trim();
+      // If already fenced, keep existing logic
+      const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
+      if (fencedMatch?.[1]) {
+        const obj = JSON.parse(fencedMatch[1]);
+        const category = String(obj?.category || '').toLowerCase();
+        if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
+          return obj.message.trim();
+        }
+        return message;
       }
+
+      // If unfenced JSON with category exists, wrap it in a code block to align with Gemini
+      const inlineMatch = trimmed.match(/\{[\s\S]*"category"\s*:\s*"[^"]+"[\s\S]*\}/);
+      if (inlineMatch?.[0]) {
+        const jsonText = inlineMatch[0];
+        // Ensure it parses before wrapping
+        try {
+          JSON.parse(jsonText);
+          return `\`\`\`json\n${jsonText}\n\`\`\``;
+        } catch (_) {
+          return message;
+        }
+      }
+
       return message;
     } catch (_) {
       return message;
+    }
+  }
+
+  _getHistoryKey(userId, threadId) {
+    return threadId ? `${userId}:${threadId}` : `${userId}:null`;
+  }
+
+  _addToHistory(userId, threadId, messageObj) {
+    const key = this._getHistoryKey(userId, threadId);
+    const list = this.conversationHistory.get(key) || [];
+    list.push(messageObj);
+    if (list.length > this.MAX_HISTORY_MESSAGES) {
+      list.splice(0, list.length - this.MAX_HISTORY_MESSAGES);
+    }
+    this.conversationHistory.set(key, list);
+  }
+
+  async _loadHistoryFromDatabase(userId, threadId) {
+    try {
+      if (!threadId) return [];
+      const { conversationController } = await import('../controllers/conversationController.js');
+      const messages = await conversationController.getRecentMessages(threadId, userId, this.MAX_HISTORY_MESSAGES);
+      return messages.map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content
+      }));
+    } catch (err) {
+      logger.warn('GroqService failed to load history', { err: err?.message, threadId, userId });
+      return [];
     }
   }
 
@@ -54,6 +102,11 @@ class GroqService {
       'Never expose tools or internals. Present everything as app features (e.g., “I’ll add a task”, “I’ll schedule that”).',
       'Context clarity: prioritize the latest user message, but respect recent history for continuity. Use history only when it clarifies references.',
       'Task/goal guidance: ask brief clarifying questions when needed, then act with sensible defaults.',
+      'Decision rule: classify intent cleanly —',
+      '• Treat single, concrete actions as tasks (one-off, short, schedulable).',
+      '• Treat multi-step outcomes or learning journeys as goals with milestones (2–5 steps).',
+      '• If unsure, ask one concise clarifier; otherwise pick goal vs task confidently (no hedging).',
+      '• Do not return both a goal and a task for the same request; choose the best fit.',
       'Response format standardization: when returning structured data, wrap JSON in triple backticks.',
       'Schedule responses (category: schedule): return JSON with title and events[{title,startTime,endTime}] in 12-hour time using the user timezone.',
       'Goal responses (category: goal): include title, description, milestones[{title,steps[{text}]}].',
@@ -61,7 +114,34 @@ class GroqService {
       'If no structured data applies, return concise helpful text and suggest a next step.'
     ].filter(Boolean).join('\n');
 
+    let timeoutId;
+    const timeoutMs = 30000;
+    const controller = new AbortController();
+
     try {
+      // Build history (system + recent turns + current user)
+      const historyKey = this._getHistoryKey(userId, threadId);
+      let cachedHistory = this.conversationHistory.get(historyKey) || [];
+
+      // If cache empty and threadId present, hydrate from DB
+      if (cachedHistory.length === 0 && threadId) {
+        const dbHistory = await this._loadHistoryFromDatabase(userId, threadId);
+        if (dbHistory.length > 0) {
+          cachedHistory = dbHistory;
+          this.conversationHistory.set(historyKey, dbHistory);
+        }
+      }
+
+      // Trim history to max allowed and append current user message
+      const trimmedHistory = cachedHistory.slice(-this.MAX_HISTORY_MESSAGES);
+      const messagesPayload = [
+        { role: 'system', content: systemPrompt },
+        ...trimmedHistory.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: message }
+      ];
+
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
       const response = await fetch(this.baseUrl, {
         method: 'POST',
         headers: {
@@ -71,13 +151,13 @@ class GroqService {
         body: JSON.stringify({
           model: this.model,
           stream: false,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: message }
-          ],
+          messages: messagesPayload,
           temperature: 0.6,
-        })
+        }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const text = await response.text();
@@ -89,12 +169,29 @@ class GroqService {
       let content = data?.choices?.[0]?.message?.content || '';
       content = this._sanitizeMessageForFrontend(content);
 
+      // Append assistant reply to history cache
+      this._addToHistory(userId, threadId, { role: 'user', content: message });
+      this._addToHistory(userId, threadId, { role: 'assistant', content });
+
       return {
         message: content || 'I had trouble generating a fast response. Please try again.',
         actions: [],
         provider: 'groq'
       };
     } catch (error) {
+      if (typeof timeoutId !== 'undefined') {
+        clearTimeout(timeoutId);
+      }
+
+      if (error?.name === 'AbortError') {
+        logger.warn('GroqService request timed out', { timeoutMs: 30000 });
+        return {
+          message: 'The fast model is taking too long to respond. Please retry or switch to Smart mode.',
+          actions: [],
+          provider: 'groq_timeout'
+        };
+      }
+
       logger.error('GroqService processMessage failed', error);
       return {
         message: 'The fast model is temporarily unavailable. Please retry or switch to Smart mode.',
