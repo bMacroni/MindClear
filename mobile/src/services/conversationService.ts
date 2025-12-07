@@ -132,14 +132,20 @@ export const conversationService = {
    * Returns AI response with threadId (created automatically if not provided).
    * Used by AIChatScreen for immediate chat interaction.
    */
-  async sendMessage(message: string, threadId?: string | null): Promise<{
+  async sendMessage(
+    message: string,
+    threadId?: string | null,
+    modelMode: 'fast' | 'smart' = 'fast'
+  ): Promise<{
     message: string;
     actions: any[];
     threadId: string | null;
+    modelMode?: 'fast' | 'smart';
+    provider?: string;
   }> {
     const res = await apiService.post<{ message: string; actions: any[]; threadId: string | null }>(
       '/ai/chat',
-      { message, threadId: threadId || undefined },
+      { message, threadId: threadId || undefined, modelMode },
       { timeoutMs: 60000 } // Longer timeout for AI responses
     );
     

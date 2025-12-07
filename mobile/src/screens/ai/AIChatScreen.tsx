@@ -179,6 +179,8 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const [error, setError] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const isSendingRef = useRef(false); // Prevent duplicate sends
+  const [modelMode, setModelMode] = useState<'fast' | 'smart'>('fast');
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   // Onboarding state management
   const [_onboardingState, setOnboardingState] = useState<OnboardingState>({ isCompleted: false });
@@ -1143,7 +1145,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
     try {
       // Call AI service - backend will create thread if needed
-      const response = await conversationService.sendMessage(userMessage, threadIdToUse);
+      const response = await conversationService.sendMessage(userMessage, threadIdToUse, modelMode);
       
       // Get the threadId from response (server-created if new conversation)
       serverThreadId = response.threadId;
@@ -1643,6 +1645,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           withDivider
         />
 
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1651,7 +1654,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         <ScrollView 
           style={styles.messagesContainer} 
           contentContainerStyle={{ 
-            paddingBottom: Platform.OS === 'android' ? 120 + insets.bottom : 120 
+            paddingBottom: Platform.OS === 'android' ? 160 + insets.bottom : 160 
           }}
           keyboardShouldPersistTaps="handled"
         >
@@ -1686,10 +1689,61 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             autoCorrect={false}
             autoCapitalize="sentences"
           />
-          <TouchableOpacity style={styles.sendBtn} onPress={() => handleSend()} disabled={loading}>
-            <Text style={styles.sendBtnText}>Send</Text>
-          </TouchableOpacity>
+          <View style={styles.inputActions}>
+            <TouchableOpacity
+              accessibilityLabel={`Model: ${modelMode === 'fast' ? 'Auto/Fast' : 'Smart'}. Tap to change.`}
+              accessibilityRole="button"
+              style={styles.modelPill}
+              onPress={() => setShowModelPicker(prev => !prev)}
+            >
+              <Icon
+                name={modelMode === 'fast' ? 'zap' : 'comment-discussion'}
+                size={16}
+                color={colors.primary}
+              />
+              <Text style={styles.modelPillText}>{modelMode === 'fast' ? 'Auto' : 'Smart'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sendBtn} onPress={() => handleSend()} disabled={loading}>
+              <Text style={styles.sendBtnText}>Send</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {showModelPicker && (
+          <View style={styles.modelDrawer}>
+            <Text style={styles.modelDrawerTitle}>Choose response style</Text>
+            <TouchableOpacity
+              accessibilityLabel="Use Auto / Fast mode for quicker responses (Groq)"
+              accessibilityRole="button"
+              style={[styles.modelOption, modelMode === 'fast' && styles.modelOptionActive]}
+              onPress={() => {
+                setModelMode('fast');
+                setShowModelPicker(false);
+              }}
+            >
+              <View style={styles.modelOptionHeader}>
+                <Icon name="zap" size={18} color={colors.primary} />
+                <Text style={styles.modelOptionTitle}>Auto / Fast</Text>
+              </View>
+              <Text style={styles.modelOptionSubtitle}>Groq • Low latency</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityLabel="Use Smart mode for deeper reasoning (Gemini)"
+              accessibilityRole="button"
+              style={[styles.modelOption, modelMode === 'smart' && styles.modelOptionActive]}
+              onPress={() => {
+                setModelMode('smart');
+                setShowModelPicker(false);
+              }}
+            >
+              <View style={styles.modelOptionHeader}>
+                <Icon name="comment-discussion" size={18} color={colors.text.primary} />
+                <Text style={styles.modelOptionTitle}>Smart</Text>
+              </View>
+              <Text style={styles.modelOptionSubtitle}>Gemini • More depth</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* Sidebar Overlay */}
@@ -1844,9 +1898,72 @@ const styles = StyleSheet.create({
     color: '#000000', // Force black text to ensure visibility
     fontSize: typography.fontSize.base,
   },
+  inputActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  modelPill: {
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    backgroundColor: colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  modelPillText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.primary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  modelDrawer: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.background.surface,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    gap: spacing.sm,
+  },
+  modelDrawerTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  modelOption: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    padding: spacing.sm,
+    backgroundColor: colors.secondary,
+  },
+  modelOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.background.primary,
+  },
+  modelOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  modelOptionTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  modelOptionSubtitle: {
+    marginTop: 2,
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
   },
   helpButton: {
     padding: spacing.sm,
