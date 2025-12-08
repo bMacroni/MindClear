@@ -55,6 +55,17 @@ class GroqService {
     return threadId ? `${userId}:${threadId}` : `${userId}:null`;
   }
 
+  _getHistory(key) {
+    const history = this.conversationHistory.get(key);
+    if (history) {
+      // Reinsert to mark as most recently used for LRU eviction
+      this.conversationHistory.delete(key);
+      this.conversationHistory.set(key, history);
+      return history;
+    }
+    return [];
+  }
+
   _evictOldestIfNeeded() {
     if (this.conversationHistory.size >= this.MAX_CONVERSATIONS) {
       const oldestKey = this.conversationHistory.keys().next().value;
@@ -82,7 +93,7 @@ class GroqService {
       if (isNewConversation) {
         this._evictOldestIfNeeded();
       }
-      const list = this.conversationHistory.get(key) || [];
+      const list = isNewConversation ? [] : this._getHistory(key);
       list.push(messageObj);
       if (list.length > this.MAX_HISTORY_MESSAGES) {
         list.splice(0, list.length - this.MAX_HISTORY_MESSAGES);
@@ -133,13 +144,14 @@ class GroqService {
       `Time zone: ${tz}.`,
       'You are the Fast (Groq) model for the Mind Clear productivity app. Keep responses concise, supportive, and action-oriented.',
       'Never expose tools or internals. Present everything as app features (e.g., “I’ll add a task”, “I’ll schedule that”).',
-      'Context clarity: prioritize the latest user message, but respect recent history for continuity. Use history only when it clarifies references.',
+      'Context clarity: prioritize the latest user message, but also use recent chat history to keep continuity and choose the best next action (do not ignore prior requests/goals/tasks already discussed). Resolve references using recent turns; avoid repeating work already done.',
       'Task/goal guidance: ask brief clarifying questions when needed, then act with sensible defaults.',
       'Decision rule: classify intent cleanly —',
       '• Treat single, concrete actions as tasks (one-off, short, schedulable).',
       '• Treat multi-step outcomes or learning journeys as goals with milestones (2–5 steps).',
       '• If unsure, ask one concise clarifier; otherwise pick goal vs task confidently (no hedging).',
       '• Do not return both a goal and a task for the same request; choose the best fit.',
+      'Goal output: when creating or updating a goal, return exactly ONE JSON block wrapped in ```json ... ``` with category:"goal", title, description, and milestones[{title,steps[{text}]}]. Do not claim anything is saved; present it as a draft. If you truly need a missing detail, ask ONE short clarifier first, otherwise produce the goal block.',
       'Response format standardization: when returning structured data, wrap JSON in triple backticks.',
       'Schedule responses (category: schedule): return JSON with title and events[{title,startTime,endTime}] in 12-hour time using the user timezone.',
       'Goal responses (category: goal): include title, description, milestones[{title,steps[{text}]}].',
@@ -154,7 +166,7 @@ class GroqService {
     try {
       // Build history (system + recent turns + current user)
       const historyKey = this._getHistoryKey(userId, threadId);
-      let cachedHistory = this.conversationHistory.get(historyKey) || [];
+      let cachedHistory = this._getHistory(historyKey);
 
       // If cache empty and threadId present, hydrate from DB
       if (cachedHistory.length === 0 && threadId) {
@@ -200,6 +212,12 @@ class GroqService {
 
       const data = await response.json();
       let content = data?.choices?.[0]?.message?.content || '';
+      logger.info('Groq response received', {
+        threadId,
+        userId,
+        contentPreview: typeof content === 'string' ? content.slice(0, 400) : '',
+        hasJsonBlock: typeof content === 'string' ? /```json/i.test(content) : false
+      });
       content = this._sanitizeMessageForFrontend(content);
 
       // Append assistant reply to history cache
