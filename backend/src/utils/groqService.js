@@ -1,4 +1,5 @@
 import logger from './logger.js';
+import { conversationController } from '../controllers/conversationController.js';
 
 /**
  * Lightweight Groq client wrapper for fast, low-latency responses.
@@ -110,7 +111,6 @@ class GroqService {
   async _loadHistoryFromDatabase(userId, threadId) {
     try {
       if (!threadId) return [];
-      const { conversationController } = await import('../controllers/conversationController.js');
       const messages = await conversationController.getRecentMessages(threadId, userId, this.MAX_HISTORY_MESSAGES);
       return messages.map(msg => ({
         role: msg.role === 'user' ? 'user' : 'assistant',

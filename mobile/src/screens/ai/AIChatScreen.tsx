@@ -1484,6 +1484,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   }, [
     currentConversationId,
     input,
+    modelMode,
     loading,
     threads,
     getMessagesForThread,
