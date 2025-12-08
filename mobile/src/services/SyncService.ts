@@ -1162,7 +1162,7 @@ class SyncService {
       const totalFailures = rejectedRequests.length + fetchErrors.length;
 
       if (totalFailures === requests.length) {
-        throw new Error('Network unavailable. Please check your connection and try again.');
+        throw new Error('Network unavailable. We will try again once you are back online.');
       }
 
       // Extract results from Promise.allSettled
