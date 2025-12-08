@@ -104,8 +104,8 @@ android {
         applicationId "com.foci.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
-        versionName "1.1.0"
+        versionCode 16
+        versionName "1.1.1"
     }
     signingConfigs {
         debug {
