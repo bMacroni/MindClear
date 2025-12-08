@@ -35,6 +35,7 @@ import GoalTitlesDisplay from '../../components/ai/GoalTitlesDisplay';
 import TaskDisplay, { Task as TaskDataFromDisplay } from '../../components/ai/TaskDisplay';
 import Markdown from 'react-native-markdown-display';
 import { taskRepository } from '../../repositories/TaskRepository';
+import Task from '../../db/models/Task';
 
 const validGoalCategories = ['career', 'health', 'personal', 'education', 'finance', 'relationships', 'other'];
 
@@ -591,8 +592,95 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     }
   };
 
+  const TASK_MATCH_THRESHOLD = 0.82;
+  const DUE_DATE_MATCH_BONUS = 0.1;
+
+  const normalizeTitleForMatch = (value?: string) =>
+    String(value || '')
+      .replace(/\r?\n|\r/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+  const bigrams = (value: string): string[] => {
+    if (!value || value.length < 2) return [];
+    const chars = value.split('');
+    const pairs: string[] = [];
+    for (let i = 0; i < chars.length - 1; i += 1) {
+      pairs.push(chars[i] + chars[i + 1]);
+    }
+    return pairs;
+  };
+
+  const diceCoefficient = (aRaw: string, bRaw: string): number => {
+    const a = bigrams(normalizeTitleForMatch(aRaw));
+    const b = bigrams(normalizeTitleForMatch(bRaw));
+    if (a.length === 0 || b.length === 0) return 0;
+
+    const bCounts: Record<string, number> = {};
+    b.forEach(pair => {
+      bCounts[pair] = (bCounts[pair] || 0) + 1;
+    });
+
+    let intersection = 0;
+    a.forEach(pair => {
+      if (bCounts[pair]) {
+        intersection += 1;
+        bCounts[pair] -= 1;
+      }
+    });
+
+    return (2 * intersection) / (a.length + b.length);
+  };
+
+  const toDateKey = (value?: Date | string | null): string | null => {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+  };
+
+  const buildMatchScore = (
+    incomingTitle: string,
+    existingTitle: string,
+    incomingDueDate?: Date,
+    existingDueDate?: Date | null,
+  ) => {
+    const baseScore = diceCoefficient(incomingTitle, existingTitle);
+    const incomingKey = toDateKey(incomingDueDate);
+    const existingKey = toDateKey(existingDueDate);
+    const dueDateMatches = Boolean(incomingKey && existingKey && incomingKey === existingKey);
+    const compositeScore = Math.min(1, baseScore + (dueDateMatches ? DUE_DATE_MATCH_BONUS : 0));
+    return { compositeScore, dueDateMatches, baseScore };
+  };
+
+  const requestTaskDecision = (
+    incomingTitle: string,
+    existingTitle: string,
+    compositeScore: number,
+    dueDateMatches: boolean,
+  ): Promise<'update' | 'create'> => {
+    const similarityLabel = `${Math.round(compositeScore * 100)}% match`;
+    const dueDateNote = dueDateMatches ? '\nDue dates also match.' : '';
+    return new Promise(resolve => {
+      Alert.alert(
+        'Potential duplicate task',
+        `We found a similar task "${existingTitle}". ${similarityLabel}.${dueDateNote}\nWould you like to update the existing task or create a new one?`,
+        [
+          { text: 'Update existing', onPress: () => resolve('update') },
+          { text: 'Create new', style: 'cancel', onPress: () => resolve('create') },
+        ],
+        { cancelable: false },
+      );
+    });
+  };
+
   const handleSaveTasks = async (tasks: TaskDataFromDisplay[]) => {
     try {
+      let updatedCount = 0;
+      let createdCount = 0;
+      let existingTasks: Task[] = await taskRepository.getAllTasks();
+
       for (const task of tasks) {
         const dueDate = task.dueDate ? safeParseDate(task.dueDate) : undefined;
 
@@ -604,28 +692,49 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             dueDate,
             priority: task.priority,
           });
+          logger.info('AIChatScreen: updated task by explicit ID', { title: task.title, existingId: task.id });
+          updatedCount += 1;
           continue;
         }
 
-        // Attempt to match by title to avoid duplicates
-        const existing = await taskRepository.findTaskByTitle(task.title);
-        if (existing) {
-          await taskRepository.updateTask(existing.id, {
+        // Find best potential match using fuzzy similarity and due date
+        let bestMatch: { task: Task; compositeScore: number; dueDateMatches: boolean } | null = null;
+        for (const existing of existingTasks) {
+          const { compositeScore, dueDateMatches } = buildMatchScore(task.title, existing.title || '', dueDate, existing.dueDate);
+          if (!bestMatch || compositeScore > bestMatch.compositeScore) {
+            bestMatch = { task: existing, compositeScore, dueDateMatches };
+          }
+        }
+
+        let shouldUpdateExisting = false;
+        if (bestMatch && bestMatch.compositeScore >= TASK_MATCH_THRESHOLD) {
+          const userChoice = await requestTaskDecision(task.title, bestMatch.task.title || '', bestMatch.compositeScore, bestMatch.dueDateMatches);
+          shouldUpdateExisting = userChoice === 'update';
+        }
+
+        if (bestMatch && shouldUpdateExisting) {
+          await taskRepository.updateTask(bestMatch.task.id, {
             title: task.title,
             description: task.description,
             dueDate,
             priority: task.priority,
           });
+          logger.info('AIChatScreen: updated matched task', { title: task.title, existingId: bestMatch.task.id });
+          updatedCount += 1;
         } else {
-          await taskRepository.createTask({
+          const createdTask = await taskRepository.createTask({
             title: task.title,
             description: task.description,
             dueDate,
             priority: task.priority,
           });
+          logger.info('AIChatScreen: created new task', { title: task.title });
+          createdCount += 1;
+          existingTasks = [...existingTasks, createdTask];
         }
       }
-      Alert.alert('Success', 'Tasks have been saved successfully!');
+
+      Alert.alert('Success', `Tasks saved. Updated ${updatedCount}, created ${createdCount}.`);
       syncService.silentSync().catch(err => {
         logger.warn('Background sync failed after saving tasks:', err);
       });
