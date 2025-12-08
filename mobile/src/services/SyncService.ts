@@ -945,7 +945,7 @@ class SyncService {
     }
 
     // Call AI chat endpoint with the user message
-    const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
+    const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content, 'fast');
     
     // Handle user message ID migration if server assigned a different ID
     let finalUserMessageId = message.id;

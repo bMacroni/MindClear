@@ -160,13 +160,17 @@ export const conversationService = {
    * Returns both user and assistant messages as saved by the server.
    * Used by SyncService to sync pending user messages.
    */
-  async syncSendMessage(threadId: string, message: string): Promise<{
+  async syncSendMessage(
+    threadId: string,
+    message: string,
+    modelMode: 'fast' | 'smart' = 'fast'
+  ): Promise<{
     userMessage: { id: string; created_at: string; updated_at: string };
     assistantMessage: { id: string; content: string; created_at: string; updated_at: string; metadata?: any };
   }> {
     const res = await apiService.post<{ message: string; actions: any[]; threadId?: string | null }>(
       '/ai/chat',
-      { message, threadId },
+      { message, threadId, modelMode },
       { timeoutMs: 60000 } // Longer timeout for AI responses
     );
     

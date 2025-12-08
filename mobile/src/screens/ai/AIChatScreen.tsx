@@ -594,12 +594,36 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const handleSaveTasks = async (tasks: TaskDataFromDisplay[]) => {
     try {
       for (const task of tasks) {
-        await taskRepository.createTask({
-          title: task.title,
-          description: task.description,
-          dueDate: task.dueDate ? safeParseDate(task.dueDate) : undefined,
-          priority: task.priority,
-        });
+        const dueDate = task.dueDate ? safeParseDate(task.dueDate) : undefined;
+
+        // Update if ID provided
+        if (task.id) {
+          await taskRepository.updateTask(task.id, {
+            title: task.title,
+            description: task.description,
+            dueDate,
+            priority: task.priority,
+          });
+          continue;
+        }
+
+        // Attempt to match by title to avoid duplicates
+        const existing = await taskRepository.findTaskByTitle(task.title);
+        if (existing) {
+          await taskRepository.updateTask(existing.id, {
+            title: task.title,
+            description: task.description,
+            dueDate,
+            priority: task.priority,
+          });
+        } else {
+          await taskRepository.createTask({
+            title: task.title,
+            description: task.description,
+            dueDate,
+            priority: task.priority,
+          });
+        }
       }
       Alert.alert('Success', 'Tasks have been saved successfully!');
       syncService.silentSync().catch(err => {

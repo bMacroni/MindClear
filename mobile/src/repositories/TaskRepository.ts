@@ -85,6 +85,19 @@ export class TaskRepository {
     }
   }
 
+  async findTaskByTitle(title: string): Promise<Task | null> {
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+    const tasks = await database.get<Task>('tasks')
+      .query(
+        Q.where('user_id', userId),
+        Q.where('status', Q.notEq('pending_delete'))
+      )
+      .fetch();
+    const lowered = title.trim().toLowerCase();
+    return tasks.find(t => (t.title || '').trim().toLowerCase() === lowered) || null;
+  }
+
   async createTask(data: {
     title: string;
     description?: string;
