@@ -246,11 +246,47 @@ class SyncService {
           }
         } else if (record instanceof Task) {
           const { lifecycleStatus, syncStatus } = this.extractLifecycleStatus(record.status);
+          const statusStr = typeof record.status === 'string' ? record.status : '';
+
+          // Normalize sync_failed:* and pending_update with local IDs into concrete retry statuses
+          let normalizedSyncStatus = syncStatus;
+          const allowedPriorities = ['low', 'medium', 'high'];
+          const normalizedPriority = record.priority
+            ? String(record.priority).toLowerCase()
+            : undefined;
+          const priorityForPayload = normalizedPriority && allowedPriorities.includes(normalizedPriority)
+            ? normalizedPriority
+            : normalizedPriority
+              ? (console.warn(`Push: Normalizing unsupported priority "${record.priority}" to "medium"`), 'medium')
+              : undefined;
+
+          const isDeleteStatus =
+            statusStr.startsWith('pending_delete') ||
+            statusStr.startsWith('sync_failed_delete') ||
+            statusStr.includes('pending_delete');
+
+          if (statusStr.startsWith('sync_failed_delete')) {
+            normalizedSyncStatus = 'sync_failed_delete';
+          } else if (isDeleteStatus && syncStatus === 'pending_delete') {
+            normalizedSyncStatus = 'pending_delete';
+          } else if (statusStr.startsWith('sync_failed_create')) {
+            normalizedSyncStatus = 'sync_failed_create';
+          } else if (statusStr.startsWith('sync_failed_update')) {
+            normalizedSyncStatus = 'sync_failed_update';
+          } else if (syncStatus === 'sync_failed' || statusStr.startsWith('sync_failed')) {
+            // Generic sync_failed:<lifecycle> — decide create vs update by ID form
+            normalizedSyncStatus = this.isUUID(record.id) ? 'sync_failed_update' : 'sync_failed_create';
+          }
+
+          // If we have a pending/update status on a local (non-UUID) record, treat as create
+          if (normalizedSyncStatus === 'pending_update' && !this.isUUID(record.id)) {
+            normalizedSyncStatus = 'pending_create';
+          }
 
           recordData = {
             title: record.title,
             description: record.description,
-            priority: record.priority,
+            priority: priorityForPayload,
             estimated_duration_minutes: record.estimatedDurationMinutes,
             due_date: record.dueDate?.toISOString(),
             // Only include optional fields if they have values (don't send null)
@@ -295,7 +331,7 @@ class SyncService {
             }
           }
           
-          switch (syncStatus) {
+          switch (normalizedSyncStatus) {
             case 'pending_create':
             case 'sync_failed_create':
               serverResponse = await enhancedAPI.createTask(recordData);
@@ -945,7 +981,7 @@ class SyncService {
     }
 
     // Call AI chat endpoint with the user message
-    const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content);
+    const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content, 'fast');
     
     // Handle user message ID migration if server assigned a different ID
     let finalUserMessageId = message.id;

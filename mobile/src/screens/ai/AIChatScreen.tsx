@@ -35,6 +35,7 @@ import GoalTitlesDisplay from '../../components/ai/GoalTitlesDisplay';
 import TaskDisplay, { Task as TaskDataFromDisplay } from '../../components/ai/TaskDisplay';
 import Markdown from 'react-native-markdown-display';
 import { taskRepository } from '../../repositories/TaskRepository';
+import Task from '../../db/models/Task';
 
 const validGoalCategories = ['career', 'health', 'personal', 'education', 'finance', 'relationships', 'other'];
 
@@ -179,6 +180,8 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const [error, setError] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const isSendingRef = useRef(false); // Prevent duplicate sends
+  const [modelMode, setModelMode] = useState<'fast' | 'smart'>('fast');
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   // Onboarding state management
   const [_onboardingState, setOnboardingState] = useState<OnboardingState>({ isCompleted: false });
@@ -527,31 +530,55 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const handleSaveGoal = async (goalData: GoalData) => {
     try {
       const goalCategory = mapToValidCategory(goalData.category);
-      // 1. Create the goal
-      const newGoal = await goalRepository.createGoal({
-        title: goalData.title,
-        description: goalData.description,
-        targetCompletionDate: goalData.dueDate ? safeParseDate(goalData.dueDate) : undefined,
-        category: goalCategory,
-      });
-  
-      // 2. Create milestones and steps
-      for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
-        const newMilestone = await goalRepository.createMilestone(newGoal.id, {
-          title: milestone.title,
-          description: '', // Milestone description not provided in GoalData
-          order: milestoneIndex,
-        });
-  
-        for (const [stepIndex, step] of milestone.steps.entries()) {
-          await goalRepository.createMilestoneStep(newMilestone.id, {
-            text: step.text,
-            order: stepIndex,
+      // If a goal with the same title exists, append milestones/steps to it instead of creating a duplicate
+      const existingGoal = goalData.title ? await goalRepository.findGoalByTitle(goalData.title) : null;
+
+      if (existingGoal) {
+        const existingMilestones = await goalRepository.getMilestonesForGoal(existingGoal.id);
+        const baseOrder = existingMilestones.length;
+
+        for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
+          const newMilestone = await goalRepository.createMilestone(existingGoal.id, {
+            title: milestone.title,
+            description: '',
+            order: baseOrder + milestoneIndex,
           });
+
+          for (const [stepIndex, step] of milestone.steps.entries()) {
+            await goalRepository.createMilestoneStep(newMilestone.id, {
+              text: step.text,
+              order: stepIndex,
+            });
+          }
         }
+
+        Alert.alert('Success', 'Goal updated with new milestones.');
+      } else {
+        // Create a new goal
+        const newGoal = await goalRepository.createGoal({
+          title: goalData.title,
+          description: goalData.description,
+          targetCompletionDate: goalData.dueDate ? safeParseDate(goalData.dueDate) : undefined,
+          category: goalCategory,
+        });
+
+        for (const [milestoneIndex, milestone] of goalData.milestones.entries()) {
+          const newMilestone = await goalRepository.createMilestone(newGoal.id, {
+            title: milestone.title,
+            description: '', // Milestone description not provided in GoalData
+            order: milestoneIndex,
+          });
+
+          for (const [stepIndex, step] of milestone.steps.entries()) {
+            await goalRepository.createMilestoneStep(newMilestone.id, {
+              text: step.text,
+              order: stepIndex,
+            });
+          }
+        }
+
+        Alert.alert('Success', 'Goal has been saved successfully!');
       }
-  
-      Alert.alert('Success', 'Goal has been saved successfully!');
       // Optional: trigger a sync
       syncService.silentSync().catch(err => {
         logger.warn('Background sync failed after saving goal:', err);
@@ -565,17 +592,149 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     }
   };
 
+  const TASK_MATCH_THRESHOLD = 0.82;
+  const DUE_DATE_MATCH_BONUS = 0.1;
+
+  const normalizeTitleForMatch = (value?: string) =>
+    String(value || '')
+      .replace(/\r?\n|\r/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+  const bigrams = (value: string): string[] => {
+    if (!value || value.length < 2) return [];
+    const chars = value.split('');
+    const pairs: string[] = [];
+    for (let i = 0; i < chars.length - 1; i += 1) {
+      pairs.push(chars[i] + chars[i + 1]);
+    }
+    return pairs;
+  };
+
+  const diceCoefficient = (aRaw: string, bRaw: string): number => {
+    const a = bigrams(normalizeTitleForMatch(aRaw));
+    const b = bigrams(normalizeTitleForMatch(bRaw));
+    if (a.length === 0 || b.length === 0) return 0;
+
+    const bCounts: Record<string, number> = {};
+    b.forEach(pair => {
+      bCounts[pair] = (bCounts[pair] || 0) + 1;
+    });
+
+    let intersection = 0;
+    a.forEach(pair => {
+      if (bCounts[pair]) {
+        intersection += 1;
+        bCounts[pair] -= 1;
+      }
+    });
+
+    return (2 * intersection) / (a.length + b.length);
+  };
+
+  const toDateKey = (value?: Date | string | null): string | null => {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+  };
+
+  const buildMatchScore = (
+    incomingTitle: string,
+    existingTitle: string,
+    incomingDueDate?: Date,
+    existingDueDate?: Date | null,
+  ) => {
+    const baseScore = diceCoefficient(incomingTitle, existingTitle);
+    const incomingKey = toDateKey(incomingDueDate);
+    const existingKey = toDateKey(existingDueDate);
+    const dueDateMatches = Boolean(incomingKey && existingKey && incomingKey === existingKey);
+    const compositeScore = Math.min(1, baseScore + (dueDateMatches ? DUE_DATE_MATCH_BONUS : 0));
+    return { compositeScore, dueDateMatches, baseScore };
+  };
+
+  const requestTaskDecision = (
+    incomingTitle: string,
+    existingTitle: string,
+    compositeScore: number,
+    dueDateMatches: boolean,
+  ): Promise<'update' | 'create'> => {
+    const similarityLabel = `${Math.round(compositeScore * 100)}% match`;
+    const dueDateNote = dueDateMatches ? '\nDue dates also match.' : '';
+    return new Promise(resolve => {
+      Alert.alert(
+        'Potential duplicate task',
+        `We found a similar task "${existingTitle}". ${similarityLabel}.${dueDateNote}\nWould you like to update the existing task or create a new one?`,
+        [
+          { text: 'Update existing', onPress: () => resolve('update') },
+          { text: 'Create new', style: 'cancel', onPress: () => resolve('create') },
+        ],
+        { cancelable: false },
+      );
+    });
+  };
+
   const handleSaveTasks = async (tasks: TaskDataFromDisplay[]) => {
     try {
+      let updatedCount = 0;
+      let createdCount = 0;
+      let existingTasks: Task[] = await taskRepository.getAllTasks();
+
       for (const task of tasks) {
-        await taskRepository.createTask({
-          title: task.title,
-          description: task.description,
-          dueDate: task.dueDate ? safeParseDate(task.dueDate) : undefined,
-          priority: task.priority,
-        });
+        const dueDate = task.dueDate ? safeParseDate(task.dueDate) : undefined;
+
+        // Update if ID provided
+        if (task.id) {
+          await taskRepository.updateTask(task.id, {
+            title: task.title,
+            description: task.description,
+            dueDate,
+            priority: task.priority,
+          });
+          logger.info('AIChatScreen: updated task by explicit ID', { title: task.title, existingId: task.id });
+          updatedCount += 1;
+          continue;
+        }
+
+        // Find best potential match using fuzzy similarity and due date
+        let bestMatch: { task: Task; compositeScore: number; dueDateMatches: boolean } | null = null;
+        for (const existing of existingTasks) {
+          const { compositeScore, dueDateMatches } = buildMatchScore(task.title, existing.title || '', dueDate, existing.dueDate);
+          if (!bestMatch || compositeScore > bestMatch.compositeScore) {
+            bestMatch = { task: existing, compositeScore, dueDateMatches };
+          }
+        }
+
+        let shouldUpdateExisting = false;
+        if (bestMatch && bestMatch.compositeScore >= TASK_MATCH_THRESHOLD) {
+          const userChoice = await requestTaskDecision(task.title, bestMatch.task.title || '', bestMatch.compositeScore, bestMatch.dueDateMatches);
+          shouldUpdateExisting = userChoice === 'update';
+        }
+
+        if (bestMatch && shouldUpdateExisting) {
+          await taskRepository.updateTask(bestMatch.task.id, {
+            title: task.title,
+            description: task.description,
+            dueDate,
+            priority: task.priority,
+          });
+          logger.info('AIChatScreen: updated matched task', { title: task.title, existingId: bestMatch.task.id });
+          updatedCount += 1;
+        } else {
+          const createdTask = await taskRepository.createTask({
+            title: task.title,
+            description: task.description,
+            dueDate,
+            priority: task.priority,
+          });
+          logger.info('AIChatScreen: created new task', { title: task.title });
+          createdCount += 1;
+          existingTasks = [...existingTasks, createdTask];
+        }
       }
-      Alert.alert('Success', 'Tasks have been saved successfully!');
+
+      Alert.alert('Success', `Tasks saved. Updated ${updatedCount}, created ${createdCount}.`);
       syncService.silentSync().catch(err => {
         logger.warn('Background sync failed after saving tasks:', err);
       });
@@ -1143,7 +1302,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
     try {
       // Call AI service - backend will create thread if needed
-      const response = await conversationService.sendMessage(userMessage, threadIdToUse);
+      const response = await conversationService.sendMessage(userMessage, threadIdToUse, modelMode);
       
       // Get the threadId from response (server-created if new conversation)
       serverThreadId = response.threadId;
@@ -1325,6 +1484,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   }, [
     currentConversationId,
     input,
+    modelMode,
     loading,
     threads,
     getMessagesForThread,
@@ -1643,6 +1803,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           withDivider
         />
 
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1651,7 +1812,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         <ScrollView 
           style={styles.messagesContainer} 
           contentContainerStyle={{ 
-            paddingBottom: Platform.OS === 'android' ? 120 + insets.bottom : 120 
+            paddingBottom: Platform.OS === 'android' ? 160 + insets.bottom : 160 
           }}
           keyboardShouldPersistTaps="handled"
         >
@@ -1686,10 +1847,61 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             autoCorrect={false}
             autoCapitalize="sentences"
           />
-          <TouchableOpacity style={styles.sendBtn} onPress={() => handleSend()} disabled={loading}>
-            <Text style={styles.sendBtnText}>Send</Text>
-          </TouchableOpacity>
+          <View style={styles.inputActions}>
+            <TouchableOpacity
+              accessibilityLabel={`Model: ${modelMode === 'fast' ? 'Auto/Fast' : 'Smart'}. Tap to change.`}
+              accessibilityRole="button"
+              style={styles.modelPill}
+              onPress={() => setShowModelPicker(prev => !prev)}
+            >
+              <Icon
+                name={modelMode === 'fast' ? 'zap' : 'comment-discussion'}
+                size={16}
+                color={colors.primary}
+              />
+              <Text style={styles.modelPillText}>{modelMode === 'fast' ? 'Auto' : 'Smart'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sendBtn} onPress={() => handleSend()} disabled={loading}>
+              <Text style={styles.sendBtnText}>Send</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {showModelPicker && (
+          <View style={styles.modelDrawer}>
+            <Text style={styles.modelDrawerTitle}>Choose response style</Text>
+            <TouchableOpacity
+              accessibilityLabel="Use Auto / Fast mode for quicker responses (Groq)"
+              accessibilityRole="button"
+              style={[styles.modelOption, modelMode === 'fast' && styles.modelOptionActive]}
+              onPress={() => {
+                setModelMode('fast');
+                setShowModelPicker(false);
+              }}
+            >
+              <View style={styles.modelOptionHeader}>
+                <Icon name="zap" size={18} color={colors.primary} />
+                <Text style={styles.modelOptionTitle}>Auto / Fast</Text>
+              </View>
+              <Text style={styles.modelOptionSubtitle}>Groq • Low latency</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityLabel="Use Smart mode for deeper reasoning (Gemini)"
+              accessibilityRole="button"
+              style={[styles.modelOption, modelMode === 'smart' && styles.modelOptionActive]}
+              onPress={() => {
+                setModelMode('smart');
+                setShowModelPicker(false);
+              }}
+            >
+              <View style={styles.modelOptionHeader}>
+                <Icon name="comment-discussion" size={18} color={colors.text.primary} />
+                <Text style={styles.modelOptionTitle}>Smart</Text>
+              </View>
+              <Text style={styles.modelOptionSubtitle}>Gemini • More depth</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* Sidebar Overlay */}
@@ -1844,9 +2056,72 @@ const styles = StyleSheet.create({
     color: '#000000', // Force black text to ensure visibility
     fontSize: typography.fontSize.base,
   },
+  inputActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  modelPill: {
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    backgroundColor: colors.secondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  modelPillText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.primary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  modelDrawer: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.background.surface,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    gap: spacing.sm,
+  },
+  modelDrawerTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  modelOption: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    padding: spacing.sm,
+    backgroundColor: colors.secondary,
+  },
+  modelOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.background.primary,
+  },
+  modelOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  modelOptionTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  modelOptionSubtitle: {
+    marginTop: 2,
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
   },
   helpButton: {
     padding: spacing.sm,

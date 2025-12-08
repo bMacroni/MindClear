@@ -61,6 +61,19 @@ export class GoalRepository {
     }
   }
 
+  async findGoalByTitle(title: string): Promise<Goal | null> {
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+    const goals = await database.get<Goal>('goals')
+      .query(
+        Q.where('user_id', userId),
+        Q.where('status', Q.notEq('pending_delete'))
+      )
+      .fetch();
+    const target = goals.find(g => g.title.trim().toLowerCase() === title.trim().toLowerCase());
+    return target || null;
+  }
+
   async createGoal(data: {
     title: string;
     description?: string;
@@ -138,7 +151,7 @@ export class GoalRepository {
     // Verify ownership - ensure the goal belongs to the current user
     const goal = await this.getGoalById(goalId);
     if (!goal) {
-      throw new AuthorizationError('You do not have permission to create a milestone for this goal');
+      throw new NotFoundError('Goal not found or inaccessible');
     }
     
     return await database.write(async () => {
@@ -234,6 +247,21 @@ export class GoalRepository {
       // Re-throw other errors (auth, DB connection, etc.)
       throw error;
     }
+  }
+
+  async getMilestonesForGoal(goalId: string): Promise<Milestone[]> {
+    const database = getDatabase();
+    // Ownership is enforced by fetching goal first
+    const goal = await this.getGoalById(goalId);
+    if (!goal) {
+      throw new NotFoundError('Goal not found or inaccessible');
+    }
+
+    const milestones = await database.get<Milestone>('milestones')
+      .query(Q.where('goal_id', goalId), Q.where('status', Q.notEq('pending_delete')))
+      .fetch();
+
+    return milestones.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }
 
   async deleteMilestone(id: string): Promise<void> {

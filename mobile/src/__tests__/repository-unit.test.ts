@@ -3,7 +3,7 @@ import { Database } from '@nozbe/watermelondb';
 import { Q } from '@nozbe/watermelondb';
 import { getDatabase } from '../db';
 import { taskRepository } from '../repositories/TaskRepository';
-import { goalRepository } from '../repositories/GoalRepository';
+import { goalRepository, NotFoundError } from '../repositories/GoalRepository';
 import Task from '../db/models/Task';
 import Goal from '../db/models/Goal';
 import Milestone from '../db/models/Milestone';
@@ -317,6 +317,18 @@ describe('Repository Unit Tests', () => {
 
     test('deleteMilestone handles non-existent milestone', async () => {
       await expect(goalRepository.deleteMilestone('non-existent-id')).resolves.not.toThrow();
+    });
+
+    test('createMilestone throws NotFoundError when goal is missing', async () => {
+      await expect(goalRepository.createMilestone('missing-goal-id', {
+        title: 'Orphan Milestone',
+        order: 1,
+      })).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    test('getMilestonesForGoal throws NotFoundError when goal is missing', async () => {
+      await expect(goalRepository.getMilestonesForGoal('missing-goal-id'))
+        .rejects.toBeInstanceOf(NotFoundError);
     });
   });
 

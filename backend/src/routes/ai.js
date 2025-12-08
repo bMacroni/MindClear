@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../middleware/enhancedAuth.js';
 import GeminiService from '../utils/geminiService.js';
+import GroqService from '../utils/groqService.js';
 // import AIService from '../utils/aiService.js';
 import { conversationController } from '../controllers/conversationController.js';
 import logger from '../utils/logger.js';
@@ -10,15 +11,20 @@ import { sendNotification } from '../services/notificationService.js';
 
 const router = express.Router();
 const geminiService = new GeminiService();
+const groqService = new GroqService();
 // const aiService = new AIService(); // Fallback service
 
 // Chat endpoint with conversation history support
 router.post('/chat', requireAuth, async (req, res) => {
   try {
-    const { message, threadId } = req.body;
+    const { message, threadId, modelMode } = req.body;
     const userId = req.user.id;
     const moodHeader = req.headers['x-user-mood'];
     const timeZoneHeader = req.headers['x-user-timezone'];
+
+    const mode = (typeof modelMode === 'string' && ['fast', 'smart'].includes(modelMode)) 
+      ? modelMode 
+      : 'fast'; // default per PRD
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ 
@@ -33,9 +39,13 @@ router.post('/chat', requireAuth, async (req, res) => {
     logger.info('Processing AI chat message', { 
       userId, 
       threadId, 
-      messageLength: message.length
+      messageLength: message.length,
+      modelMode: mode
     });    
-    const response = await geminiService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
+
+    const response = mode === 'fast' 
+      ? await groqService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader })
+      : await geminiService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
     
     logger.info('AI response received', { 
       userId, 
@@ -57,6 +67,7 @@ router.post('/chat', requireAuth, async (req, res) => {
           action_count: response.actions ? response.actions.length : 0,
           message_length: message.length,
           mood: moodHeader || null,
+          model_mode: mode,
           thread_id: threadId || null,
           timestamp: new Date().toISOString()
         }
@@ -104,7 +115,9 @@ router.post('/chat', requireAuth, async (req, res) => {
     const finalResponse = {
       message: safeMessage || 'I apologize, but I didn\'t receive a proper response. Please try again.',
       actions: Array.isArray(response.actions) ? response.actions : [],
-      threadId: finalThreadId || null // Include threadId in response
+      threadId: finalThreadId || null, // Include threadId in response
+      modelMode: mode,
+      provider: response.provider || (mode === 'smart' ? 'gemini' : 'groq')
     };
 
     // Send a notification to the user

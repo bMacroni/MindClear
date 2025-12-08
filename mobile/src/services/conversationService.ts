@@ -132,17 +132,22 @@ export const conversationService = {
    * Returns AI response with threadId (created automatically if not provided).
    * Used by AIChatScreen for immediate chat interaction.
    */
-  async sendMessage(message: string, threadId?: string | null): Promise<{
+  async sendMessage(
+    message: string,
+    threadId?: string | null,
+    modelMode: 'fast' | 'smart' = 'fast'
+  ): Promise<{
     message: string;
     actions: any[];
     threadId: string | null;
+    modelMode?: 'fast' | 'smart';
+    provider?: string;
   }> {
-    const res = await apiService.post<{ message: string; actions: any[]; threadId: string | null }>(
+    const res = await apiService.post<{ message: string; actions: any[]; threadId: string | null; modelMode?: 'fast' | 'smart'; provider?: string }>(
       '/ai/chat',
-      { message, threadId: threadId || undefined },
+      { message, threadId: threadId || undefined, modelMode },
       { timeoutMs: 60000 } // Longer timeout for AI responses
-    );
-    
+    );    
     if (!res.ok) {
       throw new Error((res.data as any)?.error || 'Failed to send message');
     }
@@ -155,13 +160,17 @@ export const conversationService = {
    * Returns both user and assistant messages as saved by the server.
    * Used by SyncService to sync pending user messages.
    */
-  async syncSendMessage(threadId: string, message: string): Promise<{
+  async syncSendMessage(
+    threadId: string,
+    message: string,
+    modelMode: 'fast' | 'smart' = 'fast'
+  ): Promise<{
     userMessage: { id: string; created_at: string; updated_at: string };
     assistantMessage: { id: string; content: string; created_at: string; updated_at: string; metadata?: any };
   }> {
     const res = await apiService.post<{ message: string; actions: any[]; threadId?: string | null }>(
       '/ai/chat',
-      { message, threadId },
+      { message, threadId, modelMode },
       { timeoutMs: 60000 } // Longer timeout for AI responses
     );
     
