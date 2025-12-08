@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import Icon from 'react-native-vector-icons/Octicons';
+import type { CalendarEvent } from '../../types/calendar';
+import { extractCalendarEvents } from '../../screens/tasks/utils/calendarEventUtils';
 
 interface ScheduleEvent {
   activity: string;
@@ -20,6 +22,35 @@ interface ScheduleDisplayProps {
 import { calendarAPI } from '../../services/api';
 
 export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProps) {
+  const [isBulkScheduling, setIsBulkScheduling] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [calendarEventsLoaded, setCalendarEventsLoaded] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadCalendarEvents = async () => {
+      try {
+        const response = await calendarAPI.getEvents(200);
+        const extracted = extractCalendarEvents(response);
+        if (isMounted) {
+          setCalendarEvents(extracted);
+        }
+      } catch (error) {
+        console.warn('ScheduleDisplay: failed to load calendar events for context', error);
+      } finally {
+        if (isMounted) {
+          setCalendarEventsLoaded(true);
+        }
+      }
+    };
+
+    loadCalendarEvents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Extract the title/date from the AI response, preferring JSON title
   const extractScheduleDate = (scheduleText: string): string => {
     try {
@@ -139,6 +170,14 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   // Utilities
   const truncate = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1).trim() + '…' : s);
 
+  type CalendarEventPayload = {
+    summary: string;
+    description: string;
+    startTime: string;
+    endTime: string;
+    timeZone?: string;
+  };
+
   // Format time for display
   const formatTime = (time: string) => {
     if (!time) {return '';}
@@ -205,25 +244,131 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
     return combined;
   };
 
+  const buildEventPayload = (event: ScheduleEvent): CalendarEventPayload | null => {
+    const start = combineDateTime(event.date, event.startTime);
+    const end = combineDateTime(event.date, event.endTime);
+    if (!start || !end) {return null;}
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return {
+      summary: truncate(event.activity, 60),
+      description: event.activity,
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      timeZone,
+    };
+  };
+
   const handleSchedule = async (event: ScheduleEvent) => {
     try {
-      const start = combineDateTime(event.date, event.startTime);
-      const end = combineDateTime(event.date, event.endTime);
-      if (!start || !end) {
+      const payload = buildEventPayload(event);
+      if (!payload) {
         Alert.alert('Missing date', 'Please ask for options that include a date to schedule.');
         return;
       }
-      const summary = truncate(event.activity, 60);
-      await calendarAPI.createEvent({
-        summary,
-        description: event.activity,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-      });
+      await calendarAPI.createEvent(payload);
       Alert.alert('Scheduled', 'Your event has been added to the calendar.');
     } catch (e) {
       Alert.alert('Error', 'Failed to schedule the event.');
     }
+  };
+
+  const handleBulkSchedule = async () => {
+    const validPayloads: CalendarEventPayload[] = [];
+    const skippedEvents: ScheduleEvent[] = [];
+
+    events.forEach((event) => {
+      const payload = buildEventPayload(event);
+      if (payload) {
+        validPayloads.push(payload);
+      } else {
+        skippedEvents.push(event);
+      }
+    });
+
+    if (validPayloads.length === 0) {
+      Alert.alert('Missing date', 'Please ask for options that include a date to schedule.');
+      return;
+    }
+
+    try {
+      setIsBulkScheduling(true);
+      for (const payload of validPayloads) {
+        // Schedule sequentially to keep API usage predictable
+        await calendarAPI.createEvent(payload);
+      }
+      const skippedMessage = skippedEvents.length > 0
+        ? `Scheduled ${validPayloads.length} events. Skipped ${skippedEvents.length} without a date/time.`
+        : `Scheduled ${validPayloads.length} events.`;
+      Alert.alert('Scheduled', skippedMessage);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to schedule all events. Please try again.');
+    } finally {
+      setIsBulkScheduling(false);
+    }
+  };
+
+  const getCalendarEventStart = (event: CalendarEvent): Date | undefined => {
+    const startRaw = event.start_time || event.start?.dateTime;
+    if (!startRaw) {return undefined;}
+    const d = new Date(startRaw);
+    return isNaN(d.getTime()) ? undefined : d;
+  };
+
+  const getCalendarEventEnd = (event: CalendarEvent): Date | undefined => {
+    const endRaw = event.end_time || event.end?.dateTime;
+    if (!endRaw) {return undefined;}
+    const d = new Date(endRaw);
+    return isNaN(d.getTime()) ? undefined : d;
+  };
+
+  const isSameDay = (d1?: Date, d2?: Date) => {
+    if (!d1 || !d2) {return false;}
+    return d1.getFullYear() === d2.getFullYear()
+      && d1.getMonth() === d2.getMonth()
+      && d1.getDate() === d2.getDate();
+  };
+
+  const findAdjacentCalendarEvents = (event: ScheduleEvent) => {
+    const start = combineDateTime(event.date, event.startTime);
+    const end = combineDateTime(event.date, event.endTime);
+    if (!start || !end || !calendarEventsLoaded) {
+      return { before: undefined, after: undefined };
+    }
+
+    const sameDayEvents = calendarEvents
+      .map(evt => ({ evt, start: getCalendarEventStart(evt), end: getCalendarEventEnd(evt) }))
+      .filter(({ start: s }) => isSameDay(s, start) && s)
+      .sort((a, b) => (a.start!.getTime() - b.start!.getTime()));
+
+    let before: CalendarEvent | undefined;
+    let after: CalendarEvent | undefined;
+
+    for (const { evt, start: evtStart, end: evtEnd } of sameDayEvents) {
+      if (!evtStart) {continue;}
+      if (evtEnd && evtEnd.getTime() <= start.getTime()) {
+        before = evt;
+      } else if (evtStart.getTime() >= end.getTime() && !after) {
+        after = evt;
+        break;
+      }
+    }
+
+    return { before, after };
+  };
+
+  const getCalendarTimeRange = (event?: CalendarEvent): string | null => {
+    if (!event) {return null;}
+    const startRaw = event.start_time || event.start?.dateTime || '';
+    const endRaw = event.end_time || event.end?.dateTime || '';
+    const startLabel = formatTime(startRaw);
+    const endLabel = formatTime(endRaw);
+    if (!startLabel && !endLabel) {return null;}
+    return `${startLabel}${endLabel ? ` - ${endLabel}` : ''}`;
+  };
+
+  const formatCalendarTitle = (event?: CalendarEvent): string => {
+    if (!event) {return '';}
+    return event.title || event.summary || 'Calendar event';
   };
 
   // Group events by day label for clearer multi-day schedules
@@ -291,6 +436,30 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
 
   return (
     <View style={styles.container}>
+      <Text style={styles.helperText} accessibilityRole="text">
+        Tap the event to add to your calendar
+      </Text>
+      <TouchableOpacity
+        style={[
+          styles.bulkScheduleButton,
+          isBulkScheduling && styles.bulkScheduleButtonDisabled,
+        ]}
+        onPress={handleBulkSchedule}
+        disabled={isBulkScheduling}
+        accessibilityRole="button"
+        accessibilityLabel="Add all events to your calendar"
+        accessibilityHint="Adds every event with a valid date and time"
+      >
+        <Icon
+          name="plus"
+          size={16}
+          color={colors.secondary}
+          style={styles.bulkScheduleIcon}
+        />
+        <Text style={styles.bulkScheduleText}>
+          {isBulkScheduling ? 'Scheduling...' : 'Add all to calendar'}
+        </Text>
+      </TouchableOpacity>
       {/* Simplified: no header title */}
       <View style={styles.eventsContainer}>
         {groups.map((group, gIdx) => (
@@ -301,6 +470,21 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
               </View>
               {group.events.map((event, index) => (
                 <React.Fragment key={`${group.key}:${index}`}>
+                  {(() => {
+                    const { before } = findAdjacentCalendarEvents(event);
+                    const beforeTime = getCalendarTimeRange(before);
+                    return (
+                      <View style={styles.adjacentContainer}>
+                        <View style={styles.adjacentRow}>
+                          <Icon name="chevron-left" size={14} color={colors.text.secondary} />
+                          <Text style={styles.adjacentLabel}>Before</Text>
+                          <Text style={styles.adjacentText}>
+                            {before ? `${formatCalendarTitle(before)}${beforeTime ? ` • ${beforeTime}` : ''}` : 'No other events'}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
                   <TouchableOpacity
                     style={styles.eventCard}
                     onPress={() => handleSchedule(event)}
@@ -322,6 +506,21 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
                       {truncate(event.activity, 80)}
                     </Text>
                   </TouchableOpacity>
+                  {(() => {
+                    const { after } = findAdjacentCalendarEvents(event);
+                    const afterTime = getCalendarTimeRange(after);
+                    return (
+                      <View style={styles.adjacentContainer}>
+                        <View style={styles.adjacentRow}>
+                          <Icon name="chevron-right" size={14} color={colors.text.secondary} />
+                          <Text style={styles.adjacentLabel}>After</Text>
+                          <Text style={styles.adjacentText}>
+                            {after ? `${formatCalendarTitle(after)}${afterTime ? ` • ${afterTime}` : ''}` : 'No other events'}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
                   {index < group.events.length - 1 && (
                     <View style={styles.separator} />
                   )}
@@ -342,6 +541,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     maxWidth: '100%',
+  },
+  helperText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    marginBottom: spacing.xs,
   },
   scheduleTitle: {
     fontSize: typography.fontSize.lg,
@@ -409,5 +613,54 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border.light,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.light,
+  },
+  bulkScheduleButton: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  bulkScheduleButtonDisabled: {
+    opacity: 0.7,
+  },
+  bulkScheduleText: {
+    color: colors.secondary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+  },
+  bulkScheduleIcon: {
+    marginRight: spacing.xs,
+  },
+  adjacentContainer: {
+    marginTop: spacing.xs,
+    marginHorizontal: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  adjacentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  adjacentLabel: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.secondary,
+    marginHorizontal: spacing.xs,
+  },
+  adjacentText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
+    flex: 1,
+    flexWrap: 'wrap',
   },
 }); 
