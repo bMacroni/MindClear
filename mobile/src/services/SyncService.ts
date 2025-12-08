@@ -1160,6 +1160,7 @@ class SyncService {
     const lastSyncedAt = await AsyncStorage.getItem(LAST_SYNCED_AT_KEY);
 
     const serverTimeBeforePull = new Date().toISOString();
+    const fetchErrors: any[] = [];
 
     try {
       // Fetch changes from the server since the last sync - PARALLELIZE for performance
@@ -1176,18 +1177,29 @@ class SyncService {
         enhancedAPI.getTasks(lastSyncedAt || undefined),
         enhancedAPI.getGoals(lastSyncedAt || undefined),
         enhancedAPI.getMilestones(lastSyncedAt || undefined).catch((msErr: any) => {
+          fetchErrors.push(msErr);
           console.warn('Pull: Failed to fetch milestones, continuing without them.', msErr);
           return { changed: [], deleted: [] };
         }),
         enhancedAPI.getMilestoneSteps(lastSyncedAt || undefined).catch((stepsErr: any) => {
+          fetchErrors.push(stepsErr);
           console.warn('Pull: Failed to fetch milestone steps, continuing without them.', stepsErr);
           return { changed: [], deleted: [] };
         }),
         conversationService.listThreads().catch((threadsErr: any) => {
+          fetchErrors.push(threadsErr);
           console.warn('Pull: Failed to fetch threads, continuing without them.', threadsErr);
           return [];
         }),
       ]);
+
+      const requests = [syncResponse, tasksResponse, goalsResponse, milestonesResult, milestoneStepsResult, threadsResult];
+      const rejectedRequests = requests.filter((request) => request.status === 'rejected');
+      const totalFailures = rejectedRequests.length + fetchErrors.length;
+
+      if (totalFailures === requests.length) {
+        throw new Error('Network unavailable. We will try again once you are back online.');
+      }
 
       // Extract results from Promise.allSettled
       const syncResponseValue = syncResponse.status === 'fulfilled' ? syncResponse.value : { changed: [], deleted: [] };
@@ -1493,9 +1505,6 @@ class SyncService {
       }
       await this.pushData();
       await this.pullData();
-      if (!silent) {
-        notificationService.showInAppNotification('Sync Successful', 'Your data is up to date.');
-      }
     } catch (error) {
       console.error('Sync failed:', error);
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
