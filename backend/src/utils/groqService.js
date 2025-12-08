@@ -12,6 +12,7 @@ class GroqService {
     this.enabled = Boolean(this.apiKey);
     this.baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
     this.model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    this.debugLoggingEnabled = process.env.GROQ_DEBUG_LOGS === 'true';
     this.conversationHistory = new Map();
     this.historyLocks = new Map(); // per-conversation mutex
     this.MAX_CONVERSATIONS = 1000;
@@ -74,6 +75,15 @@ class GroqService {
         this.conversationHistory.delete(oldestKey);
       }
     }
+  }
+
+  _getRedactedPreview(content) {
+    if (typeof content !== 'string') return '';
+    const preview = content.slice(0, 160);
+    const scrubbed = preview
+      .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email-redacted]')
+      .replace(/[0-9]{3,}/g, '[digits-redacted]');
+    return `${scrubbed}${content.length > 160 ? '…[truncated]' : ''}`;
   }
 
   async _addToHistory(userId, threadId, messageObj) {
@@ -205,19 +215,28 @@ class GroqService {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const text = await response.text();
-        logger.error('Groq API error', { status: response.status, text });
+        logger.error('Groq API error', { status: response.status, threadId, userId });
         throw new Error(`Groq request failed with status ${response.status}`);
       }
 
       const data = await response.json();
       let content = data?.choices?.[0]?.message?.content || '';
+      const hasJsonBlock = typeof content === 'string' ? /```json/i.test(content) : false;
       logger.info('Groq response received', {
+        status: response.status,
         threadId,
         userId,
-        contentPreview: typeof content === 'string' ? content.slice(0, 400) : '',
-        hasJsonBlock: typeof content === 'string' ? /```json/i.test(content) : false
+        hasJsonBlock
       });
+      if (this.debugLoggingEnabled && typeof content === 'string') {
+        logger.debug('Groq response preview (redacted)', {
+          status: response.status,
+          threadId,
+          userId,
+          hasJsonBlock,
+          redactedPreview: this._getRedactedPreview(content)
+        });
+      }
       content = this._sanitizeMessageForFrontend(content);
 
       // Append assistant reply to history cache
@@ -243,7 +262,12 @@ class GroqService {
         };
       }
 
-      logger.error('GroqService processMessage failed', error);
+      logger.error('GroqService processMessage failed', {
+        errorName: error?.name,
+        errorMessage: error?.message,
+        threadId,
+        userId
+      });
       return {
         message: 'The fast model is temporarily unavailable. Please retry or switch to Smart mode.',
         actions: [],
