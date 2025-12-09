@@ -12,5 +12,7 @@ module.exports = {
         },
       },
     ],
+    // Keep this plugin last to enable Reanimated worklets
+    'react-native-reanimated/plugin',
   ],
 };

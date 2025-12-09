@@ -21,6 +21,7 @@ import { AutoSchedulingPreferencesModal } from '../../components/tasks/AutoSched
 import { SuccessToast } from '../../components/common/SuccessToast';
 import { LazyList } from '../../utils/lazyListUtils';
 import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
+import CelebratoryDismissal from '../../components/tasks/CelebratoryDismissal';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { taskRepository } from '../../repositories/TaskRepository';
 import { goalRepository } from '../../repositories/GoalRepository';
@@ -105,6 +106,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const taskAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   const taskSlideAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   const taskScaleAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
+  const celebrationMessages = useMemo(
+    () => ['Great job!', 'Nice!', 'Crushing it!', 'Done!', 'On fire!'],
+    []
+  );
   
   // Refs for robust mount detection of Animated.View
   const animatedViewRef = useRef<any>(null);
@@ -1116,47 +1121,64 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   const renderTaskItem = useCallback(({ item, index }: { item: Task; index: number }) => {
     const isFirstInboxTask = showFirstFocusHelp && !firstFocusHelpDismissed && index === 0 && !item.isTodayFocus;
-    const taskCard = (
-      <TaskCard
-        task={convertTaskForTaskCard(item)}
-        onPress={(task) => {
-          // Find the original WatermelonDB Task by ID
-          const originalTask = tasks.find(t => t.id === task.id);
-          if (!originalTask) return;
-          
-          if (selectingFocus) {
-            handleTaskSelect(originalTask);
-          } else {
-            handleTaskPress(originalTask);
+    return (
+      <CelebratoryDismissal
+        onComplete={() => handleToggleStatus(item.id, 'completed')}
+        messages={celebrationMessages}
+        testID={`celebration-${item.id}`}
+      >
+        {({ trigger }) => {
+          const onToggleStatus = (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
+            if (newStatus === 'completed') {
+              trigger();
+              return;
+            }
+            handleToggleStatus(taskId, newStatus);
+          };
+
+          const taskCard = (
+            <TaskCard
+              task={convertTaskForTaskCard(item)}
+              onPress={(task) => {
+                // Find the original WatermelonDB Task by ID
+                const originalTask = tasks.find(t => t.id === task.id);
+                if (!originalTask) return;
+                
+                if (selectingFocus) {
+                  handleTaskSelect(originalTask);
+                } else {
+                  handleTaskPress(originalTask);
+                }
+              }}
+              onDelete={handleDeleteTask}
+              onToggleStatus={onToggleStatus}
+              onAddToCalendar={handleAddToCalendar}
+              onToggleAutoSchedule={handleToggleAutoSchedule}
+              onScheduleNow={handleScheduleNow}
+              onOpenQuickSchedule={handleOpenQuickSchedule}
+              onQuickSchedule={handleQuickSchedule}
+              onAIHelp={(task) => {
+                // Find the original WatermelonDB Task by ID
+                const originalTask = tasks.find(t => t.id === task.id);
+                if (!originalTask) return;
+                handleAIHelp(originalTask);
+              }}
+            />
+          );
+
+          if (isFirstInboxTask) {
+            return (
+              <HelpTarget helpId="tasks-first-focus-help">
+                {taskCard}
+              </HelpTarget>
+            );
           }
+
+          return taskCard;
         }}
-        onDelete={handleDeleteTask}
-        onToggleStatus={handleToggleStatus}
-        onAddToCalendar={handleAddToCalendar}
-        onToggleAutoSchedule={handleToggleAutoSchedule}
-        onScheduleNow={handleScheduleNow}
-        onOpenQuickSchedule={handleOpenQuickSchedule}
-        onQuickSchedule={handleQuickSchedule}
-        onAIHelp={(task) => {
-          // Find the original WatermelonDB Task by ID
-          const originalTask = tasks.find(t => t.id === task.id);
-          if (!originalTask) return;
-          handleAIHelp(originalTask);
-        }}
-      />
+      </CelebratoryDismissal>
     );
-
-    // Wrap first inbox task with HelpTarget if showing first focus help
-    if (isFirstInboxTask) {
-      return (
-        <HelpTarget helpId="tasks-first-focus-help">
-          {taskCard}
-        </HelpTarget>
-      );
-    }
-
-    return taskCard;
-  }, [selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp, showFirstFocusHelp, firstFocusHelpDismissed, tasks]);
+  }, [celebrationMessages, selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp, showFirstFocusHelp, firstFocusHelpDismissed, tasks]);
 
   const keyExtractor = useCallback((item: Task) => item.id, []);
 
