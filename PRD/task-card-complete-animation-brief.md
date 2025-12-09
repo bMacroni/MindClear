@@ -29,8 +29,7 @@ This component will act as a wrapper around the individual Task Card.
     * **Crucial:** The component unmounts.
     * **Animation:** Use Moti's `layout={Layout.springing()}` on the *list container* or the item wrapper to make the surrounding tasks slide up specifically to fill the gap.
 
-### 4. Implementation Instructions for Cursor
-* **Structure:** Create a `<CelebratoryDismissal>` component.
+### 4. Implementation Instructions* **Structure:** Create a `<CelebratoryDismissal>` component.
 * **Props:** `children`, `onComplete` (function), `messages` (optional array of strings to randomize feedback).
 * **Animation Logic:**
     * Use `useSharedValue` for the slide position.

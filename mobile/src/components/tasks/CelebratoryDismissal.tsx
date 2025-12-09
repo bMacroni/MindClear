@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import Animated, {
   Easing,
   Layout as ReanimatedLayout,
-  Layout,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -53,7 +52,7 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
 
   const translateX = useSharedValue(0);
   const opacity = useSharedValue(1);
-  const animatingRef = useRef(false);
+  const [animating, setAnimating] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -65,15 +64,15 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
   }, []);
 
   const finish = useCallback(() => {
-    animatingRef.current = false;
+    setAnimating(false);
     onComplete?.();
   }, [onComplete]);
 
   const trigger = useCallback(() => {
-    if (animatingRef.current) {
+    if (animating) {
       return;
     }
-    animatingRef.current = true;
+    setAnimating(true);
     translateX.value = 0;
     opacity.value = 1;
 
@@ -98,7 +97,7 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
         );
       }
     );
-  }, [finish, opacity, translateX, width]);
+  }, [animating, finish, opacity, translateX, width]);
 
   const cardStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -112,17 +111,21 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
       testID={testID}
     >
       {/* Celebration layer (behind) */}
-      <View style={styles.celebrationLayer} pointerEvents="none">
+      <View 
+        style={styles.celebrationLayer} 
+        pointerEvents="none"
+        accessibilityLabel={`Success: ${message}`}
+        accessibilityRole="text"
+      >
         <Text style={styles.celebrationText}>{message}</Text>
       </View>
-
       {/* Content layer (front) */}
       <Animated.View
         style={[styles.frontLayer, cardStyle]}
         // Allow Reanimated layout to cooperate with Moti for gap-fill smoothness
         layout={ReanimatedLayout.springify()}
       >
-        {children({ trigger, animating: animatingRef.current })}
+        {children({ trigger, animating })}
       </Animated.View>
     </Animated.View>
   );
@@ -132,16 +135,18 @@ const styles = StyleSheet.create({
   wrapper: {
     marginBottom: spacing.sm,
     position: 'relative',
+    width: '100%',
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
   },
   celebrationLayer: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.success,
     backgroundColor: colors.success,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md + spacing.sm,
+    paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     gap: spacing.sm,
