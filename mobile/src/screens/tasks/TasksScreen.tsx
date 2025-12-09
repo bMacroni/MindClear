@@ -2011,6 +2011,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           style={styles.fab}
           onPress={handleCreateTask}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Create new task"
         >
           <Text style={styles.fabText}>+</Text>
         </TouchableOpacity>
