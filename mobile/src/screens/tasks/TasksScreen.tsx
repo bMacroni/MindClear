@@ -47,6 +47,7 @@ import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
 import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
+import { useSoundEffect } from '../../hooks/useSoundEffect';
 
 // Internal props interface - what the component actually uses
 interface InternalTasksScreenProps {
@@ -60,6 +61,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const _insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
+  
+  // Audio cues
+  const exitSound = useSoundEffect('taskcard_exit.wav', { volume: 1 });
+  const bounceSound = useSoundEffect('cardpop.wav', { volume: 1 });
   
   // Use observable tasks directly but also maintain local state for forcing updates
   // This is a workaround for WatermelonDB observable not emitting on field changes
@@ -1066,9 +1071,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     const isFirstInboxTask = showFirstFocusHelp && !firstFocusHelpDismissed && index === 0 && !item.isTodayFocus;
     return (
       <CelebratoryDismissal
-        onComplete={() => handleToggleStatus(item.id, 'completed')}
+        onComplete={() => {
+          bounceSound.play();
+          handleToggleStatus(item.id, 'completed');
+        }}
         messages={celebrationMessages}
         testID={`celebration-${item.id}`}
+        onTriggerStart={exitSound.play}
       >
         {({ trigger }) => {
           const onToggleStatus = (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
@@ -1629,9 +1638,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
               <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
                 {focus ? (
                   <CelebratoryDismissal
-                    onComplete={() => handleFocusDone(focus, { skipAnimation: true })}
+                    onComplete={() => {
+                      bounceSound.play();
+                      handleFocusDone(focus, { skipAnimation: true });
+                    }}
                     messages={celebrationMessages}
                     testID="focus-celebration"
+                    onTriggerStart={exitSound.play}
                   >
                     {({ trigger }) => (
                       <Reanimated.View

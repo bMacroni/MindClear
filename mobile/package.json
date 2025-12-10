@@ -49,6 +49,7 @@
     "react-native-reanimated": "3.18.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.13.0",
+    "react-native-sound": "^0.11.2",
     "react-native-sqlite-storage": "^6.0.1",
     "react-native-svg": "^15.12.1",
     "react-native-vector-icons": "^10.3.0",
@@ -112,6 +113,7 @@
     "2025-10-30 CST: updated scripts to use 'react-native' CLI instead of 'rn' alias for portability across CI and developers",
     "2025-12-09 CST: added dependency 'moti' for task completion celebration animation",
     "2025-12-09 CST: pinned 'react-native-reanimated' to 3.18.0 for RN 0.80 compatibility",
-    "2025-12-09 CST: removed react-native-worklets; Reanimated 3.18.0 bundles worklets"
+    "2025-12-09 CST: removed react-native-worklets; Reanimated 3.18.0 bundles worklets",
+    "2025-12-09 20:53 CST: added dependency 'react-native-sound' for task completion audio cues"
   ]
 }
