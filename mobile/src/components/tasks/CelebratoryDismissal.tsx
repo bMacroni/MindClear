@@ -127,9 +127,9 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
+      hasCompletedRef.current = true;
     };
   }, []);
-
   const cardStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
     opacity: opacity.value,
