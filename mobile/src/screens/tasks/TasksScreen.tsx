@@ -1072,13 +1072,16 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     return (
       <CelebratoryDismissal
         onComplete={() => {
-          bounceSound.play();
+          try {
+            bounceSound.play();
+          } catch (error) {
+            console.warn('Sound playback failed:', error);
+          }
           handleToggleStatus(item.id, 'completed');
         }}
         messages={celebrationMessages}
         testID={`celebration-${item.id}`}
-        onTriggerStart={exitSound.play}
-      >
+        onTriggerStart={exitSound.play}      >
         {({ trigger }) => {
           const onToggleStatus = (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
             if (newStatus === 'completed') {
@@ -1639,13 +1642,16 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                 {focus ? (
                   <CelebratoryDismissal
                     onComplete={() => {
-                      bounceSound.play();
+                      try {
+                        bounceSound.play();
+                      } catch (error) {
+                        console.warn('Sound playback failed:', error);
+                      }
                       handleFocusDone(focus, { skipAnimation: true });
                     }}
                     messages={celebrationMessages}
                     testID="focus-celebration"
-                    onTriggerStart={exitSound.play}
-                  >
+                    onTriggerStart={exitSound.play}                  >
                     {({ trigger }) => (
                       <Reanimated.View
                         layout={ReanimatedLayout.springify()}

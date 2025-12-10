@@ -77,15 +77,13 @@ export const useSoundEffect = (fileName: string, options?: UseSoundEffectOptions
     tryLoad(candidateNames);
 
     return () => {
+      cancelled = true;
       isLoadedRef.current = false;
       if (soundRef.current) {
         soundRef.current.release();
         soundRef.current = null;
       }
-      cancelled = true;
-    };
-  }, [fileName, volume]);
-
+    };  }, [fileName, volume, category]);
   const play = useCallback(() => {
     const sound = soundRef.current;
     if (!sound || !isLoadedRef.current) {
