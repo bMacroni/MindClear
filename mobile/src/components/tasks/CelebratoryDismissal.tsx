@@ -23,6 +23,7 @@ interface CelebratoryDismissalProps {
   messages?: string[];
   children: (controls: RenderControls) => React.ReactNode;
   testID?: string;
+  onTriggerStart?: () => void;
 }
 
 const defaultMessages = [
@@ -42,6 +43,7 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
   onComplete,
   messages = defaultMessages,
   testID,
+  onTriggerStart,
 }) => {
   const width = useMemo(() => Dimensions.get('window').width, []);
   const message = useMemo(
@@ -77,6 +79,8 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
       return;
     }
     
+    onTriggerStart?.();
+
     // Reset completion flag for new animation
     hasCompletedRef.current = false;
     

@@ -47,6 +47,7 @@ import Task from '../../db/models/Task';
 import Goal from '../../db/models/Goal';
 import { extractCalendarEvents } from './utils/calendarEventUtils';
 import { getLifecycleStatus as extractLifecycleStatus } from './utils/statusUtils';
+import { useSoundEffect } from '../../hooks/useSoundEffect';
 
 // Internal props interface - what the component actually uses
 interface InternalTasksScreenProps {
@@ -60,6 +61,43 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const _insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
+  
+  // Audio cues
+  const exitSound = useSoundEffect('taskcard_exit.wav', { volume: 1 });
+  const bounceSound = useSoundEffect('cardpop.wav', { volume: 1 });
+  const [soundMuted, setSoundMuted] = useState(false);
+  const SOUND_PREF_KEY = 'tasksSoundMuted';
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(SOUND_PREF_KEY);
+        setSoundMuted(saved === '1');
+      } catch {
+        // Silent fallback to defaults
+      }
+    })();
+  }, []);
+
+  const playExitSound = useCallback(() => {
+    if (soundMuted) return;
+    exitSound.play();
+  }, [exitSound, soundMuted]);
+
+  const playBounceSound = useCallback(() => {
+    if (soundMuted) return;
+    bounceSound.play();
+  }, [bounceSound, soundMuted]);
+
+  const toggleSoundMuted = useCallback(async () => {
+    const next = !soundMuted;
+    setSoundMuted(next);
+    try {
+      await AsyncStorage.setItem(SOUND_PREF_KEY, next ? '1' : '0');
+    } catch {
+      // Ignore persistence errors; preference will reset on next launch
+    }
+  }, [soundMuted]);
   
   // Use observable tasks directly but also maintain local state for forcing updates
   // This is a workaround for WatermelonDB observable not emitting on field changes
@@ -1066,9 +1104,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     const isFirstInboxTask = showFirstFocusHelp && !firstFocusHelpDismissed && index === 0 && !item.isTodayFocus;
     return (
       <CelebratoryDismissal
-        onComplete={() => handleToggleStatus(item.id, 'completed')}
+        onComplete={() => {
+          playBounceSound();
+          handleToggleStatus(item.id, 'completed');
+        }}
         messages={celebrationMessages}
         testID={`celebration-${item.id}`}
+        onTriggerStart={playExitSound}
       >
         {({ trigger }) => {
           const onToggleStatus = (taskId: string, newStatus: 'not_started' | 'in_progress' | 'completed') => {
@@ -1128,6 +1170,16 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const _renderHeaderActions = (compact?: boolean) => (
     <View style={[styles.headerActions, compact && styles.headerRightRow]}>
       <View style={[styles.actionButtons, compact && { marginTop: 0 }]}>
+        <TouchableOpacity
+          style={[styles.settingsButton, compact && styles.headerCompactButton, soundMuted && styles.mutedButton]}
+          onPress={toggleSoundMuted}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
+        >
+          <Icon name={soundMuted ? 'mute' : 'unmute'} size={20} color={soundMuted ? colors.text.secondary : colors.text.secondary} />
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.settingsButton, compact && styles.headerCompactButton]}
           onPress={handleAutoScheduleSettings}
@@ -1526,7 +1578,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         Alert.alert('Error', 'Failed to get next focus task');
       }
     }
-  }, [travelPreference, userSchedulingPreferences]);
+  }, [travelPreference, userSchedulingPreferences, getFocusTask]);
 
   if (loading) {
     return (
@@ -1550,6 +1602,20 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             </Text>
           </HelpTarget>
           <View style={styles.dashboardActions}>
+          <TouchableOpacity
+            style={[
+              styles.settingsButton,
+              styles.headerCompactButton,
+              soundMuted && styles.mutedButton
+            ]}
+            onPress={toggleSoundMuted}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
+          >
+            <Icon name={soundMuted ? 'mute' : 'unmute'} size={20} color={colors.text.secondary} />
+          </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.settingsButton, styles.headerCompactButton]}
               onPress={handleAutoScheduleSettings}
@@ -1629,9 +1695,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
               <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
                 {focus ? (
                   <CelebratoryDismissal
-                    onComplete={() => handleFocusDone(focus, { skipAnimation: true })}
+                    onComplete={() => {
+                      playBounceSound();
+                      handleFocusDone(focus, { skipAnimation: true });
+                    }}
                     messages={celebrationMessages}
                     testID="focus-celebration"
+                    onTriggerStart={playExitSound}
                   >
                     {({ trigger }) => (
                       <Reanimated.View
@@ -2031,6 +2101,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.surface,
     borderWidth: 1,
     borderColor: colors.border.light,
+  },
+  mutedButton: {
+    borderColor: colors.border.light,
+    opacity: 0.7,
   },
   bulkScheduleButton: {
     flexDirection: 'row',
