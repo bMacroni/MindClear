@@ -395,7 +395,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.sm,
+    marginBottom: 0,
   },
   card: {
     backgroundColor: colors.secondary,

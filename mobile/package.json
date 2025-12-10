@@ -33,6 +33,7 @@
     "date-fns": "^3.6.0",
     "formik": "^2.4.6",
     "jwt-decode": "^4.0.0",
+    "moti": "^0.30.0",
     "react": "19.1.0",
     "react-native": "0.80.1",
     "react-native-calendars": "^1.1300.0",
@@ -45,6 +46,7 @@
     "react-native-modal-datetime-picker": "^18.0.0",
     "react-native-paper": "^5.14.5",
     "react-native-popable": "^0.4.3",
+    "react-native-reanimated": "3.18.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.13.0",
     "react-native-sqlite-storage": "^6.0.1",
@@ -107,6 +109,9 @@
     "2025-09-28 CST: added dependency 'react-native-markdown-display' to render AI chat Markdown (bold, lists)",
     "2025-10-17 CST: added dependency '@react-native-picker/picker' for timezone picker in ProfileScreen",
     "2025-10-17 CST: added dependencies '@react-native-firebase/app' and '@react-native-firebase/messaging' for push notifications",
-    "2025-10-30 CST: updated scripts to use 'react-native' CLI instead of 'rn' alias for portability across CI and developers"
+    "2025-10-30 CST: updated scripts to use 'react-native' CLI instead of 'rn' alias for portability across CI and developers",
+    "2025-12-09 CST: added dependency 'moti' for task completion celebration animation",
+    "2025-12-09 CST: pinned 'react-native-reanimated' to 3.18.0 for RN 0.80 compatibility",
+    "2025-12-09 CST: removed react-native-worklets; Reanimated 3.18.0 bundles worklets"
   ]
 }
