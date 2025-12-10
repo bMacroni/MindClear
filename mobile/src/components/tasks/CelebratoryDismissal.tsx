@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import Animated, {
   Easing,
@@ -9,7 +9,6 @@ import Animated, {
   withDelay,
   withTiming,
 } from 'react-native-reanimated';
-import Icon from 'react-native-vector-icons/Octicons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -54,16 +53,21 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
   const opacity = useSharedValue(1);
   const [animating, setAnimating] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
+  const hasCompletedRef = useRef(false);
 
   const finish = useCallback(() => {
+    // Clear the timeout if it's still pending
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
+    // Prevent double-calls to onComplete
+    if (hasCompletedRef.current) {
+      return;
+    }
+    hasCompletedRef.current = true;
+
     setAnimating(false);
     onComplete?.();
   }, [onComplete]);
@@ -72,9 +76,26 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
     if (animating) {
       return;
     }
+    
+    // Reset completion flag for new animation
+    hasCompletedRef.current = false;
+    
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
     setAnimating(true);
     translateX.value = 0;
     opacity.value = 1;
+
+    // Start timeout fallback: 300ms (slide) + 500ms (delay) + 50ms (fade) = 850ms
+    // Use 1200ms to provide a safe buffer
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      finish();
+    }, 1200);
 
     // Phase 1: slide off to the right
     translateX.value = withTiming(
@@ -98,6 +119,16 @@ export const CelebratoryDismissal: React.FC<CelebratoryDismissalProps> = ({
       }
     );
   }, [animating, finish, opacity, translateX, width]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const cardStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],

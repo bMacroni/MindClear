@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
-  Animated,
 } from 'react-native';
 import { useWindowDimensions } from 'react-native';
 import { colors } from '../../themes/colors';
@@ -101,67 +100,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [momentumEnabled, setMomentumEnabled] = useState<boolean>(false);
   const [showFirstFocusHelp, setShowFirstFocusHelp] = useState(false);
   const [firstFocusHelpDismissed, setFirstFocusHelpDismissed] = useState(false);
-  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
-  const [animationCompleted, setAnimationCompleted] = useState(false);
-  const [showGoldBorder, setShowGoldBorder] = useState(false);
-  const taskAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
-  const taskSlideAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
-  const taskScaleAnimations = React.useRef<Map<string, Animated.Value>>(new Map()).current;
   const celebrationMessages = useMemo(
     () => ['Great job!', 'Nice!', 'Crushing it!', 'Done!', 'On fire!'],
     []
   );
-  
-  // Refs for robust mount detection of Animated.View
-  const animatedViewRef = useRef<any>(null);
-  const mountResolverRef = useRef<(() => void) | null>(null);
-  const isMountedRef = useRef<boolean>(false);
-  
-  // Ref to measure original focus card dimensions
-  const focusCardRef = useRef<React.ElementRef<typeof View> | null>(null);
-  const focusCardDimensions = useRef<{ width: number; height: number } | null>(null);
-  
-  // Helper to get or create animation values with stable references
-  const getAnimationValues = React.useCallback((taskId: string) => {
-    if (!taskAnimations.has(taskId)) {
-      taskAnimations.set(taskId, new Animated.Value(1));
-    }
-    if (!taskSlideAnimations.has(taskId)) {
-      taskSlideAnimations.set(taskId, new Animated.Value(0));
-    }
-    if (!taskScaleAnimations.has(taskId)) {
-      taskScaleAnimations.set(taskId, new Animated.Value(1));
-    }
-    return {
-      opacity: taskAnimations.get(taskId)!,
-      translateX: taskSlideAnimations.get(taskId)!,
-      scale: taskScaleAnimations.get(taskId)!,
-    };
-  }, []);
-  
-  // Detect when Animated.View is mounted and signal readiness
-  useLayoutEffect(() => {
-    if (!completingTaskId) {
-      // Reset mount state when completingTaskId is cleared
-      isMountedRef.current = false;
-      mountResolverRef.current = null;
-      animatedViewRef.current = null;
-      return;
-    }
-    
-    // Reset mount state for new completing task
-    isMountedRef.current = false;
-    
-    // If the view ref is already set, signal mount immediately
-    if (animatedViewRef.current) {
-      isMountedRef.current = true;
-      // Resolve any pending mount promise
-      if (mountResolverRef.current) {
-        mountResolverRef.current();
-        mountResolverRef.current = null;
-      }
-    }
-  }, [completingTaskId]);
   
   const eodActionInFlightRef = React.useRef<boolean>(false);
   const eodFocusIdRef = React.useRef<string | undefined>(undefined);
@@ -1253,120 +1195,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   };
 
   const handleFocusDone = useCallback(async (task: Task, options?: { skipAnimation?: boolean }) => {
-    const skipAnimation = options?.skipAnimation;
-    // Reset state cleanup function
-    const resetState = () => {
-      setCompletingTaskId(null);
-      setAnimationCompleted(false);
-      setShowGoldBorder(false);
-    };
-
-    // Run animations in separate try-catch - errors here should not trigger DB failure Alert
-    if (!skipAnimation) {
-      try {
-        // Trigger haptic feedback immediately (wrap in try-catch for safety)
-        try {
-          hapticFeedback.heavy();
-        } catch (hapticError) {
-          console.warn('Haptic feedback failed:', hapticError);
-          // Continue even if haptic fails
-        }
-        
-        // Create animation values for task if not exists
-        if (!taskAnimations.has(task.id)) {
-          taskAnimations.set(task.id, new Animated.Value(1)); // Opacity starts at 1
-        }
-        if (!taskSlideAnimations.has(task.id)) {
-          taskSlideAnimations.set(task.id, new Animated.Value(0)); // TranslateX starts at 0
-        }
-        if (!taskScaleAnimations.has(task.id)) {
-          taskScaleAnimations.set(task.id, new Animated.Value(1)); // Scale starts at 1
-        }
-        const opacityAnim = taskAnimations.get(task.id)!;
-        const slideAnim = taskSlideAnimations.get(task.id)!;
-        const scaleAnim = taskScaleAnimations.get(task.id)!;
-        
-        // Set completing state FIRST so the Animated.View renders with the animation values
-        setCompletingTaskId(task.id);
-        setShowGoldBorder(false); // Reset border state
-        
-        // Wait for Animated.View to be mounted using robust mount detection
-        if (!isMountedRef.current) {
-          await new Promise<void>((resolve) => {
-            mountResolverRef.current = resolve;
-            // Fallback timeout to prevent infinite waiting (shouldn't be needed, but safety first)
-            setTimeout(() => {
-              if (mountResolverRef.current === resolve) {
-                mountResolverRef.current = null;
-                resolve();
-              }
-            }, 1000);
-          });
-        }
-        
-        // Reset animation values to initial state AFTER view is mounted
-        opacityAnim.setValue(1);
-        slideAnim.setValue(0);
-        scaleAnim.setValue(1);
-        
-        // Start strikethrough animation (opacity reduction from 1 to 0.5) + show gold border
-        setShowGoldBorder(true); // Show gold border immediately when strikethrough starts
-        await new Promise<void>((resolve) => {
-          Animated.timing(opacityAnim, {
-            toValue: 0.5,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => resolve());
-        });
-        
-        // Wait 800ms for pause (as specified in PRD: 500-800ms)
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // Start shrink animation (slow scale down) - keep gold border
-        await new Promise<void>((resolve) => {
-          Animated.timing(scaleAnim, {
-            toValue: 0.3, // Shrink to 30% of original size
-            duration: 600, // Slow shrink animation
-            useNativeDriver: true,
-          }).start(() => resolve());
-        });
-        
-        // At the end of shrink, slide away to the right
-        const slideAwayAnimation = Animated.parallel([
-          Animated.timing(opacityAnim, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(slideAnim, {
-            toValue: width, // Slide off to the right edge of screen
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]);
-        
-        // Wait for slide-away animation to complete
-        await new Promise<void>((resolve) => {
-          slideAwayAnimation.start(() => {
-            // Mark animation as completed so empty state can show immediately
-            setAnimationCompleted(true);
-            resolve();
-          });
-        });
-      } catch (animationError) {
-        // Log animation errors but don't trigger DB failure Alert
-        console.error('Animation error in handleFocusDone:', animationError);
-        resetState();
-        // Continue to database update even if animation failed
-      }
-    } else {
-      // If skipping animation (celebration wrapper handles it), reset local animation state
-      resetState();
-    }
-
-    // Database update in separate try-catch - only show Alert if this fails
+    // Database update - show Alert if this fails
     try {
-      // Update database after animation completes (or even if animation failed)
+      // Update database
       await taskRepository.updateTaskStatus(task.id, 'completed');
       
       // Force UI refresh to update task lists (inboxTasks, getFocusTask, etc.)
@@ -1374,11 +1205,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       
       // Small delay to ensure WatermelonDB processes the update
       await new Promise<void>(resolve => setTimeout(resolve, 100));
-      
-      // Clear completing state after database update and UI refresh
-      resetState();
-      
-      // Remove toast notification - animation provides feedback instead
 
       // Momentum mode operations - errors are already handled, don't rethrow
       if (task.isTodayFocus && momentumEnabled) {
@@ -1485,10 +1311,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     } catch (dbError) {
       // Only show Alert for actual database update failures
       console.error('Database update error in handleFocusDone:', dbError);
-      resetState();
       Alert.alert('Error', 'Failed to complete focus task');
     }
-  }, [momentumEnabled, travelPreference, userSchedulingPreferences, width, taskAnimations, taskSlideAnimations, taskScaleAnimations, getAnimationValues, showGoldBorder]);
+  }, [momentumEnabled, travelPreference, userSchedulingPreferences]);
 
   const handleEodMarkDone = useCallback(async () => {
     if (eodActionInFlightRef.current) { return; }
@@ -1802,156 +1627,46 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                 </View>
               </View>
               <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
-                {focus && completingTaskId !== focus.id && !animationCompleted ? (
-                  momentumEnabled ? (
-                    <CelebratoryDismissal
-                      onComplete={() => handleFocusDone(focus, { skipAnimation: true })}
-                      messages={celebrationMessages}
-                      testID="focus-celebration"
-                    >
-                      {({ trigger }) => (
-                        <Reanimated.View
-                          layout={ReanimatedLayout.springify()}
-                          ref={focusCardRef}
-                          style={styles.focusCard}
-                          onLayout={(event) => {
-                            const { width, height } = event.nativeEvent.layout;
-                            focusCardDimensions.current = { width, height };
-                          }}
-                        >
-                          <Text style={styles.focusTaskTitle}>{focus.title}</Text>
-                          <View style={styles.focusBadges}>
-                            {!!focus.category && (
-                              <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
-                            )}
-                            <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
-                          </View>
-                          <View style={styles.focusActionsRow}>
-                            <HelpTarget helpId="tasks-focus-complete">
-                              <TouchableOpacity testID="completeFocusButton" style={styles.focusIconBtn} onPress={trigger}>
-                                <Icon name="check" size={22} color={colors.text.primary} />
-                              </TouchableOpacity>
-                            </HelpTarget>
-                            {momentumEnabled && (
-                              <HelpTarget helpId="tasks-focus-skip">
-                                <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
-                                  <Icon name="arrow-right" size={22} color={colors.text.primary} />
-                                </TouchableOpacity>
-                              </HelpTarget>
-                            )}
-                            <HelpTarget helpId="tasks-focus-change">
-                              <TouchableOpacity style={styles.focusIconBtn} onPress={handleChangeFocus}>
-                                <Icon name="arrow-switch" size={22} color={colors.text.primary} />
-                              </TouchableOpacity>
-                            </HelpTarget>
-                          </View>
-                        </Reanimated.View>
-                      )}
-                    </CelebratoryDismissal>
-                  ) : (
-                    <Reanimated.View 
-                      layout={ReanimatedLayout.springify()}
-                      ref={focusCardRef}
-                      style={styles.focusCard}
-                      onLayout={(event) => {
-                        const { width, height } = event.nativeEvent.layout;
-                        focusCardDimensions.current = { width, height };
-                      }}
-                    >
-                      <Text style={styles.focusTaskTitle}>{focus.title}</Text>
-                      <View style={styles.focusBadges}>
-                        {!!focus.category && (
-                          <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
-                        )}
-                        <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
-                      </View>
-                      <View style={styles.focusActionsRow}>
-                        <HelpTarget helpId="tasks-focus-complete">
-                          <TouchableOpacity testID="completeFocusButton" style={styles.focusIconBtn} onPress={() => handleFocusDone(focus)}>
-                            <Icon name="check" size={22} color={colors.text.primary} />
-                          </TouchableOpacity>
-                        </HelpTarget>
-                        {momentumEnabled && (
-                          <HelpTarget helpId="tasks-focus-skip">
-                            <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
-                              <Icon name="arrow-right" size={22} color={colors.text.primary} />
-                            </TouchableOpacity>
-                          </HelpTarget>
-                        )}
-                        <HelpTarget helpId="tasks-focus-change">
-                          <TouchableOpacity style={styles.focusIconBtn} onPress={handleChangeFocus}>
-                            <Icon name="arrow-switch" size={22} color={colors.text.primary} />
-                          </TouchableOpacity>
-                        </HelpTarget>
-                      </View>
-                    </Reanimated.View>
-                  )
-                ) : focus && completingTaskId === focus.id && !animationCompleted ? (
-                  (() => {
-                    const animValues = getAnimationValues(focus.id);
-                    const animatedStyle: any = {
-                      opacity: animValues.opacity,
-                      borderColor: showGoldBorder ? colors.accent.gold : colors.border.light, // Gold border when active
-                      borderWidth: 2, // Increased border width for visibility
-                      transform: [
-                        { scale: animValues.scale },
-                        { translateX: animValues.translateX },
-                      ],
-                    };
-                    
-                    // Apply measured dimensions to ensure initial size matches exactly
-                    const cardDimensions = focusCardDimensions.current;
-                    if (cardDimensions) {
-                      animatedStyle.width = cardDimensions.width;
-                      animatedStyle.height = cardDimensions.height;
-                    }
-                    
-                    return (
-                      <Animated.View 
-                        ref={(ref) => {
-                          animatedViewRef.current = ref;
-                          // Signal mount when ref is set and we have a completing task
-                          if (ref && completingTaskId === focus.id && !isMountedRef.current) {
-                            isMountedRef.current = true;
-                            if (mountResolverRef.current) {
-                              mountResolverRef.current();
-                              mountResolverRef.current = null;
-                            }
-                          }
-                        }}
-                        key={`animated-focus-${focus.id}`}
-                        style={[
-                          styles.focusCard,
-                          animatedStyle,
-                        ]}
+                {focus ? (
+                  <CelebratoryDismissal
+                    onComplete={() => handleFocusDone(focus, { skipAnimation: true })}
+                    messages={celebrationMessages}
+                    testID="focus-celebration"
+                  >
+                    {({ trigger }) => (
+                      <Reanimated.View
+                        layout={ReanimatedLayout.springify()}
+                        style={styles.focusCard}
                       >
-                        <Text style={[
-                          styles.focusTaskTitle,
-                          styles.strikethroughText
-                        ]}>{focus.title}</Text>
+                        <Text style={styles.focusTaskTitle}>{focus.title}</Text>
                         <View style={styles.focusBadges}>
                           {!!focus.category && (
                             <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
                           )}
                           <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
                         </View>
-                        {/* Include action buttons row to match original card size */}
                         <View style={styles.focusActionsRow}>
-                          <View style={styles.focusIconBtn}>
-                            <Icon name="check" size={22} color={colors.text.primary} />
-                          </View>
+                          <HelpTarget helpId="tasks-focus-complete">
+                            <TouchableOpacity testID="completeFocusButton" style={styles.focusIconBtn} onPress={trigger}>
+                              <Icon name="check" size={22} color={colors.text.primary} />
+                            </TouchableOpacity>
+                          </HelpTarget>
                           {momentumEnabled && (
-                            <View style={styles.focusIconBtn}>
-                              <Icon name="arrow-right" size={22} color={colors.text.primary} />
-                            </View>
+                            <HelpTarget helpId="tasks-focus-skip">
+                              <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
+                                <Icon name="arrow-right" size={22} color={colors.text.primary} />
+                              </TouchableOpacity>
+                            </HelpTarget>
                           )}
-                          <View style={styles.focusIconBtn}>
-                            <Icon name="arrow-switch" size={22} color={colors.text.primary} />
-                          </View>
+                          <HelpTarget helpId="tasks-focus-change">
+                            <TouchableOpacity style={styles.focusIconBtn} onPress={handleChangeFocus}>
+                              <Icon name="arrow-switch" size={22} color={colors.text.primary} />
+                            </TouchableOpacity>
+                          </HelpTarget>
                         </View>
-                      </Animated.View>
-                    );
-                  })()
+                      </Reanimated.View>
+                    )}
+                  </CelebratoryDismissal>
                 ) : (
                   <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
                     <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
@@ -2207,10 +1922,6 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold as any,
-  },
-  strikethroughText: {
-    textDecorationLine: 'line-through',
-    opacity: 0.6,
   },
   emptyFocusSubtext: {
     color: colors.text.secondary,

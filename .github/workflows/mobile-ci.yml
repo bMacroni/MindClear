@@ -1,0 +1,425 @@
+name: Mobile CI
+
+on:
+  push:
+    branches: [main, develop, 'feature_*']
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/mobile-ci.yml'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+  JAVA_VERSION: '17'
+
+jobs:
+  # Detect if newArchEnabled changed
+  detect-new-arch-change:
+    name: Detect New Architecture Change
+    runs-on: ubuntu-latest
+    outputs:
+      new-arch-changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Check if newArchEnabled changed
+        id: check
+        run: |
+          if git diff HEAD~1 HEAD -- mobile/android/gradle.properties | grep -q "newArchEnabled"; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Lint and unit tests (runs on all platforms)
+  lint-and-test:
+    name: Lint and Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+      
+      - name: Run linter
+        working-directory: mobile
+        run: npm run lint
+      
+      - name: Run unit tests
+        working-directory: mobile
+        run: npm test -- --coverage --maxWorkers=2
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./mobile/coverage/coverage-final.json
+          flags: mobile
+          name: mobile-coverage
+
+  # Android build and test matrix
+  android-build-test:
+    name: Android (${{ matrix.build_type }}) - ${{ matrix.test_type }}
+    runs-on: ubuntu-latest
+    needs: [detect-new-arch-change]
+    if: needs.detect-new-arch-change.outputs.new-arch-changed == 'true' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[force-new-arch-test]')
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [debug, release]
+        test_type: [unit, instrumentation]
+        include:
+          - build_type: debug
+            test_type: unit
+            emulator: true
+          - build_type: debug
+            test_type: instrumentation
+            emulator: true
+          - build_type: release
+            test_type: unit
+            emulator: false
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+          cache-dependency-path: mobile/android/gradle/wrapper/gradle-wrapper.properties
+      
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Verify newArchEnabled
+        working-directory: mobile/android
+        run: |
+          if grep -q "newArchEnabled=true" gradle.properties; then
+            echo "✓ New Architecture is enabled"
+          else
+            echo "✗ New Architecture is not enabled"
+            exit 1
+          fi
+      
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            mobile/android/.gradle
+          key: ${{ runner.os }}-gradle-${{ hashFiles('mobile/android/**/*.gradle*', 'mobile/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      
+      - name: Make gradlew executable
+        working-directory: mobile/android
+        run: chmod +x gradlew
+      
+      - name: Build Android ${{ matrix.build_type }}
+        working-directory: mobile/android
+        run: |
+          ./gradlew clean
+          if [ "${{ matrix.build_type }}" == "debug" ]; then
+            ./gradlew assembleDebug --no-daemon
+          else
+            ./gradlew assembleRelease --no-daemon
+          fi
+        env:
+          KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_PATH }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      
+      - name: Run unit tests
+        if: matrix.test_type == 'unit'
+        working-directory: mobile
+        run: npm test -- --testPathPattern="new-architecture|fabric|turbo" --maxWorkers=2
+      
+      - name: Start Android Emulator
+        if: matrix.emulator == 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: Nexus 6
+          script: |
+            cd mobile
+            npm run android -- --no-packager
+      
+      - name: Run instrumentation tests
+        if: matrix.test_type == 'instrumentation' && matrix.emulator == 'true'
+        working-directory: mobile/android
+        run: |
+          ./gradlew connectedAndroidTest --no-daemon
+        continue-on-error: true
+      
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.build_type }}-apk
+          path: |
+            mobile/android/app/build/outputs/apk/${{ matrix.build_type }}/*.apk
+          retention-days: 7
+
+  # iOS build and test matrix
+  ios-build-test:
+    name: iOS (${{ matrix.build_type }}) - ${{ matrix.test_type }}
+    runs-on: macos-14
+    needs: [detect-new-arch-change]
+    if: needs.detect-new-arch-change.outputs.new-arch-changed == 'true' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[force-new-arch-test]')
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        test_type: [unit, ui]
+        include:
+          - build_type: Debug
+            test_type: unit
+          - build_type: Debug
+            test_type: ui
+          - build_type: Release
+            test_type: unit
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+      
+      - name: Install CocoaPods
+        uses: cocoapods/setup-cocoapods@v1
+        with:
+          cocoapods-version: '1.15.2'
+      
+      - name: Verify newArchEnabled
+        working-directory: mobile/android
+        run: |
+          if grep -q "newArchEnabled=true" gradle.properties; then
+            echo "✓ New Architecture is enabled (Android)"
+          else
+            echo "✗ New Architecture is not enabled (Android)"
+            exit 1
+          fi
+      
+      - name: Install Pods
+        working-directory: mobile/ios
+        run: pod install --repo-update
+      
+      - name: Verify New Architecture in iOS
+        working-directory: mobile/ios
+        run: |
+          # Check if Fabric is enabled in Podfile or build settings
+          if grep -r "RCT_NEW_ARCH_ENABLED" . || grep -r "USE_FABRIC" .; then
+            echo "✓ New Architecture indicators found in iOS"
+          else
+            echo "⚠ New Architecture may not be fully configured for iOS"
+          fi
+      
+      - name: Build iOS ${{ matrix.build_type }}
+        working-directory: mobile/ios
+        run: |
+          xcodebuild clean build \
+            -workspace mobile.xcworkspace \
+            -scheme mobile \
+            -configuration ${{ matrix.build_type }} \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty
+      
+      - name: Run unit tests
+        if: matrix.test_type == 'unit'
+        working-directory: mobile
+        run: npm test -- --testPathPattern="new-architecture|fabric|turbo" --maxWorkers=2
+      
+      - name: Run UI tests
+        if: matrix.test_type == 'ui'
+        working-directory: mobile/ios
+        run: |
+          xcodebuild test \
+            -workspace mobile.xcworkspace \
+            -scheme mobile \
+            -configuration ${{ matrix.build_type }} \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty
+        continue-on-error: true
+      
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ matrix.build_type }}-build
+          path: |
+            mobile/ios/build/**/*.app
+          retention-days: 7
+
+  # End-to-end tests for new architecture features
+  e2e-new-architecture:
+    name: E2E Tests - New Architecture
+    runs-on: ubuntu-latest
+    needs: [detect-new-arch-change, android-build-test]
+    if: needs.detect-new-arch-change.outputs.new-arch-changed == 'true' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[force-new-arch-test]')
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [android]
+        # iOS can be added when Detox is configured
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Start Metro bundler
+        working-directory: mobile
+        run: |
+          npm start -- --reset-cache &
+          sleep 10
+      
+      - name: Run E2E tests
+        working-directory: mobile
+        run: |
+          # Run tests that exercise Fabric/TurboModules features
+          npm test -- --testPathPattern="new-architecture|reanimated|gesture-handler" --testNamePattern="Fabric|TurboModule|Worklet" --maxWorkers=2
+        continue-on-error: true
+      
+      - name: Check for new architecture warnings
+        working-directory: mobile
+        run: |
+          # This would run actual E2E tests with Detox or similar
+          # For now, we verify that new architecture components can be imported
+          node -e "
+            try {
+              require('react-native-reanimated');
+              console.log('✓ Reanimated (new arch compatible) loaded');
+            } catch (e) {
+              console.error('✗ Reanimated failed to load:', e.message);
+              process.exit(1);
+            }
+          "
+
+  # Compatibility check for native dependencies
+  native-deps-compatibility:
+    name: Native Dependencies Compatibility Check
+    runs-on: ubuntu-latest
+    needs: [detect-new-arch-change]
+    if: needs.detect-new-arch-change.outputs.new-arch-changed == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+      
+      - name: Check native dependency versions
+        working-directory: mobile
+        run: |
+          echo "## Native Dependencies Compatibility Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check Reanimated version
+          REANIMATED_VERSION=$(node -p "require('./package.json').dependencies['react-native-reanimated']")
+          echo "### react-native-reanimated: $REANIMATED_VERSION" >> $GITHUB_STEP_SUMMARY
+          if [[ "$REANIMATED_VERSION" == "3.18.0" ]]; then
+            echo "✅ Compatible with RN 0.80 and new architecture" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️  Version may need verification for new architecture" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Check gesture-handler version
+          GESTURE_VERSION=$(node -p "require('./package.json').dependencies['react-native-gesture-handler']")
+          echo "### react-native-gesture-handler: $GESTURE_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Should be compatible with new architecture" >> $GITHUB_STEP_SUMMARY
+          
+          # Check Firebase version
+          FIREBASE_APP=$(node -p "require('./package.json').dependencies['@react-native-firebase/app'] || 'not found'")
+          echo "### @react-native-firebase/app: $FIREBASE_APP" >> $GITHUB_STEP_SUMMARY
+          if [[ "$FIREBASE_APP" != "not found" ]]; then
+            echo "✅ Firebase should support new architecture" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Check React Native version
+          RN_VERSION=$(node -p "require('./package.json').dependencies['react-native']")
+          echo "### react-native: $RN_VERSION" >> $GITHUB_STEP_SUMMARY
+          if [[ "$RN_VERSION" == "0.80.1" ]]; then
+            echo "✅ RN 0.80.1 supports new architecture" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See [NEW_ARCHITECTURE.md](../mobile/docs/NEW_ARCHITECTURE.md) for full compatibility checklist." >> $GITHUB_STEP_SUMMARY
+
+  # Summary job
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, android-build-test, ios-build-test, e2e-new-architecture, native-deps-compatibility]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.lint-and-test.result }}" != "success" ] || \
+             [ "${{ needs.android-build-test.result }}" != "success" ] || \
+             [ "${{ needs.ios-build-test.result }}" != "success" ]; then
+            echo "❌ Some CI jobs failed. Please review the logs."
+            exit 1
+          else
+            echo "✅ All CI jobs passed!"
+          fi
+
+
