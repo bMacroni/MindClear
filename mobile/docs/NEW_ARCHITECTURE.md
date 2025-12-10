@@ -185,24 +185,6 @@ Create an issue documenting:
 3. Review library documentation for migration guides
 4. Consider using alternative libraries if needed
 
-## CI/CD Integration
-
-The CI/CD pipeline automatically:
-
-1. **Detects Changes**: Monitors `mobile/android/gradle.properties` for `newArchEnabled` changes
-2. **Runs Tests**: Executes new architecture tests on every change
-3. **Builds Both Platforms**: Tests Android and iOS builds
-4. **Checks Compatibility**: Verifies native dependency versions
-5. **Gates Merges**: Requires all checks to pass before allowing merge
-
-### Manual Trigger
-
-To manually trigger new architecture tests, include `[force-new-arch-test]` in your commit message:
-
-```bash
-git commit -m "feat: update feature [force-new-arch-test]"
-```
-
 ## Monitoring
 
 After enabling new architecture, monitor:
@@ -223,9 +205,8 @@ After enabling new architecture, monitor:
 If you encounter issues:
 
 1. Check this document for common solutions
-2. Review CI/CD logs for build errors
-3. Test with `newArchEnabled=false` to isolate issues
-4. Create an issue with detailed error logs and reproduction steps
+2. Test with `newArchEnabled=false` to isolate issues
+3. Create an issue with detailed error logs and reproduction steps
 
 ## Version History
 
