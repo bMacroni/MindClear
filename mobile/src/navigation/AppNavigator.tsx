@@ -34,7 +34,14 @@ export default function AppNavigator() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const handledInitialLink = useRef(false);
-  const cachedInitialToken = useRef<string | null>(null);
+  const cachedInitialLink = useRef<{ 
+    type: 'confirm' | 'reset'; 
+    token?: string; 
+    access_token?: string;
+    refresh_token?: string;
+    error?: string; 
+    error_description?: string 
+  } | null>(null);
   const prevAuthRef = useRef<boolean>(false);
   // Use shared navigationRef for global route awareness
 
@@ -60,7 +67,14 @@ export default function AppNavigator() {
               error_description
             });
           } else {
-            cachedInitialToken.current = navToken; // Caching error is harder with current ref structure, focusing on token
+            cachedInitialLink.current = {
+              type: 'confirm',
+              token: navToken,
+              access_token: navToken,
+              refresh_token,
+              error,
+              error_description
+            };
           }
         }
         return;
@@ -74,7 +88,11 @@ export default function AppNavigator() {
           if (navigationRef.current) {
             navigationRef.current.navigate('ResetPassword', { access_token: navToken });
           } else {
-            cachedInitialToken.current = navToken;
+            cachedInitialLink.current = {
+              type: 'reset',
+              token: navToken,
+              access_token: navToken
+            };
           }
         }
       }
@@ -88,13 +106,17 @@ export default function AppNavigator() {
     // Deep link handler: navigate to appropriate screen based on URL
     const handleUrl = (url?: string | null) => {
       if (!url) return;
-      
       // Check if it's a confirmation link
       if (url.includes('mindclear://confirm')) {
-        const { access_token, refresh_token, token } = parseAccessTokenFromUrl(url);
+        const { access_token, refresh_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         const navToken = access_token || token;
-        if (navToken && navigationRef.current) {
-          navigationRef.current.navigate('EmailConfirmation', { access_token: navToken, refresh_token });
+        if ((navToken || error) && navigationRef.current) {
+          navigationRef.current.navigate('EmailConfirmation', { 
+            access_token: navToken, 
+            refresh_token,
+            error,
+            error_description
+          });
         }
         return;
       }
@@ -168,10 +190,20 @@ export default function AppNavigator() {
 
       // Handle navigation when auth state changes
       if (navigationRef.current && !authState.isLoading) {
-        // Check for cached initial token when auth is no longer loading
-        if (cachedInitialToken.current) {
-          navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
-          cachedInitialToken.current = null; // Clear the cached token after navigation
+        // Check for cached initial link when auth is no longer loading
+        if (cachedInitialLink.current) {
+          const link = cachedInitialLink.current;
+          if (link.type === 'confirm') {
+            navigationRef.current.navigate('EmailConfirmation', { 
+              access_token: link.access_token || link.token, 
+              refresh_token: link.refresh_token,
+              error: link.error,
+              error_description: link.error_description
+            });
+          } else if (link.type === 'reset') {
+            navigationRef.current.navigate('ResetPassword', { access_token: link.access_token || link.token });
+          }
+          cachedInitialLink.current = null; // Clear the cached link after navigation
         } else if (isNowAuthenticated && !wasAuthenticated) {
           // Check if user has seen beta screen, then check first session
           // Use IIFE to handle async operation in callback
@@ -249,11 +281,21 @@ export default function AppNavigator() {
     },
   };
 
-  // Handle cached initial token when navigator is ready
+  // Handle cached initial link when navigator is ready
   const handleNavigatorReady = () => {
-    if (cachedInitialToken.current && navigationRef.current) {
-      navigationRef.current.navigate('ResetPassword', { access_token: cachedInitialToken.current });
-      cachedInitialToken.current = null; // Clear the cached token after navigation
+    if (cachedInitialLink.current && navigationRef.current) {
+      const link = cachedInitialLink.current;
+      if (link.type === 'confirm') {
+        navigationRef.current.navigate('EmailConfirmation', { 
+          access_token: link.access_token || link.token, 
+          refresh_token: link.refresh_token,
+          error: link.error,
+          error_description: link.error_description
+        });
+      } else if (link.type === 'reset') {
+        navigationRef.current.navigate('ResetPassword', { access_token: link.access_token || link.token });
+      }
+      cachedInitialLink.current = null; // Clear the cached link after navigation
     }
   };
 

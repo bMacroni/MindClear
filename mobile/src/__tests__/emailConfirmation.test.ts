@@ -1,20 +1,20 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+// import { describe, it, expect, beforeEach, vi } from 'vitest'; // Removed vitest import
 import { parseAccessTokenFromUrl } from '../utils/deeplink';
 
 // Mock auth service
 const mockAuthService = {
-  signup: vi.fn(),
-  login: vi.fn(),
-  resendConfirmation: vi.fn(),
+  signup: jest.fn(),
+  login: jest.fn(),
+  resendConfirmation: jest.fn(),
 };
 
-vi.mock('../services/auth', () => ({
+jest.mock('../services/auth', () => ({
   authService: mockAuthService,
 }));
 
 describe('Email Confirmation Flow', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   describe('Deep Link Parsing', () => {
@@ -161,17 +161,13 @@ describe('Email Confirmation Flow', () => {
     });
 
     it('should handle network errors during resend', async () => {
-      mockAuthService.resendConfirmation.mockRejectedValue(new Error('Network error'));
+      const networkError = new Error('Network error');
+      mockAuthService.resendConfirmation.mockRejectedValue(networkError);
 
-      try {
-        await mockAuthService.resendConfirmation('test@example.com');
-        // Should not reach here
-        expect(true).toBe(false);
-      } catch (error) {
-        expect(error).toBeDefined();
-      }
-    });
-  });
+      await expect(
+        mockAuthService.resendConfirmation('test@example.com')
+      ).rejects.toThrow('Network error');
+    });  });
 
   describe('Password Validation', () => {
     const testCases = [

@@ -9,14 +9,12 @@ import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
 import { Image } from 'react-native';
 
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/types';
 
-type LoginScreenProps = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
-};
+type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
-export default function LoginScreen({ navigation, route }: any) {
+export default function LoginScreen({ navigation, route }: LoginScreenProps) {
   const [email, setEmail] = useState(route?.params?.email || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -141,17 +139,20 @@ export default function LoginScreen({ navigation, route }: any) {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         
         {showResendButton && (
-          <Pressable 
+          <Pressable
             onPress={handleResendConfirmation}
             disabled={resendLoading}
-            style={styles.resendButton}
+            style={[styles.button, { marginBottom: 12 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Resend confirmation email"
+            accessibilityState={{ disabled: resendLoading }}
           >
             <Text style={styles.resendText}>
               {resendLoading ? 'Sending...' : 'Resend Confirmation Email'}
             </Text>
           </Pressable>
         )}
-        
+
         <Text style={styles.legalText}>
           By signing in, you agree to our{' '}
           <Text 
@@ -296,9 +297,12 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
   },
   resendButton: {
+    minHeight: 44,
+    minWidth: 44,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: spacing.sm,
   },
   resendText: {

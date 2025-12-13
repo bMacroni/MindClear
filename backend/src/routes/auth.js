@@ -28,7 +28,10 @@ router.post('/signup', [
       email,
       password,
       options: {
-        emailRedirectTo: 'mindclear://confirm'
+        emailRedirectTo: 'mindclear://confirm',
+        data: {
+          full_name: full_name
+        }
       }
     });
 
@@ -42,8 +45,7 @@ router.post('/signup', [
     if (data.user) {
       logger.info('User created successfully:', data.user.email);
       
-      // Store full_name for later (will be set when user confirms email and logs in)
-      // Note: We can't set it now because the user doesn't have a session yet
+      // full_name is stored in user metadata during signup
       
       // Log signup event for monitoring
       logSecurityEvent(SecurityEventTypes.USER_CREATED, 1, {

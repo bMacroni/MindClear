@@ -32,7 +32,7 @@ const AppContent = () => {
         {/* Public route for email confirmation */}
         <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
         
-        {/* Protected routes */}
+        {/* Authentication-based routing */}
         {!isAuthenticated() ? (
           <>
             <Route path="/" element={showSignup ? 

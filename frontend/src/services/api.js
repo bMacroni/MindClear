@@ -94,6 +94,14 @@ api.interceptors.response.use(
   }
 );
 
+// Auth API
+export const authAPI = {
+  login: (credentials) => api.post('/auth/login', credentials),
+  signup: (userData) => api.post('/auth/signup', userData),
+  getProfile: () => api.get('/auth/profile'),
+  resendConfirmation: (email) => api.post('/auth/resend-confirmation', { email }),
+};
+
 // Goals API
 export const goalsAPI = {
   getAll: () => api.get('/goals'),

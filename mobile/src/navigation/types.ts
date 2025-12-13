@@ -11,7 +11,14 @@ export type RootStackParamList = {
   AnalyticsDashboard: undefined;
   ForgotPassword: undefined;
   ResetPassword: { access_token?: string } | undefined;
-  EmailConfirmation: { token?: string; access_token?: string; type?: string } | undefined;
+  EmailConfirmation: { 
+    token?: string; 
+    access_token?: string; 
+    refresh_token?: string; 
+    type?: string;
+    error?: string;
+    error_description?: string;
+  } | undefined;
 };
 
 export type MainTabParamList = {

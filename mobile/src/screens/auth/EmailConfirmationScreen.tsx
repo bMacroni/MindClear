@@ -1,25 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
 import { Button } from '../../components/common';
 import Icon from 'react-native-vector-icons/Octicons';
 import getSupabaseClient from '../../services/supabaseClient';
+import { RootStackParamList } from '../../navigation/types';
+
+type EmailConfirmationScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EmailConfirmation'>;
+type EmailConfirmationScreenRouteProp = RouteProp<RootStackParamList, 'EmailConfirmation'>;
 
 type Props = {
-  route: { 
-    params?: { 
-      token?: string; 
-      access_token?: string; 
-      refresh_token?: string; 
-      type?: string;
-      error?: string;
-      error_description?: string;
-    } 
-  };
-  navigation: any;
+  route: EmailConfirmationScreenRouteProp;
+  navigation: EmailConfirmationScreenNavigationProp;
 };
 
 export default function EmailConfirmationScreen({ route, navigation }: Props) {
@@ -72,30 +69,36 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
         
         if (error) {
            console.log('SetSession error:', error);
-           // Even if login fails, we consider the deep link as proof of confirmation
+           setError('Failed to verify your email. Please try logging in manually.');
+           setLoading(false);
+           return;
+        } else if (data?.user?.email) {
+           setEmail(data.user.email);
         }
       } else {
         // Just access_token? Try getUser to validate
         const res = await supabase.auth.getUser(token);
         if (res.error) {
            console.log('GetUser error:', res.error);
+           setError('Failed to verify your email. The confirmation link may be invalid or expired.');
+           setLoading(false);
+           return;
+        } else if (res.data?.user?.email) {
+           setEmail(res.data.user.email);
         }
       }
 
-      // Always show success if we had a token, because Supabase redirect implies verification passed.
-      // If login failed, the user can just log in manually.
+      // Show success only after successful verification
       setConfirmed(true);
       
     } catch (err: any) {
-      // If it's the specific "protocol" error, it's a Supabase client bug, but we can assume success if we got here?
-      // No, if client threw, we might not have set session.
-      // But we can still show success message to unblock user.
+      console.error('Email verification error:', err);
+
       if (err.message && err.message.includes('protocol')) {
-         setConfirmed(true);
-         return;
+        setError('Verification failed due to a protocol error. Please try requesting a new confirmation link.');
+      } else {
+        setError('An unexpected error occurred during email verification. Please try again or contact support.');
       }
-      
-      setError(`An error occurred: ${err.message || JSON.stringify(err)}`);
     } finally {
       setLoading(false);
     }

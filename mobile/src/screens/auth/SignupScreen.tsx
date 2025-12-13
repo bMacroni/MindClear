@@ -248,7 +248,7 @@ export default function SignupScreen({ navigation }: any) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Icon name="mail" size={60} color={colors.primary} style={styles.modalIcon} />
+              <Icon name="mail" size={24} color={colors.primary} style={styles.modalIcon} />
             </View>
             
             <View style={styles.modalBody}>
@@ -263,12 +263,11 @@ export default function SignupScreen({ navigation }: any) {
               
               <View style={styles.modalActions}>
                 <Button
+                  title="Go to Login"
                   onPress={handleCloseModal}
                   style={styles.modalButton}
                   accessibilityLabel="Go to login"
-                >
-                  Go to Login
-                </Button>
+                />
                 
                 <TouchableOpacity 
                   onPress={handleResendConfirmation}

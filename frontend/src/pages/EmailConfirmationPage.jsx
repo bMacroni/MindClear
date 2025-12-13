@@ -5,8 +5,8 @@ const EmailConfirmationPage = () => {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState('verifying'); // 'verifying', 'success', 'error'
   const [message, setMessage] = useState('');
+  const [showDeepLinkMessage, setShowDeepLinkMessage] = useState(false);
   const navigate = useNavigate();
-
   useEffect(() => {
     const verifyEmail = async () => {
       const token = searchParams.get('access_token') || searchParams.get('token');
@@ -17,10 +17,27 @@ const EmailConfirmationPage = () => {
         return;
       }
 
-      // The verification happens automatically when Supabase processes the link
-      // We just need to show the user a success message
-      setStatus('success');
-      setMessage('Your email has been confirmed successfully!');
+      try {
+        // Call your backend API to verify the token
+        const response = await fetch('/api/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.verified) {
+          setStatus('success');
+          setMessage('Your email has been confirmed successfully!');
+        } else {
+          setStatus('error');
+          setMessage(data.message || 'Verification failed. Please try again.');
+        }
+      } catch (error) {
+        setStatus('error');
+        setMessage('An error occurred during verification. Please try again.');
+      }
     };
 
     verifyEmail();
@@ -29,12 +46,10 @@ const EmailConfirmationPage = () => {
   const handleGoToApp = () => {
     // Try to open the mobile app
     window.location.href = 'mindclear://';
-    
-    // If that doesn't work, show instructions
+    // Show instructions after a delay
     setTimeout(() => {
-      // User is still on the page, so deep link didn't work
-      alert('Please open the Mind Clear app on your mobile device to continue.');
-    }, 1000);
+      setShowDeepLinkMessage(true);
+    }, 1500);
   };
 
   if (status === 'verifying') {
@@ -120,6 +135,14 @@ const EmailConfirmationPage = () => {
           >
             Open Mind Clear App
           </button>
+
+          {showDeepLinkMessage && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                If the app didn't open automatically, please open the Mind Clear app on your mobile device to continue.
+              </p>
+            </div>
+          )}
           
           <button
             onClick={() => navigate('/')}
@@ -152,5 +175,3 @@ const EmailConfirmationPage = () => {
 };
 
 export default EmailConfirmationPage;
-
-

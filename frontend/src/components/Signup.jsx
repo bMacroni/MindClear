@@ -26,9 +26,9 @@ const Signup = ({ onSignup, onSwitchToLogin }) => {
     }
 
     // Validate password complexity
-    const hasLowercase = /(?=.*[a-z])/.test(password);
-    const hasUppercase = /(?=.*[A-Z])/.test(password);
-    const hasNumber = /(?=.*\d)/.test(password);
+    const hasLowercase = /[a-z]/.test(password);
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasNumber = /\d/.test(password);
 
     if (!hasLowercase || !hasUppercase || !hasNumber) {
       setError('Password must contain at least one uppercase letter, one lowercase letter, and one number');
