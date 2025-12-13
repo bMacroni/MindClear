@@ -5,6 +5,7 @@ import { body, validationResult } from 'express-validator';
 import { validateInput, commonValidations } from '../middleware/security.js';
 import { requireAuth, handleLogout } from '../middleware/enhancedAuth.js';
 import { logSecurityEvent, SecurityEventTypes } from '../utils/securityMonitor.js';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
@@ -26,6 +27,9 @@ router.post('/signup', [
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: 'mindclear://confirm'
+      }
     });
 
     if (error) {
@@ -38,68 +42,103 @@ router.post('/signup', [
     if (data.user) {
       logger.info('User created successfully:', data.user.email);
       
-      // Try to get the session token
-      try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (sessionError) {
-          logger.error('Auto-login error:', sessionError);
-          
-          // Check if it's an email confirmation error
-          if (sessionError.message.includes('Email not confirmed') || sessionError.code === 'email_not_confirmed') {
-            return res.status(200).json({ 
-              message: 'User created successfully. Please check your email and confirm your account before logging in.',
-              userCreated: true,
-              error: 'Email confirmation required. Please check your email and click the confirmation link.'
-            });
-          }
-          
-          // Other auto-login errors
-          return res.status(200).json({ 
-            message: 'User created successfully. Please log in.',
-            userCreated: true,
-            error: 'Auto-login failed. Please log in manually.'
-          });
-        }
-
-        // If we have a session, set initial profile fields (e.g., full_name) in public.users
-        try {
-          if (full_name) {
-            const authedSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-              global: { headers: { Authorization: `Bearer ${sessionData.session.access_token}` } }
-            });
-            await authedSupabase
-              .from('users')
-              .update({ full_name })
-              .eq('id', sessionData.user.id);
-          }
-        } catch (profileErr) {
-          logger.warn('Failed to set initial full_name after signup:', profileErr?.message || profileErr);
-        }
-
-        res.json({
-          message: 'User created and logged in successfully',
-          token: sessionData.session.access_token,
-          refresh_token: sessionData.session.refresh_token,
-          user: sessionData.user
-        });
-      } catch (loginError) {
-        logger.error('Login attempt error:', loginError);
-        res.status(200).json({ 
-          message: 'User created successfully. Please log in.',
-          userCreated: true,
-          error: 'Auto-login failed. Please log in manually.'
-        });
-      }
+      // Store full_name for later (will be set when user confirms email and logs in)
+      // Note: We can't set it now because the user doesn't have a session yet
+      
+      // Log signup event for monitoring
+      logSecurityEvent(SecurityEventTypes.USER_CREATED, 1, {
+        email: data.user.email,
+        userId: data.user.id
+      }, req);
+      
+      // Return success response indicating email confirmation is required
+      return res.status(200).json({ 
+        message: 'Account created successfully! Please check your email to confirm your account.',
+        userCreated: true,
+        requiresConfirmation: true,
+        email: data.user.email
+      });
     } else {
       res.status(400).json({ error: 'Failed to create user' });
     }
   } catch (error) {
     logger.error('Signup error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Resend confirmation email endpoint with rate limiting
+const resendLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // Limit each IP to 3 resend requests per hour
+  message: {
+    error: 'Too many resend confirmation attempts, please try again later.',
+    retryAfter: '1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Rate limit by email to prevent abuse
+    return req.body.email || req.ip;
+  },
+  handler: (req, res) => {
+    logger.warn(`Resend confirmation rate limit exceeded for ${req.body.email || req.ip}`, {
+      ip: req.ip,
+      email: req.body.email,
+      userAgent: req.get('User-Agent')
+    });
+    
+    res.status(429).json({
+      error: 'Too many resend confirmation attempts, please try again later.',
+      retryAfter: '1 hour'
+    });
+  }
+});
+
+router.post('/resend-confirmation', [
+  commonValidations.email,
+  resendLimiter
+], validateInput, async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Log security event
+    logSecurityEvent(SecurityEventTypes.RESEND_CONFIRMATION_REQUESTED, 1, {
+      endpoint: '/api/auth/resend-confirmation'
+    }, req);
+
+    // Use Supabase to resend confirmation email
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: 'mindclear://confirm'
+        }
+      });
+      
+      if (error) {
+        // Do not leak details; log at warn level
+        logger.warn('Resend confirmation Supabase error', { 
+          code: error.code, 
+          message: error.message 
+        });
+      }
+    } catch (err) {
+      // Swallow errors to avoid enumeration; log minimal info
+      logger.warn('Resend confirmation request failed', { message: err?.message });
+    }
+
+    // Always return generic success to prevent email enumeration
+    return res.status(200).json({
+      message: 'If an account with this email exists and is not confirmed, a confirmation email has been sent.'
+    });
+  } catch (error) {
+    // Still return generic success to prevent enumeration
+    logger.error('Resend confirmation request error', error);
+    return res.status(200).json({
+      message: 'If an account with this email exists and is not confirmed, a confirmation email has been sent.'
+    });
   }
 });
 
@@ -124,7 +163,29 @@ router.post('/login', [
 
     if (error) {
       logger.error('Login error:', error);
+      
+      // Check if it's an email confirmation error
+      if (error.message.includes('Email not confirmed') || error.code === 'email_not_confirmed') {
+        return res.status(403).json({ 
+          error: 'Email not confirmed',
+          errorCode: 'EMAIL_NOT_CONFIRMED',
+          message: 'Please confirm your email address before logging in. Check your inbox for the confirmation email.',
+          requiresConfirmation: true
+        });
+      }
+      
       return res.status(400).json({ error: error.message });
+    }
+
+    // Verify email is confirmed (additional check)
+    if (data.user && !data.user.email_confirmed_at) {
+      logger.warn('Login attempt with unconfirmed email:', data.user.email);
+      return res.status(403).json({ 
+        error: 'Email not confirmed',
+        errorCode: 'EMAIL_NOT_CONFIRMED',
+        message: 'Please confirm your email address before logging in. Check your inbox for the confirmation email.',
+        requiresConfirmation: true
+      });
     }
 
     // Update last_login in users table for this user

@@ -14,6 +14,7 @@ import LoginScreen from '@src/screens/auth/LoginScreen';
 import SignupScreen from '@src/screens/auth/SignupScreen';
 import ForgotPasswordScreen from '@src/screens/auth/ForgotPasswordScreen';
 import ResetPasswordScreen from '@src/screens/auth/ResetPasswordScreen';
+import EmailConfirmationScreen from '@src/screens/auth/EmailConfirmationScreen';
 import BetaThankYouScreen from '@src/screens/beta/BetaThankYouScreen';
 import TabNavigator from './TabNavigator';
 import GoalFormScreen from '../screens/goals/GoalFormScreen';
@@ -43,15 +44,38 @@ export default function AppNavigator() {
     
     const handleInitialUrl = (url?: string | null) => {
       if (!url) return;
-      const { access_token, token } = parseAccessTokenFromUrl(url);
-      const navToken = access_token || token;
-      if (navToken) {
-        if (navigationRef.current) {
-          // Navigator is ready, navigate immediately
-          navigationRef.current.navigate('ResetPassword', { access_token: navToken });
-        } else {
-          // Navigator not ready, cache the token for later
-          cachedInitialToken.current = navToken;
+      
+      // Check if it's a confirmation link
+      if (url.includes('mindclear://confirm')) {
+        const { access_token, refresh_token, token, error, error_description } = parseAccessTokenFromUrl(url);
+        const navToken = access_token || token;
+        
+        // Navigate if we have a token OR an error
+        if (navToken || error) {
+          if (navigationRef.current) {
+            navigationRef.current.navigate('EmailConfirmation', { 
+              access_token: navToken, 
+              refresh_token,
+              error,
+              error_description
+            });
+          } else {
+            cachedInitialToken.current = navToken; // Caching error is harder with current ref structure, focusing on token
+          }
+        }
+        return;
+      }
+      
+      // Check if it's a password reset link
+      if (url.includes('mindclear://reset-password')) {
+        const { access_token, token } = parseAccessTokenFromUrl(url);
+        const navToken = access_token || token;
+        if (navToken) {
+          if (navigationRef.current) {
+            navigationRef.current.navigate('ResetPassword', { access_token: navToken });
+          } else {
+            cachedInitialToken.current = navToken;
+          }
         }
       }
     };
@@ -61,13 +85,27 @@ export default function AppNavigator() {
   }, []); // Empty dependency array - runs only once
 
   useEffect(() => {
-    // Deep link handler: navigate to ResetPassword when access_token is present
+    // Deep link handler: navigate to appropriate screen based on URL
     const handleUrl = (url?: string | null) => {
       if (!url) return;
-      const { access_token, token } = parseAccessTokenFromUrl(url);
-      const navToken = access_token || token;
-      if (navToken && navigationRef.current) {
-        navigationRef.current.navigate('ResetPassword', { access_token: navToken });
+      
+      // Check if it's a confirmation link
+      if (url.includes('mindclear://confirm')) {
+        const { access_token, refresh_token, token } = parseAccessTokenFromUrl(url);
+        const navToken = access_token || token;
+        if (navToken && navigationRef.current) {
+          navigationRef.current.navigate('EmailConfirmation', { access_token: navToken, refresh_token });
+        }
+        return;
+      }
+      
+      // Check if it's a password reset link
+      if (url.includes('mindclear://reset-password')) {
+        const { access_token, token } = parseAccessTokenFromUrl(url);
+        const navToken = access_token || token;
+        if (navToken && navigationRef.current) {
+          navigationRef.current.navigate('ResetPassword', { access_token: navToken });
+        }
       }
     };
 
@@ -206,6 +244,7 @@ export default function AppNavigator() {
     config: {
       screens: {
         ResetPassword: 'reset-password',
+        EmailConfirmation: 'confirm',
       },
     },
   };
@@ -240,6 +279,10 @@ export default function AppNavigator() {
         <Stack.Screen 
           name="ResetPassword" 
           component={ResetPasswordScreen} 
+        />
+        <Stack.Screen 
+          name="EmailConfirmation" 
+          component={EmailConfirmationScreen} 
         />
         <Stack.Screen 
           name="BetaThankYou" 

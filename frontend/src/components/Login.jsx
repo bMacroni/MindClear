@@ -9,6 +9,8 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
   const [error, setError] = useState('');
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [googleOAuthInfo, setGoogleOAuthInfo] = useState(null);
+  const [showResendButton, setShowResendButton] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,11 +27,16 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
   const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setShowResendButton(false);
     setLoading(true);
 
     const result = await onLogin(email, password);
     if (!result.success) {
       setError(result.error || 'Login failed');
+      // Check if it's an email confirmation error
+      if (result.errorCode === 'EMAIL_NOT_CONFIRMED' || result.error?.includes('confirm')) {
+        setShowResendButton(true);
+      }
     } else {
       // Clear Google OAuth info on successful login
       sessionStorage.removeItem('google_oauth_email');
@@ -37,6 +44,31 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
       navigate('/');
     }
     setLoading(false);
+  };
+
+  const handleResendConfirmation = async () => {
+    setResendLoading(true);
+    try {
+      const apiBaseUrl = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${apiBaseUrl}/auth/resend-confirmation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        alert('Confirmation email sent! Please check your inbox.');
+      } else {
+        alert('Failed to resend confirmation email. Please try again.');
+      }
+    } catch (error) {
+      alert('Failed to resend confirmation email. Please try again.');
+    } finally {
+      setResendLoading(false);
+    }
   };
 
   const handleGoogleLogin = () => {
@@ -151,6 +183,18 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
                     </svg>
                     <span>{error}</span>
                   </div>
+                </div>
+              )}
+              {showResendButton && (
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={handleResendConfirmation}
+                    disabled={resendLoading}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-200 disabled:opacity-50"
+                  >
+                    {resendLoading ? 'Sending...' : 'Resend Confirmation Email'}
+                  </button>
                 </div>
               )}
               <div className="flex space-x-3">

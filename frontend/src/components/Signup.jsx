@@ -19,8 +19,19 @@ const Signup = ({ onSignup, onSwitchToLogin }) => {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long');
+      setLoading(false);
+      return;
+    }
+
+    // Validate password complexity
+    const hasLowercase = /(?=.*[a-z])/.test(password);
+    const hasUppercase = /(?=.*[A-Z])/.test(password);
+    const hasNumber = /(?=.*\d)/.test(password);
+
+    if (!hasLowercase || !hasUppercase || !hasNumber) {
+      setError('Password must contain at least one uppercase letter, one lowercase letter, and one number');
       setLoading(false);
       return;
     }
@@ -28,11 +39,11 @@ const Signup = ({ onSignup, onSwitchToLogin }) => {
     const result = await onSignup(email, password);
     if (!result.success) {
       setError(result.error || 'Signup failed');
-    } else if (result.userCreated) {
+    } else if (result.userCreated || result.requiresConfirmation) {
       setError(''); // Clear any previous errors
-      // Show success message and switch to login
-      alert('Account created successfully! Please log in.');
-      onSwitchToLogin();
+      // Show success message about email confirmation
+      alert('Account created successfully! Please check your email to confirm your account.');
+      // Don't automatically switch to login, let user click the button
     }
     setLoading(false);
   };

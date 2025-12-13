@@ -297,7 +297,7 @@ class AuthService {
   }
 
   // Sign up new user
-  public async signup(credentials: SignupCredentials): Promise<{ success: boolean; message: string; user?: User }> {
+  public async signup(credentials: SignupCredentials): Promise<{ success: boolean; message: string; user?: User; requiresConfirmation?: boolean }> {
     try {
       this.authState.isLoading = true;
       this.notifyListeners();
@@ -311,13 +311,17 @@ class AuthService {
         }),
       });
 
-      if (ok && data.token) {
-        // Successfully created user and got token
+      if (ok && data.userCreated && data.requiresConfirmation) {
+        // User created but needs email confirmation
+        return { 
+          success: true, 
+          message: data.message,
+          requiresConfirmation: true
+        };
+      } else if (ok && data.token) {
+        // Successfully created user and got token (shouldn't happen with new flow, but keeping for backward compatibility)
         await this.setAuthData(data.token, data.user, data.refresh_token);
         return { success: true, message: data.message, user: data.user };
-      } else if (ok && data.userCreated) {
-        // User created but needs email confirmation
-        return { success: true, message: data.message };
       } else {
         // Error occurred
         return { success: false, message: data.error || 'Signup failed' };
@@ -332,7 +336,7 @@ class AuthService {
   }
 
   // Login user
-  public async login(credentials: LoginCredentials): Promise<{ success: boolean; message: string; user?: User }> {
+  public async login(credentials: LoginCredentials): Promise<{ success: boolean; message: string; user?: User; errorCode?: string; requiresConfirmation?: boolean }> {
     try {
       this.authState.isLoading = true;
       this.notifyListeners();
@@ -346,6 +350,15 @@ class AuthService {
         await this.setAuthData(data.token, data.user, data.refresh_token);
         return { success: true, message: data.message, user: data.user };
       } else {
+        // Check if it's an email confirmation error
+        if (data.errorCode === 'EMAIL_NOT_CONFIRMED') {
+          return { 
+            success: false, 
+            message: data.message || 'Please confirm your email address',
+            errorCode: 'EMAIL_NOT_CONFIRMED',
+            requiresConfirmation: true
+          };
+        }
         return { success: false, message: data.error || 'Login failed' };
       }
     } catch (_error) {
@@ -354,6 +367,34 @@ class AuthService {
     } finally {
       this.authState.isLoading = false;
       this.notifyListeners();
+    }
+  }
+
+  // Resend confirmation email
+  public async resendConfirmation(email: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const { ok, data } = await apiFetch('/auth/resend-confirmation', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+
+      if (ok) {
+        return { 
+          success: true, 
+          message: data.message || 'Confirmation email sent. Please check your inbox.' 
+        };
+      } else {
+        return { 
+          success: false, 
+          message: data.error || 'Failed to resend confirmation email' 
+        };
+      }
+    } catch (_error) {
+      logger.error('Resend confirmation error', _error);
+      return { 
+        success: false, 
+        message: 'Network error. Please try again.' 
+      };
     }
   }
 

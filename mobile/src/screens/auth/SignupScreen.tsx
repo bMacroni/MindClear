@@ -13,6 +13,8 @@ export default function SignupScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -39,8 +41,8 @@ export default function SignupScreen({ navigation }: any) {
       setError('Password is required');
       return false;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters long');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long');
       return false;
     }
     if (!/(?=.*[a-z])/.test(password)) {
@@ -53,10 +55,6 @@ export default function SignupScreen({ navigation }: any) {
     }
     if (!/(?=.*\d)/.test(password)) {
       setError('Password must contain at least one number');
-      return false;
-    }
-    if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(password)) {
-      setError('Password must contain at least one special character (!@#$%^&*(),.?":{}|<>)');
       return false;
     }
     return true;
@@ -96,12 +94,12 @@ export default function SignupScreen({ navigation }: any) {
       const result = await authService.signup({ email, password, fullName });
       
       if (result.success) {
-        if (result.user) {
-          // User was created and automatically logged in
-          // Auth service will automatically update the navigation state
-        } else {
+        if (result.requiresConfirmation) {
           // User was created but needs email confirmation
-          setError(result.message || 'Please check your email to confirm your account.');
+          setShowConfirmationModal(true);
+        } else if (result.user) {
+          // User was created and automatically logged in (backward compatibility)
+          // Auth service will automatically update the navigation state
         }
       } else {
         setError(result.message);
@@ -111,6 +109,27 @@ export default function SignupScreen({ navigation }: any) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResendConfirmation = async () => {
+    setResendLoading(true);
+    try {
+      const result = await authService.resendConfirmation(email);
+      if (result.success) {
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to resend confirmation email. Please try again.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowConfirmationModal(false);
+    navigation.navigate('Login', { email });
   };
 
   const handleGoogleSignIn = async () => {
@@ -219,6 +238,54 @@ export default function SignupScreen({ navigation }: any) {
         />
       </View>
 
+      {/* Email Confirmation Modal */}
+      <Modal
+        visible={showConfirmationModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={handleCloseModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Icon name="mail" size={60} color={colors.primary} style={styles.modalIcon} />
+            </View>
+            
+            <View style={styles.modalBody}>
+              <Text style={styles.modalTitle}>Check Your Email</Text>
+              <Text style={styles.modalMessage}>
+                We've sent a confirmation email to{'\n'}
+                <Text style={styles.emailText}>{email}</Text>
+              </Text>
+              <Text style={styles.modalInstructions}>
+                Please click the link in the email to confirm your account and complete your registration.
+              </Text>
+              
+              <View style={styles.modalActions}>
+                <Button
+                  onPress={handleCloseModal}
+                  style={styles.modalButton}
+                  accessibilityLabel="Go to login"
+                >
+                  Go to Login
+                </Button>
+                
+                <TouchableOpacity 
+                  onPress={handleResendConfirmation}
+                  disabled={resendLoading}
+                  style={styles.resendButton}
+                  accessibilityLabel="Resend confirmation email"
+                >
+                  <Text style={styles.resendText}>
+                    {resendLoading ? 'Sending...' : "Didn't receive the email? Resend"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Password Requirements Modal */}
       <Modal
         visible={showPasswordModal}
@@ -244,11 +311,10 @@ export default function SignupScreen({ navigation }: any) {
             </View>
             
             <View style={styles.modalBody}>
-              <Text style={styles.requirementItem}>• At least 8 characters</Text>
+              <Text style={styles.requirementItem}>• At least 12 characters</Text>
               <Text style={styles.requirementItem}>• One uppercase letter</Text>
               <Text style={styles.requirementItem}>• One lowercase letter</Text>
               <Text style={styles.requirementItem}>• One number</Text>
-              <Text style={styles.requirementItem}>• One special character (!@#$%^&*)</Text>
             </View>
             
             <Button
@@ -397,5 +463,41 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     width: '100%',
+  },
+  modalIcon: {
+    alignSelf: 'center',
+    marginBottom: spacing.md,
+  },
+  modalMessage: {
+    ...typography.body,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+    lineHeight: 22,
+  },
+  emailText: {
+    fontWeight: '600',
+    color: colors.text.primary,
+  },
+  modalInstructions: {
+    ...typography.body,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  modalActions: {
+    width: '100%',
+    gap: spacing.md,
+  },
+  resendButton: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  resendText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    textDecorationLine: 'underline',
   },
 });

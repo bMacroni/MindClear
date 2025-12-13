@@ -41,8 +41,6 @@ const getSupabaseClient = (): SupabaseClient => {
     },
     // AppState handler for pausing Realtime connections when app is in background
     global: {
-      // @ts-ignore
-      fetch: (...args) => fetch(...args),
       headers: {
         'X-Client-Info': 'MindClear-Mobile-App/1.0.0',
       },

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Dashboard from './pages/Dashboard'
+import EmailConfirmationPage from './pages/EmailConfirmationPage'
 import Signup from './components/Signup'
 import Login from './components/Login'
 import SuccessToast from './components/SuccessToast'
@@ -25,18 +26,30 @@ const AppContent = () => {
     return await loginWithCredentials(email, password);
   };
 
-  if (!isAuthenticated()) {
-    if (showSignup) {
-      return <Signup onSignup={signup} onSwitchToLogin={() => setShowSignup(false)} />;
-    }
-    return <Login onLogin={handleLogin} onSwitchToSignup={() => setShowSignup(true)} />;
-  }
-
   return (
     <div className="App">
       <Routes>
-        <Route path="/" element={<Dashboard showSuccess={showSuccess} />} />
-        <Route path="/dashboard" element={<Dashboard showSuccess={showSuccess} />} />
+        {/* Public route for email confirmation */}
+        <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
+        
+        {/* Protected routes */}
+        {!isAuthenticated() ? (
+          <>
+            <Route path="/" element={showSignup ? 
+              <Signup onSignup={signup} onSwitchToLogin={() => setShowSignup(false)} /> : 
+              <Login onLogin={handleLogin} onSwitchToSignup={() => setShowSignup(true)} />
+            } />
+            <Route path="*" element={showSignup ? 
+              <Signup onSignup={signup} onSwitchToLogin={() => setShowSignup(false)} /> : 
+              <Login onLogin={handleLogin} onSwitchToSignup={() => setShowSignup(true)} />
+            } />
+          </>
+        ) : (
+          <>
+            <Route path="/" element={<Dashboard showSuccess={showSuccess} />} />
+            <Route path="/dashboard" element={<Dashboard showSuccess={showSuccess} />} />
+          </>
+        )}
       </Routes>
       <SuccessToast 
         message={successToast.message}
