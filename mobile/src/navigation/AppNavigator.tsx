@@ -30,6 +30,36 @@ const BETA_SCREEN_SEEN_KEY = 'beta_thank_you_seen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+// Helper for strict URL matching and error handling
+const isMatchingUrl = (url: string | null | undefined, configUri: string | undefined): boolean => {
+  if (!url || !configUri) {
+    if (!configUri) {
+      console.error('AppNavigator: Config URI is missing for match');
+    }
+    return false;
+  }
+  
+  try {
+    const parsedUrl = new URL(url);
+    const parsedConfig = new URL(configUri);
+    
+    // Normalize: origin + pathname
+    const getNormalizedPrefix = (u: URL) => {
+       // Handle custom schemes where origin might be 'null'
+       const origin = u.origin !== 'null' ? u.origin : `${u.protocol}//${u.host}`;
+       return `${origin}${u.pathname}`;
+    };
+
+    const urlPrefix = getNormalizedPrefix(parsedUrl);
+    const configPrefix = getNormalizedPrefix(parsedConfig);
+
+    return urlPrefix.startsWith(configPrefix);
+  } catch (error) {
+    console.error('AppNavigator: Error matching URL:', error);
+    return false;
+  }
+};
+
 export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -54,8 +84,11 @@ export default function AppNavigator() {
     const handleInitialUrl = (url?: string | null) => {
       if (!url) return;
       
+      const confirmUri = configService.getMindClearConfirmUri();
+      const resetUri = configService.getMindClearResetPasswordUri();
+      
       // Check if it's a confirmation link
-      if (url.includes(configService.getMindClearConfirmUri())) {
+      if (isMatchingUrl(url, confirmUri)) {
         const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         // Use code if available, fallback to token (magic link) or access_token (legacy)
         const authCode = code || token || access_token;
@@ -81,7 +114,7 @@ export default function AppNavigator() {
       }
       
       // Check if it's a password reset link
-      if (url.includes(configService.getMindClearResetPasswordUri())) {
+      if (isMatchingUrl(url, resetUri)) {
         const { access_token, token } = parseAccessTokenFromUrl(url);
         const navToken = access_token || token;
         if (navToken) {
@@ -106,8 +139,12 @@ export default function AppNavigator() {
     // Deep link handler: navigate to appropriate screen based on URL
     const handleUrl = (url?: string | null) => {
       if (!url) return;
+      
+      const confirmUri = configService.getMindClearConfirmUri();
+      const resetUri = configService.getMindClearResetPasswordUri();
+
       // Check if it's a confirmation link
-      if (url.includes(configService.getMindClearConfirmUri())) {
+      if (isMatchingUrl(url, confirmUri)) {
         const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         const authCode = code || token || access_token;
         
@@ -122,7 +159,7 @@ export default function AppNavigator() {
       }
       
       // Check if it's a password reset link
-      if (url.includes(configService.getMindClearResetPasswordUri())) {
+      if (isMatchingUrl(url, resetUri)) {
         const { access_token, token } = parseAccessTokenFromUrl(url);
         const navToken = access_token || token;
         if (navToken && navigationRef.current) {

@@ -10,7 +10,6 @@ import { Button } from '../../components/common';
 import Icon from 'react-native-vector-icons/Octicons';
 import getSupabaseClient from '../../services/supabaseClient';
 import { RootStackParamList } from '../../navigation/types';
-import SecureStorageAdapter from '../../utils/secureStorageAdapter';
 import { authService, User } from '../../services/auth';
 
 type EmailConfirmationScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EmailConfirmation'>;
@@ -74,13 +73,6 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
 
       // Show success only after successful verification
       setConfirmed(true);
-      
-      // Clear the verifier only after successful exchange
-      try {
-        await SecureStorageAdapter.removeItem(`${route?.params?.code}-code-verifier`);
-      } catch (e) {
-        console.warn('Failed to clean up code verifier', e);
-      }
       
     } catch (err: any) {
       console.error('Email verification error:', err);

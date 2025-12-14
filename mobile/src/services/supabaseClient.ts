@@ -45,7 +45,6 @@ const getSupabaseClient = (): SupabaseClient => {
         eventsPerSecond: 10,
       },
     },
-     global: {
     global: {
       headers: {
         'X-Client-Info': 'MindClear-Mobile-App/1.0.0',

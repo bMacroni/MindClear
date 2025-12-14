@@ -29,12 +29,10 @@ const AppContent = () => {
   return (
     <div className="App">
       <Routes>
-        {/* Public route for email confirmation */}
-        <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
-        
         {/* Authentication-based routing */}
         {!isAuthenticated() ? (
           <>
+            <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
             <Route path="/" element={showSignup ? 
               <Signup onSignup={signup} onSwitchToLogin={() => setShowSignup(false)} /> : 
               <Login onLogin={handleLogin} onSwitchToSignup={() => setShowSignup(true)} />
@@ -46,6 +44,7 @@ const AppContent = () => {
           </>
         ) : (
           <>
+            <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
             <Route path="/" element={<Dashboard showSuccess={showSuccess} />} />
             <Route path="/dashboard" element={<Dashboard showSuccess={showSuccess} />} />
           </>

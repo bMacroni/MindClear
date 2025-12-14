@@ -112,6 +112,10 @@ export default function SignupScreen({ navigation }: any) {
   };
 
   const handleResendConfirmation = async () => {
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address first.');
+      return;
+    }
     setResendLoading(true);
     try {
       const result = await authService.resendConfirmation(email);
@@ -273,7 +277,9 @@ export default function SignupScreen({ navigation }: any) {
                   onPress={handleResendConfirmation}
                   disabled={resendLoading}
                   style={styles.resendButton}
+                  accessibilityRole="button"
                   accessibilityLabel="Resend confirmation email"
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
                   <Text style={styles.resendText}>
                     {resendLoading ? 'Sending...' : "Didn't receive the email? Resend"}

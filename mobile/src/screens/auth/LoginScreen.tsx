@@ -71,6 +71,10 @@ export default function LoginScreen({ navigation, route }: LoginScreenProps) {
   };
 
   const handleResendConfirmation = async () => {
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address first.');
+      return;
+    }
     setResendLoading(true);
     try {
       const result = await authService.resendConfirmation(email);
@@ -146,6 +150,7 @@ export default function LoginScreen({ navigation, route }: LoginScreenProps) {
             accessibilityRole="button"
             accessibilityLabel="Resend confirmation email"
             accessibilityState={{ disabled: resendLoading }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
             <Text style={styles.resendText}>
               {resendLoading ? 'Sending...' : 'Resend Confirmation Email'}

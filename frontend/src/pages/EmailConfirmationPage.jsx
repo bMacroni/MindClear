@@ -9,12 +9,25 @@ const EmailConfirmationPage = () => {
   const navigate = useNavigate();
   useEffect(() => {
     const verifyEmail = async () => {
-      const token = searchParams.get('access_token') || searchParams.get('token');
+      let token = searchParams.get('access_token') || searchParams.get('token');
+
+      // Fallback: Check hash fragment if token not in searchParams
+      if (!token && window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        token = hashParams.get('access_token') || hashParams.get('token');
+      }
       
       if (!token) {
         setStatus('error');
         setMessage('Invalid confirmation link. Please try again or request a new confirmation email.');
         return;
+      }
+
+      // Ensure token is decoded and trimmed
+      try {
+        token = decodeURIComponent(token).trim();
+      } catch (e) {
+        token = token.trim();
       }
 
       try {

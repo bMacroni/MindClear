@@ -8,17 +8,16 @@ export interface ApiConfig {
 
 export const API_CONFIGS: Record<string, ApiConfig> = {
   local: {
-    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || 'http://192.168.1.66:5000/api',
+    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || '',
     name: 'Local Development',
     description: 'Local backend server'
   },
   hosted: {
-    baseUrl: 'https://foci-production.up.railway.app/api', // Replace with your actual Railway URL
+    baseUrl: process.env.PRODUCTION_API_URL || '',
     name: 'Hosted (Railway)',
     description: 'Production backend on Railway'
   }
 };
-
 export class ConfigService {
   private static instance: ConfigService;
   private currentConfig: ApiConfig = __DEV__ ? API_CONFIGS.local : API_CONFIGS.hosted;
