@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,6 +10,8 @@ import { Button } from '../../components/common';
 import Icon from 'react-native-vector-icons/Octicons';
 import getSupabaseClient from '../../services/supabaseClient';
 import { RootStackParamList } from '../../navigation/types';
+import SecureStorageAdapter from '../../utils/secureStorageAdapter';
+import { authService, User } from '../../services/auth';
 
 type EmailConfirmationScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'EmailConfirmation'>;
 type EmailConfirmationScreenRouteProp = RouteProp<RootStackParamList, 'EmailConfirmation'>;
@@ -24,6 +26,7 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
+  const sessionRef = useRef<any>(null);
 
   useEffect(() => {
     verifyEmailConfirmation();
@@ -43,53 +46,41 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
         return;
       }
 
-      // Extract token from route params
-      const token = params.access_token || params.token;
-      const refreshToken = params.refresh_token;
+      // Extract auth code from route params
+      const code = params.code;
 
-      if (!token) {
-        setError('Invalid confirmation link. Missing token. Please try again or request a new confirmation email.');
+      if (!code) {
+        setError('Invalid confirmation link. Missing authorization code. Please try again or request a new confirmation email.');
         setLoading(false);
         return;
       }
 
-      // Verify the token with Supabase
+      // Verify the code with Supabase by exchanging it for a session
+      // The session will be automatically persisted by the secure storage adapter configured in supabaseClient
       const supabase = getSupabaseClient();
 
-      let userData = null;
-      let verifyError = null;
-
-      // If we have both tokens, try to set the session directly (persists login)
-      if (token && refreshToken) {
-        // Try setting session
-        const { data, error } = await supabase.auth.setSession({
-          access_token: token,
-          refresh_token: refreshToken,
-        });
-        
-        if (error) {
-           console.log('SetSession error:', error);
-           setError('Failed to verify your email. Please try logging in manually.');
-           setLoading(false);
-           return;
-        } else if (data?.user?.email) {
-           setEmail(data.user.email);
-        }
-      } else {
-        // Just access_token? Try getUser to validate
-        const res = await supabase.auth.getUser(token);
-        if (res.error) {
-           console.log('GetUser error:', res.error);
-           setError('Failed to verify your email. The confirmation link may be invalid or expired.');
-           setLoading(false);
-           return;
-        } else if (res.data?.user?.email) {
-           setEmail(res.data.user.email);
-        }
+      const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      
+      if (exchangeError) {
+         setError('Failed to verify your email. The link may be invalid or expired.');
+         setLoading(false);
+         return;
+      } else if (data?.user?.email) {
+         setEmail(data.user.email);
+         if (data.session) {
+           sessionRef.current = data.session;
+         }
       }
 
       // Show success only after successful verification
       setConfirmed(true);
+      
+      // Clear the verifier only after successful exchange
+      try {
+        await SecureStorageAdapter.removeItem(`${route?.params?.code}-code-verifier`);
+      } catch (e) {
+        console.warn('Failed to clean up code verifier', e);
+      }
       
     } catch (err: any) {
       console.error('Email verification error:', err);
@@ -104,17 +95,48 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
     }
   };
 
-  const handleContinue = () => {
-    // Navigate to login screen with pre-filled email
-    navigation.reset({
-      index: 0,
-      routes: [
-        {
-          name: 'Login',
-          params: { email: email }
-        }
-      ]
-    });
+  const handleContinue = async () => {
+    if (sessionRef.current) {
+      // Auto-login using the session we got from verification
+      try {
+        setLoading(true);
+        const session = sessionRef.current;
+        
+        const user: User = {
+          id: session.user.id,
+          email: session.user.email,
+          email_confirmed_at: session.user.email_confirmed_at,
+          created_at: session.user.created_at,
+          updated_at: session.user.updated_at,
+        };
+
+        // This will update auth state and AppNavigator will automatically handle navigation
+        await authService.setSession(session.access_token, user, session.refresh_token);
+      } catch (e) {
+        console.error('Auto-login failed', e);
+        // Fallback to login screen
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'Login',
+              params: { email: email }
+            }
+          ]
+        });
+      }
+    } else {
+      // Navigate to login screen with pre-filled email
+      navigation.reset({
+        index: 0,
+        routes: [
+          {
+            name: 'Login',
+            params: { email: email }
+          }
+        ]
+      });
+    }
   };
 
   const handleRequestNew = () => {

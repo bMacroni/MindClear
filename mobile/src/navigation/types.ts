@@ -12,10 +12,7 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   ResetPassword: { access_token?: string } | undefined;
   EmailConfirmation: { 
-    token?: string; 
-    access_token?: string; 
-    refresh_token?: string; 
-    type?: string;
+    code?: string;
     error?: string;
     error_description?: string;
   } | undefined;

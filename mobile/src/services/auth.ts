@@ -3,6 +3,7 @@ import { secureStorage } from './secureStorage';
 import { AndroidStorageMigrationService } from './storageMigration';
 import { apiFetch } from './apiService';
 import logger from '../utils/logger';
+import getSupabaseClient from './supabaseClient';
 
 // Helper function to decode JWT token
 function decodeJWT(token: string): any {
@@ -302,29 +303,44 @@ class AuthService {
       this.authState.isLoading = true;
       this.notifyListeners();
 
-      const { ok, data } = await apiFetch('/auth/signup', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: credentials.email,
-          password: credentials.password,
-          full_name: credentials.fullName
-        }),
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase.auth.signUp({
+        email: credentials.email,
+        password: credentials.password,
+        options: {
+          emailRedirectTo: 'mindclear://confirm',
+          data: {
+            full_name: credentials.fullName,
+          },
+        },
       });
 
-      if (ok && data.userCreated && data.requiresConfirmation) {
+      if (error) {
+        return { success: false, message: error.message || 'Signup failed' };
+      }
+
+      if (data.user && !data.session) {
         // User created but needs email confirmation
         return { 
           success: true, 
-          message: data.message,
+          message: 'Account created successfully! Please check your email to confirm your account.',
           requiresConfirmation: true
         };
-      } else if (ok && data.token) {
-        // Successfully created user and got token (shouldn't happen with new flow, but keeping for backward compatibility)
-        await this.setAuthData(data.token, data.user, data.refresh_token);
-        return { success: true, message: data.message, user: data.user };
+      } else if (data.user && data.session) {
+        // Successfully created user and got session
+        const user: User = {
+          id: data.user.id,
+          email: data.user.email!,
+          email_confirmed_at: data.user.email_confirmed_at,
+          created_at: data.user.created_at,
+          updated_at: data.user.updated_at,
+        };
+
+        await this.setAuthData(data.session.access_token, user, data.session.refresh_token);
+        return { success: true, message: 'Signup successful', user };
       } else {
-        // Error occurred
-        return { success: false, message: data.error || 'Signup failed' };
+        // Should not happen typically if error is null
+        return { success: false, message: 'Signup failed. Please try again.' };
       }
     } catch (_error) {
       logger.error('Signup error', _error);

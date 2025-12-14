@@ -36,6 +36,7 @@ export default function AppNavigator() {
   const handledInitialLink = useRef(false);
   const cachedInitialLink = useRef<{ 
     type: 'confirm' | 'reset'; 
+    code?: string;
     token?: string; 
     access_token?: string;
     refresh_token?: string;
@@ -54,24 +55,22 @@ export default function AppNavigator() {
       
       // Check if it's a confirmation link
       if (url.includes('mindclear://confirm')) {
-        const { access_token, refresh_token, token, error, error_description } = parseAccessTokenFromUrl(url);
-        const navToken = access_token || token;
+        const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
+        // Use code if available, fallback to token (magic link) or access_token (legacy)
+        const authCode = code || token || access_token;
         
-        // Navigate if we have a token OR an error
-        if (navToken || error) {
+        // Navigate if we have a code OR an error
+        if (authCode || error) {
           if (navigationRef.current) {
             navigationRef.current.navigate('EmailConfirmation', { 
-              access_token: navToken, 
-              refresh_token,
+              code: authCode,
               error,
               error_description
             });
           } else {
             cachedInitialLink.current = {
               type: 'confirm',
-              token: navToken,
-              access_token: navToken,
-              refresh_token,
+              code: authCode,
               error,
               error_description
             };
@@ -108,12 +107,12 @@ export default function AppNavigator() {
       if (!url) return;
       // Check if it's a confirmation link
       if (url.includes('mindclear://confirm')) {
-        const { access_token, refresh_token, token, error, error_description } = parseAccessTokenFromUrl(url);
-        const navToken = access_token || token;
-        if ((navToken || error) && navigationRef.current) {
+        const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
+        const authCode = code || token || access_token;
+        
+        if ((authCode || error) && navigationRef.current) {
           navigationRef.current.navigate('EmailConfirmation', { 
-            access_token: navToken, 
-            refresh_token,
+            code: authCode,
             error,
             error_description
           });
@@ -195,8 +194,7 @@ export default function AppNavigator() {
           const link = cachedInitialLink.current;
           if (link.type === 'confirm') {
             navigationRef.current.navigate('EmailConfirmation', { 
-              access_token: link.access_token || link.token, 
-              refresh_token: link.refresh_token,
+              code: link.code, 
               error: link.error,
               error_description: link.error_description
             });
@@ -287,8 +285,7 @@ export default function AppNavigator() {
       const link = cachedInitialLink.current;
       if (link.type === 'confirm') {
         navigationRef.current.navigate('EmailConfirmation', { 
-          access_token: link.access_token || link.token, 
-          refresh_token: link.refresh_token,
+          code: link.code,
           error: link.error,
           error_description: link.error_description
         });

@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import SecureStorageAdapter from '../utils/secureStorageAdapter';
 import secureConfigService from './secureConfig';
 
 let supabase: SupabaseClient | null = null;
@@ -27,13 +27,19 @@ const getSupabaseClient = (): SupabaseClient => {
     throw new Error('Supabase URL or Anon Key is not available. Check secureConfigService.');
   }
 
+  // Ensure SecureStorageAdapter has proper setItem/getItem behavior
+  // Supabase expects setItem to return void, and getItem to return Promise<string | null>
+  
   supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      storage: AsyncStorage,
+      storage: SecureStorageAdapter,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
-    },    // Supabase Realtime client options
+      flowType: 'pkce',
+      debug: false,
+    },
+    // Supabase Realtime client options
     realtime: {
       params: {
         eventsPerSecond: 10,

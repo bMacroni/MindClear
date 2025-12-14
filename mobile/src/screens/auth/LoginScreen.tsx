@@ -142,7 +142,7 @@ export default function LoginScreen({ navigation, route }: LoginScreenProps) {
           <Pressable
             onPress={handleResendConfirmation}
             disabled={resendLoading}
-            style={[styles.button, { marginBottom: 12 }]}
+            style={styles.resendButton}
             accessibilityRole="button"
             accessibilityLabel="Resend confirmation email"
             accessibilityState={{ disabled: resendLoading }}

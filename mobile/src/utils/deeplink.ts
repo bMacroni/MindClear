@@ -2,6 +2,7 @@ export function parseAccessTokenFromUrl(url: string): {
   access_token?: string; 
   refresh_token?: string; 
   token?: string;
+  code?: string;
   error?: string;
   error_description?: string;
 } {
@@ -22,6 +23,8 @@ export function parseAccessTokenFromUrl(url: string): {
       fragmentParams.get('refresh_token') ?? queryParams.get('refresh_token') ?? undefined;
     const token =
       fragmentParams.get('token') ?? queryParams.get('token') ?? undefined; // recovery token from Supabase verify
+    const code =
+      queryParams.get('code') ?? fragmentParams.get('code') ?? undefined; // PKCE auth code
     
     // Check for errors
     const error = 
@@ -29,10 +32,8 @@ export function parseAccessTokenFromUrl(url: string): {
     const error_description = 
       fragmentParams.get('error_description') ?? queryParams.get('error_description') ?? undefined;
 
-    return { access_token, refresh_token, token, error, error_description };
+    return { access_token, refresh_token, token, code, error, error_description };
   } catch {
     return {};
   }
 }
-
-

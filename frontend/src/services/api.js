@@ -6,8 +6,10 @@ const requestCache = new Map();
 const CACHE_DURATION = 1000; // 1 second
 
 // Create axios instance with base configuration
-const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const api = axios.create({
+const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL;
+if (!API_BASE_URL) {
+  throw new Error('API base URL not configured. Please set VITE_SECURE_API_BASE or VITE_API_URL environment variable.');
+}const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
@@ -42,16 +44,27 @@ api.interceptors.request.use(
         // Return cached promise
         return Promise.reject({ 
           isCached: true, 
-          cachedResponse: cached.response 
+          cachedResponse: cached.promise 
         });
       }
       
+      // Create a deferred promise for the in-flight request
+      let resolve, reject;
+      const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+
       // Store the request promise in cache
-      const requestPromise = Promise.resolve(config);
       requestCache.set(cacheKey, {
         timestamp: now,
-        response: requestPromise
+        promise,
+        resolve,
+        reject
       });
+      
+      // Attach cacheKey to config for response interceptors
+      config._cacheKey = cacheKey;
       
       // Clean up old cache entries
       for (const [key, value] of requestCache.entries()) {
@@ -71,11 +84,29 @@ api.interceptors.request.use(
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Resolve in-flight request if exists
+    if (response.config?._cacheKey) {
+      const cached = requestCache.get(response.config._cacheKey);
+      if (cached) {
+        cached.resolve(response);
+      }
+    }
+    return response;
+  },
   (error) => {
     // Handle cached responses
     if (error.isCached) {
       return error.cachedResponse;
+    }
+
+    // Reject in-flight request if exists
+    if (error.config?._cacheKey) {
+      const cached = requestCache.get(error.config._cacheKey);
+      if (cached) {
+        cached.reject(error);
+        requestCache.delete(error.config._cacheKey);
+      }
     }
     
     if (error.response?.status === 401) {
@@ -176,105 +207,52 @@ export const conversationsAPI = {
 
 // Milestones API
 export const milestonesAPI = {
-  create: async (goalId, milestoneData, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/${goalId}/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(milestoneData),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  update: async (milestoneId, milestoneData, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/milestones/${milestoneId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(milestoneData),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  delete: async (milestoneId, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/milestones/${milestoneId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  readAll: async (goalId, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/${goalId}/milestones`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  lookup: async ({ milestoneId, goalId, title, token }) => {
-    let url;
+  create: (goalId, milestoneData) => api.post(`/goals/${goalId}/milestones`, milestoneData).then(res => res.data),
+  update: (milestoneId, milestoneData) => api.put(`/goals/milestones/${milestoneId}`, milestoneData).then(res => res.data),
+  delete: (milestoneId) => api.delete(`/goals/milestones/${milestoneId}`).then(res => res.data),
+  readAll: (goalId) => api.get(`/goals/${goalId}/milestones`).then(res => res.data),
+  lookup: async ({ milestoneId, goalId, title }) => {
     if (milestoneId) {
-      url = `${API_BASE_URL}/goals/milestones/${milestoneId}`;
+      const res = await api.get(`/goals/milestones/${milestoneId}`);
+      return res.data;
     } else if (goalId && title) {
-      url = `${API_BASE_URL}/goals/${goalId}/milestones/lookup?title=${encodeURIComponent(title)}`;
+      const res = await api.get(`/goals/${goalId}/milestones/lookup?title=${encodeURIComponent(title)}`);
+      return res.data;
     } else {
       throw new Error('Must provide milestoneId or goalId and title');
     }
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
   },
 };
 
 // Steps API
 export const stepsAPI = {
-  create: async (milestoneId, stepData, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/milestones/${milestoneId}/steps`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(stepData),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+  create: async (milestoneId, stepData) => {
+    const response = await api.post(`/goals/milestones/${milestoneId}/steps`, stepData);
+    return response.data;
   },
-  update: async (stepId, stepData, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/steps/${stepId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(stepData),
-    });
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(errorText);
-    }
-    const result = await res.json();
-    return result;
+  update: async (stepId, stepData) => {
+    const response = await api.put(`/goals/steps/${stepId}`, stepData);
+    return response.data;
   },
-  delete: async (stepId, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/steps/${stepId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+  delete: async (stepId) => {
+    const response = await api.delete(`/goals/steps/${stepId}`);
+    return response.data;
   },
-  readAll: async (milestoneId, token) => {
-    const res = await fetch(`${API_BASE_URL}/goals/milestones/${milestoneId}/steps`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+  readAll: async (milestoneId) => {
+    const response = await api.get(`/goals/milestones/${milestoneId}/steps`);
+    return response.data;
   },
-  lookup: async ({ stepId, milestoneId, text, token }) => {
+  lookup: async ({ stepId, milestoneId, text }) => {
     let url;
     if (stepId) {
-      url = `${API_BASE_URL}/goals/steps/${stepId}`;
+      url = `/goals/steps/${stepId}`;
     } else if (milestoneId && text) {
-      url = `${API_BASE_URL}/goals/milestones/${milestoneId}/steps/lookup?text=${encodeURIComponent(text)}`;
+      url = `/goals/milestones/${milestoneId}/steps/lookup?text=${encodeURIComponent(text)}`;
     } else {
       throw new Error('Must provide stepId or milestoneId and text');
     }
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    const response = await api.get(url);
+    return response.data;
   },
 };
 
@@ -292,14 +270,18 @@ class WebSocketService {
       return;
     }
 
-    const wsUrl = (import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+    const baseUrl = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL;
+    if (!baseUrl) {
+      throw new Error('API base URL not configured for WebSocket connection');
+    }
+    const wsUrl = baseUrl
       .replace(/^http/, 'ws')
       .replace('/api', '/api/ws/notifications');
 
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      const token = localStorage.getItem('jwt_token');
+      const token = SecureTokenStorage.getToken();
       if (token) {
         this.ws.send(JSON.stringify({ type: 'auth', token }));
       }
