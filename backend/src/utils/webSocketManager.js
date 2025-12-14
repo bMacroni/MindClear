@@ -15,8 +15,9 @@ class WebSocketManager {
     if (!this.supabase && process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
       this.supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
       logger.info('WebSocketManager: Supabase client initialized');
+    } else if (!this.supabase) {
+      logger.warn('WebSocketManager: Supabase client not initialized - missing SUPABASE_URL or SUPABASE_ANON_KEY environment variables');
     }
-
     this.wss = new WebSocketServer({ server });
 
     this.wss.on('connection', (ws, req) => {

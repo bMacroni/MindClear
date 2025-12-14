@@ -227,20 +227,7 @@ export default function AppNavigator() {
 
       // Handle navigation when auth state changes
       if (navigationRef.current && !authState.isLoading) {
-        // Check for cached initial link when auth is no longer loading
-        if (cachedInitialLink.current) {
-          const link = cachedInitialLink.current;
-          if (link.type === 'confirm') {
-            navigationRef.current.navigate('EmailConfirmation', { 
-              code: link.code, 
-              error: link.error,
-              error_description: link.error_description
-            });
-          } else if (link.type === 'reset') {
-            navigationRef.current.navigate('ResetPassword', { access_token: link.access_token || link.token });
-          }
-          cachedInitialLink.current = null; // Clear the cached link after navigation
-        } else if (isNowAuthenticated && !wasAuthenticated) {
+        if (isNowAuthenticated && !wasAuthenticated) {
           // Check if user has seen beta screen, then check first session
           // Use IIFE to handle async operation in callback
           (async () => {

@@ -499,6 +499,10 @@ const styles = StyleSheet.create({
   resendButton: {
     paddingVertical: spacing.sm,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
+    alignSelf: 'center',
   },
   resendText: {
     color: colors.primary,
