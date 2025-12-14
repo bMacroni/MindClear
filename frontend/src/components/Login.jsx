@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {useNavigate} from 'react-router-dom'
+import { authAPI } from '../services/api';
 import PasswordInput from './PasswordInput';
 
 const Login = ({ onLogin, onSwitchToSignup }) => {
@@ -7,8 +8,11 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [googleOAuthInfo, setGoogleOAuthInfo] = useState(null);
+  const [showResendButton, setShowResendButton] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,11 +29,17 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
   const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
+    setShowResendButton(false);
     setLoading(true);
 
     const result = await onLogin(email, password);
     if (!result.success) {
       setError(result.error || 'Login failed');
+      // Check if it's an email confirmation error
+      if (result.errorCode === 'EMAIL_NOT_CONFIRMED') {
+        setShowResendButton(true);
+      }
     } else {
       // Clear Google OAuth info on successful login
       sessionStorage.removeItem('google_oauth_email');
@@ -37,6 +47,20 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
       navigate('/');
     }
     setLoading(false);
+  };
+
+  const handleResendConfirmation = async () => {
+    setResendLoading(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      await authAPI.resendConfirmation(email);
+      setSuccessMessage('Confirmation email sent! Please check your inbox.');
+    } catch (error) {
+      setError('Failed to resend confirmation email. Please try again.');
+    } finally {
+      setResendLoading(false);
+    }
   };
 
   const handleGoogleLogin = () => {
@@ -143,6 +167,16 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
                   placeholder="Enter your password"
                 />
               </div>
+              {successMessage && (
+                <div className="bg-green-50/80 backdrop-blur-sm border border-green-200 text-green-700 px-4 py-3 rounded-2xl text-sm">
+                  <div className="flex items-center space-x-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>{successMessage}</span>
+                  </div>
+                </div>
+              )}
               {error && (
                 <div className="bg-red-50/80 backdrop-blur-sm border border-red-200 text-red-700 px-4 py-3 rounded-2xl text-sm">
                   <div className="flex items-center space-x-2">
@@ -151,6 +185,18 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
                     </svg>
                     <span>{error}</span>
                   </div>
+                </div>
+              )}
+              {showResendButton && (
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={handleResendConfirmation}
+                    disabled={resendLoading}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-200 disabled:opacity-50"
+                  >
+                    {resendLoading ? 'Sending...' : 'Resend Confirmation Email'}
+                  </button>
                 </div>
               )}
               <div className="flex space-x-3">
@@ -202,4 +248,4 @@ const Login = ({ onLogin, onSwitchToSignup }) => {
   );
 };
 
-export default Login; 
+export default Login;

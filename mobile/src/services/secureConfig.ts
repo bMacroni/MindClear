@@ -24,6 +24,8 @@ interface RemoteConfig {
   googleWebClientId?: string;
   googleAndroidClientId?: string;
   googleIosClientId?: string;
+  mindClearConfirmUri?: string;
+  mindClearResetPasswordUri?: string;
 }
 
 interface SecureConfig {
@@ -100,10 +102,18 @@ class SecureConfigService {
         throw new Error('Remote config loading was cancelled');
       }
       
-      // Add timeout to prevent hanging during app startup
-      // Create AbortController for timeout
+      // Create AbortController for timeout and signal combination
       const timeoutController = new AbortController();
-      const combinedSignal = signal?.aborted ? signal : timeoutController.signal;
+      
+      // Link external signal to timeoutController to ensure we respect upstream cancellation
+      const handleExternalAbort = () => timeoutController.abort();
+      if (signal) {
+        if (signal.aborted) {
+          timeoutController.abort();
+        } else {
+          signal.addEventListener('abort', handleExternalAbort);
+        }
+      }
       
       // Add timeout to prevent hanging during app startup
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -113,8 +123,16 @@ class SecureConfigService {
         }, 5000); // Reduced to 5 second timeout
       });
       
-      const remoteConfigPromise = enhancedAPI.getUserConfig(combinedSignal);
-      const remoteConfig: RemoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
+      let remoteConfig: RemoteConfig;
+      try {
+        const remoteConfigPromise = enhancedAPI.getUserConfig(timeoutController.signal);
+        remoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
+      } finally {
+        // Clean up external signal listener
+        if (signal) {
+          signal.removeEventListener('abort', handleExternalAbort);
+        }
+      }
       
       // Clear timeout on success
       if (timeoutId) {
@@ -164,6 +182,15 @@ class SecureConfigService {
             // Log but don't fail if reconfiguration fails
             logger.warn('Failed to update Google config after remote config load:', reconfigError);
           }
+        }
+
+        // Update MindClear URIs if available
+        if (remoteConfig.mindClearConfirmUri || remoteConfig.mindClearResetPasswordUri) {
+          configService.setMindClearUris({
+            confirm: remoteConfig.mindClearConfirmUri,
+            reset: remoteConfig.mindClearResetPasswordUri,
+          });
+          logger.info('MindClear URIs updated in configService from remote config');
         }
         
         // Persist the updated config to AsyncStorage for offline use

@@ -2,6 +2,7 @@
  * @format
  */
 
+import 'react-native-url-polyfill/auto';
 import 'react-native-reanimated';
 import {AppRegistry} from 'react-native';
 import App from './App';
@@ -15,16 +16,12 @@ let isSyncing = false;
 
 // Register background handler for silent push notifications
 messaging().setBackgroundMessageHandler(async remoteMessage => {
-  console.log('Silent push received in background!', remoteMessage);
-  
   // Check for a data payload that indicates a sync is needed
   if (remoteMessage.data && remoteMessage.data.sync) {
     if (isSyncing) {
-      console.log('Background sync already in progress. Ignoring new trigger.');
       return;
     }
     
-    console.log('Sync trigger received from silent push, starting sync...');
     try {
       isSyncing = true;
       await Promise.race([
@@ -33,7 +30,6 @@ messaging().setBackgroundMessageHandler(async remoteMessage => {
           setTimeout(() => reject(new Error('Sync timeout')), 30000)
         )
       ]);
-      console.log('Background sync complete.');
     } catch (error) {
       console.error('Background sync failed:', error);
     } finally {

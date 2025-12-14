@@ -1,5 +1,5 @@
 export type RootStackParamList = {
-  Login: undefined;
+  Login: { email?: string } | undefined;
   Signup: undefined;
   Main: undefined;
   BetaThankYou: undefined;
@@ -11,6 +11,11 @@ export type RootStackParamList = {
   AnalyticsDashboard: undefined;
   ForgotPassword: undefined;
   ResetPassword: { access_token?: string } | undefined;
+  EmailConfirmation: { 
+    code?: string;
+    error?: string;
+    error_description?: string;
+  } | undefined;
 };
 
 export type MainTabParamList = {

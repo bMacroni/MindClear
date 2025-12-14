@@ -255,6 +255,8 @@ export async function getClientConfig(req, res) {
       googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID,
       googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID,
       googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID,
+      mindClearConfirmUri: process.env.MINDCLEAR_CONFIRM_URI,
+      mindClearResetPasswordUri: process.env.MINDCLEAR_RESET_PASSWORD_URI,
     };
 
     if (!config.supabaseUrl || !config.supabaseAnonKey) {
@@ -272,6 +274,12 @@ export async function getClientConfig(req, res) {
     }
     if (!config.googleIosClientId) {
       logger.warn('getClientConfig: GOOGLE_IOS_CLIENT_ID not set. iOS Google Sign-In may not work.');
+    }
+    if (!config.mindClearConfirmUri) {
+      logger.warn('getClientConfig: MINDCLEAR_CONFIRM_URI not set. Mobile app will use default.');
+    }
+    if (!config.mindClearResetPasswordUri) {
+      logger.warn('getClientConfig: MINDCLEAR_RESET_PASSWORD_URI not set. Mobile app will use default.');
     }
 
     res.json(config);

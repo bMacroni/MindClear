@@ -9,18 +9,18 @@ import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
 import { Image } from 'react-native';
 
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/types';
 
-type LoginScreenProps = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
-};
+type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
-export default function LoginScreen({ navigation }: LoginScreenProps) {
-  const [email, setEmail] = useState('');
+export default function LoginScreen({ navigation, route }: LoginScreenProps) {
+  const [email, setEmail] = useState(route?.params?.email || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showResendButton, setShowResendButton] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const handlePrivacyPolicyPress = async () => {
     const privacyPolicyUrl = 'https://www.mind-clear.com/privacy';
@@ -48,6 +48,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
   const handleLogin = async () => {
     setError('');
+    setShowResendButton(false);
     setLoading(true);
     try {
       const result = await authService.login({ email, password });
@@ -57,11 +58,35 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         // No need to manually navigate - AppNavigator will handle this
       } else {
         setError(result.message);
+        // Check if it's an email confirmation error
+        if (result.errorCode === 'EMAIL_NOT_CONFIRMED' || result.requiresConfirmation) {
+          setShowResendButton(true);
+        }
       }
     } catch {
       setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address first.');
+      return;
+    }
+    setResendLoading(true);
+    try {
+      const result = await authService.resendConfirmation(email);
+      if (result.success) {
+        Alert.alert('Success', result.message);
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to resend confirmation email. Please try again.');
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -117,6 +142,22 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         
         {error ? <Text style={styles.error}>{error}</Text> : null}
         
+        {showResendButton && (
+          <Pressable
+            onPress={handleResendConfirmation}
+            disabled={resendLoading}
+            style={styles.resendButton}
+            accessibilityRole="button"
+            accessibilityLabel="Resend confirmation email"
+            accessibilityState={{ disabled: resendLoading }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.resendText}>
+              {resendLoading ? 'Sending...' : 'Resend Confirmation Email'}
+            </Text>
+          </Pressable>
+        )}
+
         <Text style={styles.legalText}>
           By signing in, you agree to our{' '}
           <Text 
@@ -259,6 +300,20 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginBottom: spacing.xs,
     fontSize: typography.fontSize.sm,
+  },
+  resendButton: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  resendText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    textDecorationLine: 'underline',
   },
   forgotPasswordContainer: {
     minHeight: 44,

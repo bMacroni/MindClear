@@ -46,6 +46,13 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="mindclear" android:host="reset-password" />
         </intent-filter>
+        <!-- Deep link for email confirmation: mindclear://confirm -->
+        <intent-filter android:autoVerify="false">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="mindclear" android:host="confirm" />
+        </intent-filter>
       </activity>
       
       <!-- Firebase Cloud Messaging Service -->

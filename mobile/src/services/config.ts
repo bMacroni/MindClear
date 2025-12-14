@@ -8,17 +8,16 @@ export interface ApiConfig {
 
 export const API_CONFIGS: Record<string, ApiConfig> = {
   local: {
-    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || 'http://192.168.1.66:5000/api',
+    baseUrl: process.env.SECURE_API_BASE || process.env.API_BASE_URL || process.env.API_FALLBACK || '',
     name: 'Local Development',
     description: 'Local backend server'
   },
   hosted: {
-    baseUrl: 'https://foci-production.up.railway.app/api', // Replace with your actual Railway URL
+    baseUrl: process.env.PRODUCTION_API_URL || '',
     name: 'Hosted (Railway)',
     description: 'Production backend on Railway'
   }
 };
-
 export class ConfigService {
   private static instance: ConfigService;
   private currentConfig: ApiConfig = __DEV__ ? API_CONFIGS.local : API_CONFIGS.hosted;
@@ -26,6 +25,8 @@ export class ConfigService {
   private googleWebClientId: string | undefined;
   private googleAndroidClientId: string | undefined;
   private googleIosClientId: string | undefined;
+  private mindClearConfirmUri: string | undefined;
+  private mindClearResetPasswordUri: string | undefined;
 
   // replace the public constructor with a private one…
   private constructor() {}
@@ -122,6 +123,38 @@ export class ConfigService {
     if (ids.ios) {
       this.googleIosClientId = ids.ios;
     }
+  }
+
+  // Deep Link Configuration
+  setMindClearUris(uris: { confirm?: string; reset?: string }) {
+    if (uris.confirm) {
+      this.mindClearConfirmUri = uris.confirm;
+    }
+    if (uris.reset) {
+      this.mindClearResetPasswordUri = uris.reset;
+    }
+  }
+
+  getMindClearConfirmUri(): string {
+    const uri = this.mindClearConfirmUri || process.env.MINDCLEAR_CONFIRM_URI;
+    if (!uri) {
+      if (__DEV__ && this.shouldWarnAboutMissingConfig()) {
+        console.warn('MINDCLEAR_CONFIRM_URI is not set - using default mindclear://confirm');
+      }
+      return 'mindclear://confirm';
+    }
+    return uri;
+  }
+
+  getMindClearResetPasswordUri(): string {
+    const uri = this.mindClearResetPasswordUri || process.env.MINDCLEAR_RESET_PASSWORD_URI;
+    if (!uri) {
+      if (__DEV__ && this.shouldWarnAboutMissingConfig()) {
+        console.warn('MINDCLEAR_RESET_PASSWORD_URI is not set - using default mindclear://reset-password');
+      }
+      return 'mindclear://reset-password';
+    }
+    return uri;
   }
 
   getGoogleWebClientId(): string {

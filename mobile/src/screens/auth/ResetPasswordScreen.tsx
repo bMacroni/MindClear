@@ -20,8 +20,8 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
   const accessToken = route?.params?.access_token;
 
   const meetsComplexity = useMemo(() => {
-    // Mirror backend: at least 8 chars, lower, upper, number, special
-    const re = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,128}$/;
+    // Mirror backend: at least 12 chars, lower, upper, number (special chars optional)
+    const re = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{12,128}$/;
     return re.test(password);
   }, [password]);
 
@@ -95,7 +95,7 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
 
         {password.length > 0 && (
           <Text style={[styles.complexityText, meetsComplexity ? styles.complexitySuccess : styles.complexityError]}>
-            {meetsComplexity ? 'Meets complexity requirements' : 'Must have upper, lower, number, special (min 8)'}
+            {meetsComplexity ? 'Meets complexity requirements' : 'Must have upper, lower, number (min 12)'}
           </Text>
         )}
 
