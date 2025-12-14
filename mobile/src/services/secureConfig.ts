@@ -24,6 +24,8 @@ interface RemoteConfig {
   googleWebClientId?: string;
   googleAndroidClientId?: string;
   googleIosClientId?: string;
+  mindClearConfirmUri?: string;
+  mindClearResetPasswordUri?: string;
 }
 
 interface SecureConfig {
@@ -164,6 +166,15 @@ class SecureConfigService {
             // Log but don't fail if reconfiguration fails
             logger.warn('Failed to update Google config after remote config load:', reconfigError);
           }
+        }
+
+        // Update MindClear URIs if available
+        if (remoteConfig.mindClearConfirmUri || remoteConfig.mindClearResetPasswordUri) {
+          configService.setMindClearUris({
+            confirm: remoteConfig.mindClearConfirmUri,
+            reset: remoteConfig.mindClearResetPasswordUri,
+          });
+          logger.info('MindClear URIs updated in configService from remote config');
         }
         
         // Persist the updated config to AsyncStorage for offline use

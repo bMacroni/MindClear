@@ -4,6 +4,7 @@ import { AndroidStorageMigrationService } from './storageMigration';
 import { apiFetch } from './apiService';
 import logger from '../utils/logger';
 import getSupabaseClient from './supabaseClient';
+import { configService } from './config';
 
 // Helper function to decode JWT token
 function decodeJWT(token: string): any {
@@ -308,7 +309,7 @@ class AuthService {
         email: credentials.email,
         password: credentials.password,
         options: {
-          emailRedirectTo: 'mindclear://confirm',
+          emailRedirectTo: configService.getMindClearConfirmUri(),
           data: {
             full_name: credentials.fullName,
           },
@@ -328,9 +329,16 @@ class AuthService {
         };
       } else if (data.user && data.session) {
         // Successfully created user and got session
+        const userEmail = data.user.email;
+        
+        if (!userEmail) {
+          logger.error('Signup successful but email is missing from user data', { userId: data.user.id });
+          return { success: false, message: 'Signup failed: Invalid user data received.' };
+        }
+
         const user: User = {
           id: data.user.id,
-          email: data.user.email!,
+          email: userEmail,
           email_confirmed_at: data.user.email_confirmed_at,
           created_at: data.user.created_at,
           updated_at: data.user.updated_at,

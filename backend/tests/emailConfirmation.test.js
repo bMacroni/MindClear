@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import authRoutes from '../src/routes/auth.js';
 
 // Mock Supabase
 vi.mock('@supabase/supabase-js', () => {
@@ -45,10 +44,15 @@ describe('Email Confirmation Flow', () => {
   let app;
   let mockSupabase;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    vi.resetModules();
     // Setup express app with auth routes
     app = express();
     app.use(express.json());
+    app.set('trust proxy', true);
+
+    const mod = await import('../src/routes/auth.js');
+    const authRoutes = mod.default;
     app.use('/api/auth', authRoutes);
     
     // Get mocked Supabase instance
@@ -56,7 +60,7 @@ describe('Email Confirmation Flow', () => {
     mockSupabase = createClient();
   });
 
-  afterAll(() => {
+  afterEach(() => {
     vi.clearAllMocks();
   });
 
@@ -301,10 +305,14 @@ describe('Email Confirmation Flow', () => {
 
       const email = 'ratelimit@example.com';
 
+      // Use a unique IP for this test
+      const testIp = '10.0.0.5';
+
       // Make 3 requests (should succeed)
       for (let i = 0; i < 3; i++) {
         const response = await request(app)
           .post('/api/auth/resend-confirmation')
+          .set('X-Forwarded-For', testIp)
           .send({ email });
         expect(response.status).toBe(200);
       }
@@ -312,6 +320,7 @@ describe('Email Confirmation Flow', () => {
       // 4th request should be rate limited
       const response = await request(app)
         .post('/api/auth/resend-confirmation')
+        .set('X-Forwarded-For', testIp)
         .send({ email });
 
       expect(response.status).toBe(429);

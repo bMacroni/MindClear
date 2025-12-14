@@ -79,12 +79,9 @@ const resendLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Rate limit by email to prevent abuse
-    return req.body.email || req.ip;
-  },
+  // Default keyGenerator uses req.ip, which is what we want and handles IPv6 correctly
   handler: (req, res) => {
-    logger.warn(`Resend confirmation rate limit exceeded for ${req.body.email || req.ip}`, {
+    logger.warn(`Resend confirmation rate limit exceeded for ${req.ip}`, {
       ip: req.ip,
       email: req.body.email,
       userAgent: req.get('User-Agent')

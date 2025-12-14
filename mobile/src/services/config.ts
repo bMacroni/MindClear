@@ -26,6 +26,8 @@ export class ConfigService {
   private googleWebClientId: string | undefined;
   private googleAndroidClientId: string | undefined;
   private googleIosClientId: string | undefined;
+  private mindClearConfirmUri: string | undefined;
+  private mindClearResetPasswordUri: string | undefined;
 
   // replace the public constructor with a private one…
   private constructor() {}
@@ -122,6 +124,38 @@ export class ConfigService {
     if (ids.ios) {
       this.googleIosClientId = ids.ios;
     }
+  }
+
+  // Deep Link Configuration
+  setMindClearUris(uris: { confirm?: string; reset?: string }) {
+    if (uris.confirm) {
+      this.mindClearConfirmUri = uris.confirm;
+    }
+    if (uris.reset) {
+      this.mindClearResetPasswordUri = uris.reset;
+    }
+  }
+
+  getMindClearConfirmUri(): string {
+    const uri = this.mindClearConfirmUri || process.env.MINDCLEAR_CONFIRM_URI;
+    if (!uri) {
+      if (__DEV__ && this.shouldWarnAboutMissingConfig()) {
+        console.warn('MINDCLEAR_CONFIRM_URI is not set - using default mindclear://confirm');
+      }
+      return 'mindclear://confirm';
+    }
+    return uri;
+  }
+
+  getMindClearResetPasswordUri(): string {
+    const uri = this.mindClearResetPasswordUri || process.env.MINDCLEAR_RESET_PASSWORD_URI;
+    if (!uri) {
+      if (__DEV__ && this.shouldWarnAboutMissingConfig()) {
+        console.warn('MINDCLEAR_RESET_PASSWORD_URI is not set - using default mindclear://reset-password');
+      }
+      return 'mindclear://reset-password';
+    }
+    return uri;
   }
 
   getGoogleWebClientId(): string {

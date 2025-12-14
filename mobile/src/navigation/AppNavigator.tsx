@@ -8,6 +8,7 @@ import { authService } from '../services/auth';
 import { navigationRef } from './navigationRef';
 import { OnboardingService } from '../services/onboarding';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { configService } from '../services/config';
 
 // Import screens directly for now to fix lazy loading issues
 import LoginScreen from '@src/screens/auth/LoginScreen';
@@ -54,7 +55,7 @@ export default function AppNavigator() {
       if (!url) return;
       
       // Check if it's a confirmation link
-      if (url.includes('mindclear://confirm')) {
+      if (url.includes(configService.getMindClearConfirmUri())) {
         const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         // Use code if available, fallback to token (magic link) or access_token (legacy)
         const authCode = code || token || access_token;
@@ -80,7 +81,7 @@ export default function AppNavigator() {
       }
       
       // Check if it's a password reset link
-      if (url.includes('mindclear://reset-password')) {
+      if (url.includes(configService.getMindClearResetPasswordUri())) {
         const { access_token, token } = parseAccessTokenFromUrl(url);
         const navToken = access_token || token;
         if (navToken) {
@@ -106,7 +107,7 @@ export default function AppNavigator() {
     const handleUrl = (url?: string | null) => {
       if (!url) return;
       // Check if it's a confirmation link
-      if (url.includes('mindclear://confirm')) {
+      if (url.includes(configService.getMindClearConfirmUri())) {
         const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         const authCode = code || token || access_token;
         
@@ -121,7 +122,7 @@ export default function AppNavigator() {
       }
       
       // Check if it's a password reset link
-      if (url.includes('mindclear://reset-password')) {
+      if (url.includes(configService.getMindClearResetPasswordUri())) {
         const { access_token, token } = parseAccessTokenFromUrl(url);
         const navToken = access_token || token;
         if (navToken && navigationRef.current) {
