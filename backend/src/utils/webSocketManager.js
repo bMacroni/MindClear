@@ -8,12 +8,15 @@ class WebSocketManager {
     this.wss = null;
     // Initialize Supabase client for JWT verification (supports new signing keys via JWKS)
     this.supabase = null;
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
-      this.supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-    }
   }
 
   init(server) {
+    // Initialize Supabase client if not already initialized
+    if (!this.supabase && process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+      this.supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+      logger.info('WebSocketManager: Supabase client initialized');
+    }
+
     this.wss = new WebSocketServer({ server });
 
     this.wss.on('connection', (ws, req) => {
