@@ -15,18 +15,22 @@ const SecureStorageAdapter = {
       await EncryptedStorage.setItem(key, value);
       // Double check write
       const check = await EncryptedStorage.getItem(key);
-      if (!check) console.error(`[SecureStorageAdapter] Failed to write key: ${key}`);
+      if (check !== value) {
+        const error = new Error(`Failed to verify write for key: ${key}`);
+        console.error('[SecureStorageAdapter] setItem verification failed:', error);
+        throw error;
+      }
     } catch (error) {
       console.error('SecureStorageAdapter.setItem error:', error);
+      throw error;
     }
-  },
-  removeItem: async (key: string): Promise<void> => {
+  },  removeItem: async (key: string): Promise<void> => {
     try {
       await EncryptedStorage.removeItem(key);
     } catch (error) {
       console.error('SecureStorageAdapter.removeItem error:', error);
+      throw error;
     }
-  },
-};
+  },};
 
 export default SecureStorageAdapter;

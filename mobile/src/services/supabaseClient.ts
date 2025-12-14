@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AppState } from 'react-native';
+
 import SecureStorageAdapter from '../utils/secureStorageAdapter';
 import secureConfigService from './secureConfig';
 
@@ -45,7 +45,7 @@ const getSupabaseClient = (): SupabaseClient => {
         eventsPerSecond: 10,
       },
     },
-    // AppState handler for pausing Realtime connections when app is in background
+     global: {
     global: {
       headers: {
         'X-Client-Info': 'MindClear-Mobile-App/1.0.0',
