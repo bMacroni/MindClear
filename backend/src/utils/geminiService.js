@@ -313,11 +313,19 @@ Respond ONLY with a JSON array.`;
       this._addToHistory(userId, threadId, { role: 'user', content: filteredMessage.content });
       // Add a system prompt to instruct Gemini to use functions
       // --- Add today's date to the prompt ---
-      const today = new Date();
-      const options = { year: 'numeric', month: 'long', day: 'numeric' };
-      const todayString = today.toLocaleDateString('en-US', options);
-      const moodLine = userContext.mood ? `User mood: ${userContext.mood}. Adjust tone accordingly (be concise, supportive, and match energy).` : '';
       const tz = userContext.timeZone || 'America/Chicago';
+      const today = new Date();
+      const options = { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: tz,
+        timeZoneName: 'short'
+      };
+      const todayString = today.toLocaleString('en-US', options);
+      const moodLine = userContext.mood ? `User mood: ${userContext.mood}. Adjust tone accordingly (be concise, supportive, and match energy).` : '';
       const systemPrompt = `Today's date is ${todayString}.
 
 ${moodLine}

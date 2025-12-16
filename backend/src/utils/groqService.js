@@ -142,9 +142,17 @@ class GroqService {
       };
     }
 
-    const today = new Date();
-    const todayString = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const tz = userContext.timeZone || 'America/Chicago';
+    const today = new Date();
+    const todayString = today.toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      timeZone: tz,
+      timeZoneName: 'short'
+    });
     const moodLine = userContext.mood ? `User mood: ${userContext.mood}. Match tone and keep language supportive.` : '';
 
     // Mirror the curated system prompt used for Gemini to keep behavior consistent
