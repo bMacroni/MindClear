@@ -36,6 +36,16 @@ export class ConfigService {
     if (!ConfigService.instance) {
       ConfigService.instance = new ConfigService();
       await ConfigService.instance.loadConfig();
+
+      // Validate that we have a valid base URL
+      const baseUrl = ConfigService.instance.getBaseUrl();
+      if (!baseUrl || baseUrl.trim() === '') {
+        throw new Error(
+          'API base URL is not configured. Please set one of the following environment variables:\n' +
+          '- For local: SECURE_API_BASE, API_BASE_URL, or API_FALLBACK\n' +
+          '- For production: PRODUCTION_API_URL'
+        );
+      }
     }
     return ConfigService.instance;
   }
