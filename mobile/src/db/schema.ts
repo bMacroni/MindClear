@@ -1,7 +1,7 @@
 import {appSchema, tableSchema} from '@nozbe/watermelondb';
 
 export const mySchema = appSchema({
-  version: 5, // Incremented to add category field to tasks table
+  version: 6, // Incremented to add auto_schedule_enabled to tasks table
   tables: [
     tableSchema({
       name: 'goals',
@@ -60,6 +60,7 @@ export const mySchema = appSchema({
         {name: 'is_today_focus', type: 'boolean', isOptional: true},
         {name: 'location', type: 'string', isOptional: true}, // Task location for travel preference
         {name: 'category', type: 'string', isOptional: true}, // Task category (e.g., "Digital Hygiene", "Health", etc.)
+        {name: 'auto_schedule_enabled', type: 'boolean', isOptional: true},
       ],
     }),
     tableSchema({

@@ -35,6 +35,17 @@ export default schemaMigrations({
         }),
       ],
     },
+    {
+      toVersion: 6,
+      steps: [
+        addColumns({
+          table: 'tasks',
+          columns: [
+            {name: 'auto_schedule_enabled', type: 'boolean', isOptional: true},
+          ],
+        }),
+      ],
+    },
   ],
 });
 
