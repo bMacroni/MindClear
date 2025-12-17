@@ -28,9 +28,13 @@ class GroqService {
       if (fencedMatch?.[1]) {
         const obj = JSON.parse(fencedMatch[1]);
         const category = String(obj?.category || '').toLowerCase();
-        if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
-          return obj.message.trim();
+      // Fix: Handle general category with message OR details
+      if (category === 'general') {
+        const text = obj.message || obj.details || obj.title;
+        if (typeof text === 'string' && text.trim() !== '') {
+          return text.trim();
         }
+      }
         return message;
       }
 

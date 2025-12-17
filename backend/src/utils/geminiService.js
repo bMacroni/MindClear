@@ -1378,8 +1378,12 @@ Make the milestones and steps specific to this goal, encouraging, and achievable
       if (!match || !match[1]) return message;
       const obj = JSON.parse(match[1]);
       const category = String(obj?.category || '').toLowerCase();
-      if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
-        return obj.message.trim();
+      // Fix: Handle general category with message OR details
+      if (category === 'general') {
+        const text = obj.message || obj.details || obj.title;
+        if (typeof text === 'string' && text.trim() !== '') {
+          return text.trim();
+        }
       }
       return message;
     } catch (_) {

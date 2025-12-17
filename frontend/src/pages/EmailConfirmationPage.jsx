@@ -170,7 +170,7 @@ const EmailConfirmationPage = () => {
           <p className="text-sm text-gray-500 mb-3">Don't have the app yet?</p>
           <div className="flex gap-3 justify-center">
             <a
-              href="https://play.google.com/store"
+              href="https://play.google.com/store/apps/details?id=com.foci.mobile"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-900 transition-all duration-200 text-sm font-medium"
