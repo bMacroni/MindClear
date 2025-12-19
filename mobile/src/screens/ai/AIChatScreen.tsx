@@ -356,6 +356,27 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
   // Get current conversation with messages
   const currentConversation = useMemo(() => {
+    // If currentConversationId is empty, check for temp threads with messages
+    if (!currentConversationId) {
+      const tempThreadKeys = Object.keys(messagesByThread).filter(key => key.startsWith('temp-thread-'));
+      if (tempThreadKeys.length > 0) {
+        // Use the most recent temp thread (last one)
+        const latestTempThreadId = tempThreadKeys[tempThreadKeys.length - 1];
+        const messages = messagesByThread[latestTempThreadId] || [];
+        if (messages.length > 0) {
+          return {
+            id: latestTempThreadId,
+            title: 'New Conversation',
+            messages,
+            isPinned: false,
+            createdAt: new Date(),
+            lastMessageAt: new Date(),
+          };
+        }
+      }
+      return null;
+    }
+    
     // Handle temporary thread IDs (for new conversations before server responds)
     if (currentConversationId.startsWith('temp-thread-')) {
       const messages = messagesByThread[currentConversationId] || [];
@@ -1315,11 +1336,6 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     // For new conversations, use a temporary thread ID so optimistic messages display immediately
     const tempThreadId = threadIdToUse || `temp-thread-${Date.now()}`;
     
-    // If this is a new conversation, set the temp thread ID immediately so messages show
-    if (!threadIdToUse) {
-      setCurrentConversationId(tempThreadId);
-    }
-    
     // Create temporary IDs for optimistic updates
     const tempUserMessageId = `temp-user-${Date.now()}-${Math.random()}`;
     const tempAiMessageId = `temp-ai-${Date.now()}-${Math.random()}`;
@@ -1341,12 +1357,18 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       status: 'pending',
     };
 
-    // Update state immediately
+    // Update state immediately - batch both updates together to ensure they're synchronized
+    // If this is a new conversation, set the temp thread ID AND add messages in the same batch
+    if (!threadIdToUse) {
+      setCurrentConversationId(tempThreadId);
+    }
+    
     setMessagesByThread(prev => {
       const currentMsgs = prev[tempThreadId] || [];
+      const newMessages = [...currentMsgs, optimisticUserMessage, optimisticAiMessage];
       return {
         ...prev,
-        [tempThreadId]: [...currentMsgs, optimisticUserMessage, optimisticAiMessage],
+        [tempThreadId]: newMessages,
       };
     });
     
