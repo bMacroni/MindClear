@@ -1509,12 +1509,46 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
                  // Trigger background sync to reconcile IDs
                  syncService.silentSync().catch(() => {});
                  
-                 // Update title if needed
-                 if (modelMode === 'smart' || !threadIdToUse) { // only check title updates for new or smart
-                    mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread).then(msgs => {
-                       // logic to update title if generic...
+                 // Update title if needed (for both fast and smart modes, especially for new conversations)
+                 mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread).then(async (msgs) => {
+                       try {
+                         // Check if current title is generic
+                         const currentThread = threads.find(t => t.id === serverThreadId);
+                         if (!currentThread) return;
+                         
+                         const genericTitles = [
+                           'New Conversation',
+                           'New Goal',
+                           'Conversation',
+                           'Goal Planning',
+                           'Scheduling Help'
+                         ];
+                         
+                         const isGenericTitle = genericTitles.some(
+                           generic => currentThread.title.toLowerCase() === generic.toLowerCase()
+                         );
+                         
+                         // Only update if title is generic and we have enough messages
+                         if (isGenericTitle && msgs.length >= 2) {
+                           const newTitle = generateConversationTitle(msgs);
+                           
+                           // Only update if new title is different and more meaningful
+                           if (newTitle && 
+                               newTitle.toLowerCase() !== currentThread.title.toLowerCase() &&
+                               newTitle.length > 5 &&
+                               !genericTitles.some(gt => newTitle.toLowerCase() === gt.toLowerCase())) {
+                             await conversationRepository.updateThread(serverThreadId!, {
+                               title: newTitle
+                             });
+                             // Trigger sync to update server
+                             syncService.silentSync().catch(() => {});
+                           }
+                         }
+                       } catch (titleError) {
+                         logger.warn('Failed to update conversation title:', titleError);
+                         // Don't throw - title update is non-critical
+                       }
                     });
-                 }
                });
             }
             
