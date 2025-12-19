@@ -35,6 +35,117 @@ router.post('/chat', requireAuth, async (req, res) => {
     // Extract JWT token from Authorization header
     const token = req.headers.authorization?.split(' ')[1];
 
+    // Check for SSE request
+    if (req.headers.accept === 'text/event-stream') {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      let finalThreadId = threadId;
+      let fullMessage = '';
+      let accumulatedActions = [];
+      let modelProvider = mode === 'fast' ? 'groq' : 'gemini';
+
+      try {
+        // Auto-create thread if needed
+        if (!finalThreadId) {
+          try {
+            const newThread = await conversationController.createThread(userId, null, null, token);
+            finalThreadId = newThread.id;
+            logger.info('Auto-created thread for new conversation (SSE)', { threadId: finalThreadId, userId });
+            // Send threadId immediately
+            res.write(`data: ${JSON.stringify({ type: 'meta', threadId: finalThreadId })}\n\n`);
+          } catch (threadError) {
+            logger.error('Failed to auto-create thread (SSE):', threadError);
+            res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to create thread' })}\n\n`);
+            return res.end();
+          }
+        } else {
+           // Send threadId confirmation
+           res.write(`data: ${JSON.stringify({ type: 'meta', threadId: finalThreadId })}\n\n`);
+        }
+
+        // Save user message immediately
+        try {
+           await conversationController.addMessageToThread(finalThreadId, userId, message, 'user', { mood: moodHeader });
+        } catch (dbError) {
+           logger.error('Database save error (User Message SSE):', dbError);
+        }
+
+        const stream = mode === 'fast'
+          ? await groqService.streamMessage(message, userId, finalThreadId, { token, mood: moodHeader, timeZone: timeZoneHeader })
+          : await geminiService.streamMessage(message, userId, finalThreadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
+
+        for await (const chunk of stream) {
+          if (chunk.type === 'token') {
+            res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            // Only accumulate if content is present to avoid appending undefined
+            if (chunk.content) fullMessage += chunk.content;
+          } else if (chunk.type === 'finish') {
+            accumulatedActions = chunk.actions || [];
+            fullMessage = chunk.message || fullMessage; // Ensure we have the final sanitized message
+            modelProvider = chunk.provider || modelProvider;
+            
+            // Send finish event with final data
+            res.write(`data: ${JSON.stringify({ 
+              type: 'finish', 
+              message: fullMessage, 
+              actions: accumulatedActions,
+              provider: modelProvider
+            })}\n\n`);
+          }
+        }
+
+        // Save AI response to database
+        if (fullMessage) {
+          try {
+            await conversationController.addMessageToThread(finalThreadId, userId, fullMessage, 'assistant', { actions: accumulatedActions });
+            
+            // Track analytics
+            const { createClient } = await import('@supabase/supabase-js');
+            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+            await supabase
+              .from('analytics_events')
+              .insert({
+                user_id: userId,
+                event_name: 'ai_message_processed',
+                payload: {
+                  has_actions: accumulatedActions.length > 0,
+                  action_count: accumulatedActions.length,
+                  message_length: message.length,
+                  mood: moodHeader || null,
+                  model_mode: mode,
+                  thread_id: finalThreadId,
+                  timestamp: new Date().toISOString(),
+                  stream: true
+                }
+              });
+          } catch (dbError) {
+            logger.error('Database save error (AI Response SSE):', dbError);
+          }
+        }
+
+        res.end();
+
+      } catch (error) {
+        logger.error('SSE Stream Error:', error);
+        // Attempt to save partial message if we have something
+        if (finalThreadId && fullMessage) {
+           try {
+             await conversationController.addMessageToThread(finalThreadId, userId, fullMessage, 'assistant', { error: 'stream_interrupted' });
+           } catch (e) { /* ignore */ }
+        }
+        if (!res.headersSent) {
+           res.status(500).json({ error: 'Stream failed' });
+        } else {
+           res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream interrupted' })}\n\n`);
+           res.end();
+        }
+      }
+      return;
+    }
+
     // Process message with Gemini service, passing token and mood in userContext
     logger.info('Processing AI chat message', { 
       userId, 

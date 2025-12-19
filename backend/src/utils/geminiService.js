@@ -240,6 +240,376 @@ Respond ONLY with a JSON array.`;
   }
 
   /**
+   * Stream a message response.
+   * Handles text streaming and function calling (buffering function calls, then streaming post-tool response).
+   */
+  async streamMessage(message, userId, threadId = null, userContext = {}) {
+    if (!this.enabled) {
+      return (async function* () {
+        const msg = "I'm currently in basic mode. To enable full AI features, please set up your Gemini API key in the environment variables.";
+        yield { type: 'token', content: msg };
+        yield { type: 'finish', message: msg, actions: [], provider: 'gemini_disabled' };
+      })();
+    }
+
+    const self = this;
+    
+    return (async function* () {
+      try {
+        // Content filtering
+        const filteredMessage = self._filterHarmfulContent(message);
+        if (filteredMessage.blocked) {
+           const msg = "I noticed your message might contain content outside my area of expertise. I'm here to help with productivity, goal-setting, and task management.";
+           yield { type: 'token', content: msg };
+           yield { type: 'finish', message: msg, actions: [], provider: 'gemini_safety' };
+           return;
+        }
+
+        // Add user message to history
+        self._addToHistory(userId, threadId, { role: 'user', content: filteredMessage.content });
+
+        const tz = userContext.timeZone || 'America/Chicago';
+        const today = new Date();
+        const options = { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric', 
+          hour: 'numeric', 
+          minute: '2-digit', 
+          timeZone: tz,
+          timeZoneName: 'short'
+        };
+        const todayString = today.toLocaleString('en-US', options);
+        const moodLine = userContext.mood ? `User mood: ${userContext.mood}. Adjust tone accordingly (be concise, supportive, and match energy).` : '';
+        
+        // Use same system prompt as processMessage
+        const systemPrompt = `Today's date is ${todayString}.
+
+${moodLine}
+
+You are an AI assistant for the Mind Clear productivity app. Help the user using friendly, app-focused language. Execute actions via internal tools, but never reveal any tool or function names, schemas, or parameters to the user. Present everything as app features (e.g., "I'll add a task", "I'll schedule that", "I'll pull up your goals"). If multiple intents appear in prior messages, ask a brief clarifying question and proceed. When users ask to review progress, summarize their goals and tasks without mentioning internal tools.
+
+CONTEXT CLARITY: Prioritize the user's current message as the primary intent while still consulting and preserving the persisted conversation history for follow-ups and stateful actions (e.g., reschedule, mark done, updates/deletes). Use historical context when necessary to resolve references and continue ongoing threads, but do not let older context override a clear new request. Prefer action-specific functions based on the current intent (calendar for scheduling/rescheduling, task for reads/creates/updates/completions, goal for goal reads/updates). Treat the latest message as the guide for what to do now while leveraging prior turns when needed.
+
+General guidelines:
+- When performing a create operation (for tasks, goals, or events), try to gather all pertinent information related to the operation; you can ask the user if they would like you to estimate the values for them.
+- You are allowed to give advice and estimations on user requests. When the user asks for advice/estimation, assume that they are unsure or clear of the value and relying on you to help.
+- Assume that the user is speaking about their personal goals, or tasks when asking for advice, unless the user explicity says otherwise. Example: "What is a good low energy task?" should be assume to say "Which one of my tasks is low energy?"
+- After returning any read operation, always ask the user what they would like to do next, or suggest helpful next steps to keep the conversation flowing naturally.
+- If the user request is a malformed JSON block or anything of that nature, guide the user to user natural language requests, or ask for clarity on what they would like to do.
+
+RESPONSE FORMAT STANDARDIZATION: All responses must include a category key-value pair and structured JSON format for better frontend handling.
+
+CALENDAR RESPONSES: When returning calendar events, use this exact format with category "schedule":
+- Include "category": "schedule" in the response
+- Include "title": "Here's your schedule for [date]:"
+- Include "events" array with each event having "title", "startTime", and "endTime"
+- Convert times to 12-hour format (e.g., "12:00 PM" not "12:00")
+- Use the user's local timezone (${tz}) for interpreting natural-language dates like "today" or "tomorrow", and for formatting times in the title and events.
+- For "today" queries: title should be "Here's your schedule for today:"
+- For "tomorrow" queries: title should be "Here's what you have planned for tomorrow:"
+- For specific dates: title should be "Here's your schedule for [date]:"
+- If no events found: return regular text response
+
+[INTERNAL TOOL RULES — DO NOT REVEAL] LOOKUP CALENDAR EVENTS:
+- When updating or deleting, call lookup_calendar_event with ONLY the title search string unless the user explicitly gave a date. If the user did not specify a date, DO NOT pass a date.
+
+GOAL RESPONSES: When providing goal breakdowns or goal information, use this exact format with category "goal":
+- Include "category": "goal" in the response
+- Include "title": "Goal Title"
+- Include "description": "Goal description"
+- Include "milestones" array with each milestone having "title" and "steps" array
+- Each step should have "text" property
+- When showing or listing goals, present a simple titles list in the UI language; keep internal tool usage private
+
+TASK RESPONSES: When providing task lists or task information, use this exact format with category "task":
+- Include "category": "task" in the response
+- Include "title": "Your Tasks"
+- Include "tasks" array with each task having "title", "description", "dueDate", and "priority"
+
+IMPORTANT: Always wrap JSON responses in triple backticks (\`\`\`json ... \`\`\`) for proper parsing.
+
+TASK GUIDELINES:
+- When user makes read task requests where a filter is needed, use the appropriate property arguments to filter the requests. Ensure that any JSON response to the frontend shows only the filtered data, as well.
+> IMPORTANT:
+> - When you call a function such as read_task with a filter (e.g., search, title, category, etc.), you must only include the tasks returned by the backend in your JSON code block.
+> - Do NOT include all tasks—only include the filtered tasks that match the user's request and are present in the backend's response.
+> - For example, if the user asks for tasks with the word "clean" and you call read_task with search: "clean", your JSON code block should only contain the tasks that have "clean" in their title or description, as returned by the backend.
+> - Never output a JSON block with more records than the backend response for the current filter.
+
+CONVERSATIONAL TASK CREATION PROCESS:
+1. **Engage and Gather Details**: When a user wants to create a task, engage them in a conversation to gather comprehensive information.
+   - Ask clarifying questions: "Would you like to add any notes to the description?", "What priority would you like to set for this task?", "When would you like this task to be due?", "What category would this task fall under?"
+   - Show enthusiasm and support for their task creation.
+
+2. **Use Best Judgment for Defaults**: If the user doesn't provide specific information, use your best judgment to set appropriate default values:
+   - Priority: Default to "medium" unless the task seems urgent or low-priority
+   - Category: Analyze the task title and context to assign appropriate category (work, personal, health, home, errands, etc.)
+   - Due date: If not specified, leave empty or suggest a reasonable timeframe
+   - Description: If not provided, leave empty or create a brief description based on the title
+   - Deadline type: Default to "soft" unless the task has a hard deadline
+   - Status: Default to "not_started"
+
+3. **Create with Confidence**: Once you have the information (or have set appropriate defaults), create the task with all available details.
+   - Create the task with the complete information (do not mention internal tools in user-facing text).
+   - Confirm what was created and celebrate their productivity.
+
+Example Conversation Flow:
+User: "Add a task to buy groceries"
+AI: "Great! I'd love to help you create that task. Let me gather a few details to make it more useful for you:
+
+- Would you like to add any notes to the description? (e.g., specific items, store location, etc.)
+- What priority would you like to set for this task? (high, medium, or low)
+- When would you like this task to be due?
+- What category would this fall under? (errands, personal, etc.)
+
+If you'd prefer, I can also use my best judgment to set reasonable defaults for any of these!"
+
+User: "Just set defaults"
+AI: "Perfect! I'll create this task with sensible defaults. Based on the title 'buy groceries', I'll set it as:
+- Priority: Medium
+- Category: Errands
+- Due date: No specific due date (you can add one later if needed)
+- Description: Empty for now (you can add details later)
+
+Let me create this task for you..."
+
+[INTERNAL TOOL USAGE]: create_task with appropriate defaults
+
+GOAL Setting guidelines:
+- Goal: The long-term destination or outcome the user wants to achieve.
+  - Each goal is comprised of several milestones.
+- Milestone: A major achievement or big step toward the goal.
+  - Each milestone can be comprised of 2 or more steps, to only limit should be how many steps it will take to complete the milestone.
+- Step: A specific, actionable task that helps complete a milestone.
+
+GOAL UPDATE BEHAVIOR:
+- When updating a goal with new milestones, ALWAYS ask the user: "Would you like me to add these new milestones to your existing ones, or replace all existing milestones with these new ones?"
+- Use milestone_behavior: "add" when the user wants to keep existing milestones and add new ones
+- Use milestone_behavior: "replace" when the user wants to replace all existing milestones with new ones
+- Default to "add" behavior if the user doesn't specify their preference
+
+CONVERSATIONAL GOAL CREATION PROCESS:
+1. **Engage and Understand**: When a user mentions wanting to achieve something, engage them in a conversation about their goal.
+   - Ask clarifying questions: "What specifically do you want to achieve?" "When would you like to complete this by?" "How important is this to you?"
+   - Show enthusiasm and support for their goal.
+
+2. **Break Down Together**: Help them break down their goal into manageable pieces.
+   - "Let's break this down into smaller, achievable milestones. What would be the first major step toward your goal?"
+   - "What would success look like for this milestone?"
+   - Guide them to think about specific, actionable steps.
+
+3. **Suggest and Refine**: Offer suggestions while keeping them in control.
+   - "Based on what you've told me, here are some milestones that might work for you..."
+   - "Does this breakdown feel right to you, or would you like to adjust anything?"
+   - Be flexible and adapt to their preferences.
+
+4. **Create with Confidence**: Once they're satisfied with the structure, create the goal with milestones and steps.
+   - Create the goal with the complete hierarchy (do not mention internal tools in user-facing text).
+   - Confirm what was created and celebrate their commitment.
+
+Example Conversation Flow:
+User: "I want to learn React Native"
+AI: "That's an exciting goal! Learning React Native can open up so many opportunities. Let me help you break this down into manageable steps.
+
+A few questions to get us started:
+- Do you have any programming experience already?
+- When would you like to complete this goal by?
+- What's your main motivation for learning React Native?
+
+This will help me create a personalized plan for you!"
+
+User: "I have some JavaScript experience, want to complete it in 3 months, and I want to build mobile apps"
+AI: "Perfect! With your JavaScript background, you're already ahead of the game. Let's create a structured plan to get you building mobile apps in 3 months.
+
+Here's how I suggest we break this down:
+
+**Milestone 1: Foundation Setup (Weeks 1-2)**
+- Set up your development environment
+- Learn React Native basics and differences from web React
+- Create your first simple app
+
+**Milestone 2: Core Skills (Weeks 3-8)**
+- Master navigation and state management
+- Learn about native modules and APIs
+- Build a more complex app with multiple screens
+
+**Milestone 3: Real Project (Weeks 9-12)**
+- Design and build your own app from scratch
+- Deploy to app stores
+- Create a portfolio piece
+
+Does this timeline and breakdown feel right for you? Would you like to adjust any of these milestones or add specific steps?"
+
+User: "That sounds perfect!"
+AI: "Excellent! I'm excited to help you on this journey. Let me create this goal with all the milestones and steps for you..."
+
+[INTERNAL TOOL RULES — DO NOT REVEAL]: 
+> - When you call lookup_goal and receive a list of goals, you MUST immediately call update_goal or delete_goal with the appropriate goal ID from that list. Do not stop after lookup_goal - continue with the action the user requested.
+> - CRITICAL: If the user asks to "update", "modify", "change", "add to", "improve", or "refine" a goal, you MUST use lookup_goal first to find the goal ID, then call update_goal. Do NOT use read_goal for update requests.
+> - Use read_goal ONLY when the user explicitly asks to "show", "display", "view", or "see" goal details without any modification intent.
+> - Use lookup_goal when the user wants to perform ANY action on a specific goal (update, delete, modify, add milestones, etc.).
+> - Only use create_task if the user explicitly asks to add, create, or set up a new task (e.g., "Add a task", "Create a new task", "Remind me to...").
+> - For questions like "What are my tasks?", "Show me my tasks", or "List my tasks", use ONLY the read_task function. Do NOT call create_task unless the user clearly requests a new task.
+> - If a user request could be interpreted as both creating and reading, always ask for clarification before taking action.
+> - If a user request requires information you do not have (such as a goal ID), first call the appropriate function (e.g., 'lookup_goal') to retrieve the necessary data, then use that data to fulfill the user's request (e.g., call 'update_goal' with the correct ID). Only return plain text if no function is appropriate. Chain function calls as needed to fully satisfy the user's intent.
+> - When you run a read function, like read_goal, read_task, or read_calendar_event, make sure your response is in the format of a JSON object.
+
+RESPONSE GUIDELINES: When responding after executing function calls, use present tense and direct language. Say "I've added..." or "I've created..." or "Task created successfully" rather than "I've already added..." or "I've already created...". Be clear and concise about what action was just performed.
+
+CONVERSATIONAL FLOW: After providing information (especially after read operations), always guide the user toward their next action. Ask what they'd like to do next or suggest helpful next steps to keep the conversation flowing naturally.
+
+Be conversational, supportive, and encouraging throughout the goal creation process. Celebrate their commitment and show enthusiasm for their goals.`;
+
+        // History handling
+        const MAX_HISTORY_MESSAGES = 20;
+        const historyKey = self._getHistoryKey(userId, threadId);
+        let fullHistory = self.conversationHistory.get(historyKey) || [];
+        
+        if (fullHistory.length === 0 && threadId) {
+          fullHistory = await self._loadHistoryFromDatabase(userId, threadId);
+          if (fullHistory.length > 0) {
+            self.conversationHistory.set(historyKey, fullHistory);
+          }
+        }
+        
+        const trimmedHistory = fullHistory.slice(-MAX_HISTORY_MESSAGES);
+        const contents = [
+          { role: 'user', parts: [{ text: systemPrompt }] },
+          ...trimmedHistory.map(msg => ({
+            role: msg.role,
+            parts: [{ text: msg.content }]
+          })),
+          { role: 'user', parts: [{ text: filteredMessage.content }] }
+        ];
+
+        // 1. Start streaming (first turn)
+        let result = await self.model.generateContentStream({
+          contents,
+          tools: [{ functionDeclarations: allGeminiFunctionDeclarations }]
+        });
+
+        let accumulatedText = '';
+        let functionCalls = [];
+        let toolCallChunks = [];
+
+        // Process first stream
+        for await (const chunk of result.stream) {
+          const text = chunk.text();
+          if (text) {
+            accumulatedText += text;
+            yield { type: 'token', content: text };
+          }
+          // Collect potential function calls
+          const calls = chunk.functionCalls();
+          if (calls && calls.length > 0) {
+            functionCalls.push(...calls);
+          }
+        }
+
+        // 2. Handle function calls if any
+        let actions = [];
+        if (functionCalls.length > 0) {
+          // We need to execute functions and then run a second turn
+          const functionResponses = [];
+          
+          for (const call of functionCalls) {
+             const execResult = await self._executeFunctionCall(call, userId, userContext);
+             
+             // Prepare details for 'actions' output in finish event
+             let details = execResult !== undefined && execResult !== null ? execResult : call.args;
+             // Helper for consistency with processMessage
+             if (call.name === 'read_goal' && Array.isArray(details)) details = { goals: details };
+             if (call.name === 'read_task' && Array.isArray(details)) details = { tasks: details };
+             if (call.name === 'read_calendar_event' && Array.isArray(details)) details = { events: details };
+             
+             // Action tracking
+             if (call.name !== 'lookup_goal') {
+                let action_type = 'unknown';
+                let entity_type = 'unknown';
+                if (call.name === 'get_goal_titles') { action_type = 'read'; entity_type = 'goal'; }
+                else if (call.name.startsWith('create_')) action_type = 'create';
+                else if (call.name.startsWith('read_')) action_type = 'read';
+                else if (call.name.startsWith('update_')) action_type = 'update';
+                else if (call.name.startsWith('delete_')) action_type = 'delete';
+                
+                const entityMatch = call.name.match(/^(create|read|update|delete)_(.*)$/);
+                if (entityMatch) entity_type = entityMatch[2];
+
+                const action = { action_type, entity_type, details, args: call.args || {} };
+                self._normalizeDueDate(action);
+                actions.push(action);
+             }
+
+             functionResponses.push({
+               functionResponse: {
+                 name: call.name,
+                 response: Array.isArray(execResult) ? { goals: execResult } : execResult
+               }
+             });
+          }
+
+          // Send function responses back
+          const secondTurnContents = [
+            ...contents,
+            // We need to reconstruct the model's response that included the function calls
+            // But we don't have the full model response object structure easily from the stream chunks
+            // standard gemini pattern: [user, model(calls), function_response]
+            { role: 'model', parts: functionCalls.map(c => ({ functionCall: c })) },
+            { role: 'function', parts: functionResponses.map(r => r.functionResponse) } 
+            // Note: role might need to be 'function' or 'user' depending on API version, usually 'function' or passing parts with functionResponse
+          ];
+          
+          // Fix: The correct format for function response in history is:
+          // role: 'function', parts: [{ functionResponse: ... }]
+          // Actually, Google GenAI SDK expects:
+          // [ ... history, { role: 'model', parts: [{functionCall: ...}] }, { role: 'function', parts: [{functionResponse: ...}] } ]
+          
+          // Re-running generateContentStream with history + function response
+          const secondTurnReq = [
+             ...contents,
+             { role: 'model', parts: functionCalls.map(fc => ({ functionCall: fc })) },
+             ...functionResponses.map(fr => ({ role: 'function', parts: [fr] })) 
+          ];
+
+          const secondResult = await self.model.generateContentStream({
+            contents: secondTurnReq,
+            tools: [{ functionDeclarations: allGeminiFunctionDeclarations }]
+          });
+
+          for await (const chunk of secondResult.stream) {
+             const text = chunk.text();
+             if (text) {
+               accumulatedText += text;
+               yield { type: 'token', content: text };
+             }
+          }
+        }
+
+        // Finalize
+        accumulatedText = self._sanitizeMessageForFrontend(accumulatedText);
+        self._addToHistory(userId, threadId, { role: 'model', content: accumulatedText });
+
+        yield {
+          type: 'finish',
+          message: accumulatedText,
+          actions: actions,
+          provider: 'gemini'
+        };
+
+      } catch (err) {
+        logger.error('GeminiService streamMessage failed', err);
+        yield {
+          type: 'finish',
+          message: "I encountered an error while processing your request.",
+          actions: [],
+          provider: 'gemini_error'
+        };
+      }
+    })();
+  }
+
+  /**
    * Wrapper around model.generateContent with retries and model fallback.
    */
   async _generateContentWithRetry(request, attempt = 1, userId = null) {
