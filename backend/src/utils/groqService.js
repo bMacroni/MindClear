@@ -28,9 +28,13 @@ class GroqService {
       if (fencedMatch?.[1]) {
         const obj = JSON.parse(fencedMatch[1]);
         const category = String(obj?.category || '').toLowerCase();
-        if (category === 'general' && typeof obj.message === 'string' && obj.message.trim() !== '') {
-          return obj.message.trim();
+      // Fix: Handle general category with message OR details
+      if (category === 'general') {
+        const text = obj.message || obj.details || obj.title;
+        if (typeof text === 'string' && text.trim() !== '') {
+          return text.trim();
         }
+      }
         return message;
       }
 
@@ -132,6 +136,255 @@ class GroqService {
     }
   }
 
+  async streamMessage(message, userId, threadId = null, userContext = {}) {
+    if (!this.enabled) {
+      logger.warn('GROQ_API_KEY not set; falling back to Gemini for fast mode (non-streaming)');
+      // Simulate a stream for fallback
+      return (async function* () {
+        yield { type: 'token', content: "Fast model unavailable. Please try again in Smart mode." };
+        yield { type: 'finish', message: "Fast model unavailable. Please try again in Smart mode.", actions: [], provider: 'groq_disabled' };
+      })();
+    }
+
+    const tz = userContext.timeZone || 'America/Chicago';
+    const today = new Date();
+    const todayString = today.toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      timeZone: tz,
+      timeZoneName: 'short'
+    });
+    const moodLine = userContext.mood ? `User mood: ${userContext.mood}. Match tone and keep language supportive.` : '';
+
+    const systemPrompt = [
+      `Today's date is ${todayString}.`,
+      moodLine,
+      `Time zone: ${tz}.`,
+      'You are the Fast (Groq) model for the Mind Clear productivity app. Keep responses concise, supportive, and action-oriented.',
+      'Never expose tools or internals. Present everything as app features (e.g., “I’ll add a task”, “I’ll schedule that”).',
+      'Context clarity: prioritize the latest user message, but also use recent chat history to keep continuity and choose the best next action (do not ignore prior requests/goals/tasks already discussed). Resolve references using recent turns; avoid repeating work already done.',
+      'Task/goal guidance: ask brief clarifying questions when needed, then act with sensible defaults.',
+      'Decision rule: classify intent cleanly —',
+      '• Treat single, concrete actions as tasks (one-off, short, schedulable).',
+      '• Treat multi-step outcomes or learning journeys as goals with milestones (2–5 steps).',
+      '• If unsure, ask one concise clarifier; otherwise pick goal vs task confidently (no hedging).',
+      '• Do not return both a goal and a task for the same request; choose the best fit.',
+      'Goal output: when creating or updating a goal, return exactly ONE JSON block wrapped in ```json ... ``` with category:"goal", title, description, and milestones[{title,steps[{text}]}]. Do not claim anything is saved; present it as a draft. If you truly need a missing detail, ask ONE short clarifier first, otherwise produce the goal block.',
+      'Response format standardization: when returning structured data, wrap JSON in triple backticks.',
+      'Schedule responses (category: schedule): return JSON with title and events[{title,startTime,endTime}] in 12-hour time using the user timezone.',
+      'Goal responses (category: goal): include title, description, milestones[{title,steps[{text}]}].',
+      'Task responses (category: task): include title and tasks[{title,description,dueDate,priority}].',
+      'If no structured data applies, return concise helpful text and suggest a next step.'
+    ].filter(Boolean).join('\n');
+
+    let timeoutId;
+    const timeoutMs = 30000;
+    const controller = new AbortController();
+
+    try {
+      const historyKey = this._getHistoryKey(userId, threadId);
+      let cachedHistory = this._getHistory(historyKey);
+
+      if (cachedHistory.length === 0 && threadId) {
+        const dbHistory = await this._loadHistoryFromDatabase(userId, threadId);
+        if (dbHistory.length > 0) {
+          cachedHistory = dbHistory;
+          this.conversationHistory.set(historyKey, dbHistory);
+        }
+      }
+
+      const trimmedHistory = cachedHistory.slice(-this.MAX_HISTORY_MESSAGES);
+      const messagesPayload = [
+        { role: 'system', content: systemPrompt },
+        ...trimmedHistory.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: message }
+      ];
+
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: this.model,
+          stream: true,
+          messages: messagesPayload,
+          temperature: 0.6,
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        logger.error('Groq API error (stream)', { status: response.status, threadId, userId });
+        throw new Error(`Groq request failed with status ${response.status}`);
+      }
+
+      const self = this;
+      
+      return (async function* () {
+        // Node-fetch doesn't implement standard ReadableStream in all versions, 
+        // but recent versions do. If response.body is a node stream, we handle differently.
+        // Assuming standard fetch behavior or polyfill.
+        const reader = response.body.getReader ? response.body.getReader() : null;
+        
+        // Fallback for Node environment if getReader is not available (common in some fetch implementations)
+        if (!reader) {
+             // Handle node stream
+             const stream = response.body;
+             const decoder = new TextDecoder();
+             let buffer = '';
+             let fullContent = '';
+
+             let isInsideJsonBlock = false;
+
+             for await (const chunk of stream) {
+                buffer += decoder.decode(chunk, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); 
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed === 'data: [DONE]') continue;
+                    if (trimmed.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(trimmed.slice(6));
+                            const token = data.choices?.[0]?.delta?.content || '';
+                            if (token) {
+                                fullContent += token;
+                                // Detect if we entered or exited a JSON block
+                                if (fullContent.includes('```json') && !isInsideJsonBlock) {
+                                    isInsideJsonBlock = true;
+                                } else if (isInsideJsonBlock && fullContent.endsWith('```')) {
+                                    isInsideJsonBlock = false;
+                                }
+
+                                yield { type: 'token', content: token };
+                            }
+                        } catch (e) { }
+                    }
+                }
+             }
+             // Flush buffer
+             if (buffer.trim().startsWith('data: ')) {
+                 try {
+                    const data = JSON.parse(buffer.trim().slice(6));
+                    const token = data.choices?.[0]?.delta?.content || '';
+                    if (token) {
+                      fullContent += token;
+                      yield { type: 'token', content: token };
+                    }
+                 } catch (e) { }
+             }
+
+             const sanitizedContent = self._sanitizeMessageForFrontend(fullContent);
+             await self._addToHistory(userId, threadId, { role: 'user', content: message });
+             await self._addToHistory(userId, threadId, { role: 'assistant', content: sanitizedContent });
+
+             yield {
+                type: 'finish',
+                message: sanitizedContent,
+                actions: [],
+                provider: 'groq'
+             };
+             return;
+        }
+
+        // Standard fetch with getReader
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullContent = '';
+
+        try {
+          let isInsideJsonBlock = false;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); 
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed === 'data: [DONE]') continue;
+              if (trimmed.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(trimmed.slice(6));
+                  const token = data.choices?.[0]?.delta?.content || '';
+                  if (token) {
+                    fullContent += token;
+                    // Detect if we entered or exited a JSON block
+                    // Basic detection: looks for ```json marker
+                    // We only care about entering, as we want to speed up everything after it starts
+                    // or until it closes.
+                    
+                    // Ideally we track state.
+                    // If we are not in block, check if token adds to marker. 
+                    // Simpler: check fullContent for unclosed code block?
+                    
+                    // Let's refine state tracking:
+                    // Count ``` occurrences. Odd number = inside block.
+                    const codeBlockCount = (fullContent.match(/```/g) || []).length;
+                    const isInsideCodeBlock = codeBlockCount % 2 !== 0;
+                    
+                    // Also check if it looks like JSON specifically if we want to be precise, 
+                    // but generally any code block should probably render fast.
+                    
+                    yield { type: 'token', content: token };
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+          
+          if (buffer.trim().startsWith('data: ')) {
+             try {
+                const data = JSON.parse(buffer.trim().slice(6));
+                const token = data.choices?.[0]?.delta?.content || '';
+                if (token) {
+                  fullContent += token;
+                  yield { type: 'token', content: token };
+                }
+             } catch (e) {}
+          }
+
+          const sanitizedContent = self._sanitizeMessageForFrontend(fullContent);
+          await self._addToHistory(userId, threadId, { role: 'user', content: message });
+          await self._addToHistory(userId, threadId, { role: 'assistant', content: sanitizedContent });
+
+          yield {
+            type: 'finish',
+            message: sanitizedContent,
+            actions: [],
+            provider: 'groq'
+          };
+
+        } finally {
+             reader.releaseLock();
+        }
+      })();
+
+    } catch (error) {
+       if (typeof timeoutId !== 'undefined') {
+        clearTimeout(timeoutId);
+      }
+      logger.error('GroqService streamMessage failed', error);
+      return (async function* () {
+         const msg = 'The fast model is temporarily unavailable. Please retry or switch to Smart mode.';
+         yield { type: 'token', content: msg };
+         yield { type: 'finish', message: msg, actions: [], provider: 'groq_error' };
+       })();
+    }
+  }
+
   async processMessage(message, userId, threadId = null, userContext = {}) {
     if (!this.enabled) {
       logger.warn('GROQ_API_KEY not set; falling back to Gemini for fast mode');
@@ -142,9 +395,17 @@ class GroqService {
       };
     }
 
-    const today = new Date();
-    const todayString = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const tz = userContext.timeZone || 'America/Chicago';
+    const today = new Date();
+    const todayString = today.toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      timeZone: tz,
+      timeZoneName: 'short'
+    });
     const moodLine = userContext.mood ? `User mood: ${userContext.mood}. Match tone and keep language supportive.` : '';
 
     // Mirror the curated system prompt used for Gemini to keep behavior consistent

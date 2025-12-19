@@ -186,6 +186,11 @@ export const compressionConfig = compression({
     if (req.headers['cache-control'] && req.headers['cache-control'].includes('no-transform')) {
       return false;
     }
+
+    // Don't compress SSE requests
+    if (req.headers.accept === 'text/event-stream') {
+      return false;
+    }
     
     // Don't compress authenticated endpoints (when req.user exists)
     if (req.user) {

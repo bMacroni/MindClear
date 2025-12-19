@@ -1,4 +1,8 @@
 import { apiService, apiFetch } from './apiService';
+import EventSource from 'react-native-sse';
+import { authService } from './auth';
+import { configService } from './config';
+import secureConfigService from './secureConfig';
 
 export interface ConversationThread {
   id: string;
@@ -212,6 +216,55 @@ export const conversationService = {
         metadata: lastAssistantMessage.metadata,
       },
     };
+  },
+
+  /**
+   * Stream a message to AI chat endpoint using SSE.
+   * Returns an EventSource instance for real-time updates.
+   */
+  async streamMessage(
+    message: string,
+    threadId?: string | null,
+    modelMode: 'fast' | 'smart' = 'fast'
+  ): Promise<EventSource> {
+    const token = await authService.getAuthToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    // Determine base URL (prefer secure config)
+    let baseUrl = '';
+    try {
+      baseUrl = secureConfigService.getApiBaseUrl();
+    } catch (e) {
+      baseUrl = configService.getBaseUrl();
+    }
+    
+    // Construct full URL
+    const url = `${baseUrl}/ai/chat`;
+
+    // Create EventSource with POST method and body
+    // react-native-sse supports custom headers, method, and body in options
+    const es = new EventSource(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        // Pass mood/timezone if available (reading from auth/user preferences would be ideal here, 
+        // but for now we'll rely on what we can pass or what the backend defaults to. 
+        // The AIChatScreen passes these headers usually via apiService. 
+        // We can add them if we had access to them here easily.)
+      },
+      body: JSON.stringify({
+        message,
+        threadId,
+        modelMode
+      })
+    });
+
+    return es;
   },
 };
 

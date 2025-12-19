@@ -51,6 +51,7 @@
     "react-native-screens": "^4.13.0",
     "react-native-sound": "^0.11.2",
     "react-native-sqlite-storage": "^6.0.1",
+    "react-native-sse": "^1.2.1",
     "react-native-svg": "^15.12.1",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-vector-icons": "^10.3.0",
@@ -115,7 +116,6 @@
     "2025-12-09 CST: added dependency 'moti' for task completion celebration animation",
     "2025-12-09 CST: pinned 'react-native-reanimated' to 3.18.0 for RN 0.80 compatibility",
     "2025-12-09 CST: removed react-native-worklets; Reanimated 3.18.0 bundles worklets",
-    "2025-12-09 20:53 CST: added dependency 'react-native-sound' for task completion audio cues",
-    "2025-12-12 CST: added dependency 'react-native-url-polyfill' to fix Supabase URL protocol assignment error on Android"
+    "2025-12-09 20:53 CST: added dependency 'react-native-sound' for task completion audio cues"
   ]
 }

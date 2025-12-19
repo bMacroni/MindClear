@@ -183,6 +183,22 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const [modelMode, setModelMode] = useState<'fast' | 'smart'>('fast');
   const [showModelPicker, setShowModelPicker] = useState(false);
 
+  // Smoothing refs
+  const streamBufferRef = useRef('');
+  const displayedBufferRef = useRef('');
+  const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamCompletedRef = useRef(false);
+  
+  // Clean up interval on unmount
+  useEffect(() => {
+    return () => {
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // Onboarding state management
   const [_onboardingState, setOnboardingState] = useState<OnboardingState>({ isCompleted: false });
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -340,6 +356,31 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
   // Get current conversation with messages
   const currentConversation = useMemo(() => {
+    // If currentConversationId is empty, check for temp threads with messages
+    if (!currentConversationId) {
+      const tempThreadKeys = Object.keys(messagesByThread).filter(key => key.startsWith('temp-thread-'));
+      if (tempThreadKeys.length > 0) {
+        // Use the most recent temp thread by parsing timestamps
+        const latestTempThreadId = tempThreadKeys.reduce((latest, current) => {
+          const latestTime = parseInt(latest.split('-')[2], 10) || 0;
+          const currentTime = parseInt(current.split('-')[2], 10) || 0;
+          return currentTime > latestTime ? current : latest;
+        });
+        const messages = messagesByThread[latestTempThreadId] || [];
+        if (messages.length > 0) {
+          return {
+            id: latestTempThreadId,
+            title: 'New Conversation',
+            messages,
+            isPinned: false,
+            createdAt: new Date(),
+            lastMessageAt: new Date(),
+          };
+        }
+      }
+      return null;
+    }
+    
     // Handle temporary thread IDs (for new conversations before server responds)
     if (currentConversationId.startsWith('temp-thread-')) {
       const messages = messagesByThread[currentConversationId] || [];
@@ -354,8 +395,25 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     }
     
     const thread = threads.find(t => t.id === currentConversationId);
-    if (!thread) return null;
     const messages = messagesByThread[currentConversationId] || [];
+    
+    // If thread doesn't exist in observable yet but we have messages (optimistic updates),
+    // still return a conversation object so messages can be displayed
+    if (!thread) {
+      // Only return conversation if we have messages to show (optimistic updates)
+      if (messages.length > 0) {
+        return {
+          id: currentConversationId,
+          title: 'New Conversation',
+          messages,
+          isPinned: false,
+          createdAt: new Date(),
+          lastMessageAt: new Date(),
+        };
+      }
+      return null;
+    }
+    
     return {
       id: thread.id,
       title: thread.title,
@@ -1240,6 +1298,30 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     return msgs;
   }, [deduplicateMessages, mergeMessagesWithOptimistic]);
 
+  const currentStreamRef = useRef<any>(null);
+  const streamTargetThreadIdRef = useRef<string | null>(null);
+  
+  // Debounce timers for title updates per thread to prevent race conditions
+  const titleUpdateTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const titleUpdateInProgressRef = useRef<Record<string, boolean>>({});
+
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      if (currentStreamRef.current) {
+        currentStreamRef.current.close();
+        currentStreamRef.current = null;
+      }
+      // Clear stream target thread ID ref
+      streamTargetThreadIdRef.current = null;
+      // Clear all title update timers on unmount
+      Object.values(titleUpdateTimersRef.current).forEach(timer => {
+        if (timer) clearTimeout(timer);
+      });
+      titleUpdateTimersRef.current = {};
+    };
+  }, []);
+
   const handleSend = useCallback(async (messageOverride?: string) => {
     const candidate = (messageOverride !== undefined ? String(messageOverride) : input).trim();
     if (!candidate || loading || isSendingRef.current) return;
@@ -1261,24 +1343,20 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     // For new conversations, use a temporary thread ID so optimistic messages display immediately
     const tempThreadId = threadIdToUse || `temp-thread-${Date.now()}`;
     
-    // If this is a new conversation, set the temp thread ID immediately so messages show
-    if (!threadIdToUse) {
-      setCurrentConversationId(tempThreadId);
-    }
-    
     // Create temporary IDs for optimistic updates
     const tempUserMessageId = `temp-user-${Date.now()}-${Math.random()}`;
     const tempAiMessageId = `temp-ai-${Date.now()}-${Math.random()}`;
     
-    // Optimistic UI: Add user message immediately (no sending indicator)
+    // Optimistic UI: Add user message immediately
     const optimisticUserMessage: Message = {
       id: tempUserMessageId,
       text: userMessage,
       sender: 'user',
-      status: 'synced', // No sending indicator needed
+      status: 'synced',
     };
     
     // Optimistic UI: Add "Thinking..." AI message immediately
+    // We will update this message in-place as tokens arrive
     const optimisticAiMessage: Message = {
       id: tempAiMessageId,
       text: 'Thinking...',
@@ -1286,165 +1364,382 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       status: 'pending',
     };
 
-    // Update state immediately for instant feedback using tempThreadId
+    // Update state immediately - batch both updates together to ensure they're synchronized
+    // If this is a new conversation, set the temp thread ID AND add messages in the same batch
+    if (!threadIdToUse) {
+      setCurrentConversationId(tempThreadId);
+    }
+    
     setMessagesByThread(prev => {
       const currentMsgs = prev[tempThreadId] || [];
+      const newMessages = [...currentMsgs, optimisticUserMessage, optimisticAiMessage];
       return {
         ...prev,
-        [tempThreadId]: [...currentMsgs, optimisticUserMessage, optimisticAiMessage],
+        [tempThreadId]: newMessages,
       };
     });
     
     setLoading(true);
 
     // Track serverThreadId so we can preserve it on error
-    let serverThreadId: string | null = null;
-
+    let serverThreadId: string | null = threadIdToUse;
+    // Reset buffers and stream target thread ID ref
+    streamBufferRef.current = '';
+    displayedBufferRef.current = '';
+    streamTargetThreadIdRef.current = null;
+    
     try {
-      // Call AI service - backend will create thread if needed
-      const response = await conversationService.sendMessage(userMessage, threadIdToUse, modelMode);
+      // Close previous stream if exists
+      if (currentStreamRef.current) {
+        currentStreamRef.current.close();
+        currentStreamRef.current = null;
+      }
       
-      // Get the threadId from response (server-created if new conversation)
-      serverThreadId = response.threadId;
-      if (!serverThreadId) {
-        throw new Error('No threadId returned from server');
+      // Clear previous interval if any
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
       }
 
-      // Generate title from user message for new conversations
-      const initialTitle = threadIdToUse ? null : extractTitleFromMessage(userMessage);
-      const threadTitle = initialTitle || 'New Conversation';
+      // Reset stream completion flag for new stream
+      streamCompletedRef.current = false;
 
-      // Create or update thread locally with server threadId
-      let localThread = await conversationRepository.getThreadById(serverThreadId);
-      if (!localThread) {
-        // Thread was created on server, create it locally
-        try {
-          await database.write(async () => {
-            await database.get<ConversationThread>('conversation_threads').create(t => {
-              t._raw.id = serverThreadId!; // Non-null assertion: we throw if serverThreadId is null above
-              t.userId = authService.getCurrentUser()?.id || '';
-              t.title = threadTitle;
-              t.summary = null;
-              t.isActive = true;
-              t.isPinned = false;
-              t.status = 'synced'; // Already on server
-              t.createdAt = new Date();
-              t.updatedAt = new Date();
+      // Capture the target thread ID for this stream session
+      // This prevents race conditions when serverThreadId changes during the stream
+      const streamTargetThreadId = tempThreadId;
+      streamTargetThreadIdRef.current = streamTargetThreadId;
+
+      // Start the smoothing interval
+      streamIntervalRef.current = setInterval(() => {
+        const target = streamBufferRef.current;
+        const current = displayedBufferRef.current;
+        
+        if (current.length < target.length) {
+          // Determine chunk size based on lag to catch up if behind
+          const diff = target.length - current.length;
+          // If we are very far behind (>50 chars), speed up significantly
+          // If moderately behind (>10), speed up a bit
+          // Otherwise 1 char per tick for smooth typing
+          const chunkSize = diff > 50 ? 5 : (diff > 10 ? 2 : 1);
+          
+          const nextChunk = target.slice(current.length, current.length + chunkSize);
+          displayedBufferRef.current += nextChunk;
+          
+          // Update UI state with the displayed buffer
+          // Use the ref to get the current thread ID (may have migrated)
+          const currentThreadId = streamTargetThreadIdRef.current || streamTargetThreadId;
+          setMessagesByThread(prev => {
+            const currentMsgs = prev[currentThreadId] || [];
+            // Optimize: only update if we have the message to avoid unnecessary processing
+            // (though React state updates are batched, mapping is cheap)
+            const updatedMsgs = currentMsgs.map(msg => {
+              if (msg.id === tempAiMessageId) {
+                return {
+                  ...msg,
+                  text: displayedBufferRef.current,
+                  status: 'streaming'
+                };
+              }
+              return msg;
             });
+            return { ...prev, [currentThreadId]: updatedMsgs };
           });
-          localThread = await conversationRepository.getThreadById(serverThreadId!);
-        } catch (threadError: any) {
-          logger.warn('Failed to create thread locally, will retry:', threadError);
-          // Thread might already exist, try to fetch it
-          try {
-            localThread = await conversationRepository.getThreadById(serverThreadId!);
-          } catch (fetchError) {
-            logger.error('Thread not found locally or on server:', fetchError);
-            throw new Error('Thread not found');
+        } else {
+          // Buffer caught up - if stream completed, clear interval
+          if (streamCompletedRef.current && streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
           }
         }
-      }
+      }, 30); // 30ms interval ~ 33fps - better battery efficiency
 
-      // Set current conversation to server thread ID
-      if (serverThreadId !== currentConversationId) {
-        setCurrentConversationId(serverThreadId);
-      }
+      // Call AI service with streaming
+      const eventSource = await conversationService.streamMessage(userMessage, threadIdToUse, modelMode);
+      currentStreamRef.current = eventSource;
 
-      // If we started from a local-only pending thread, clean it up to avoid duplicates
-      if (currentThreadModel && currentThreadModel.status !== 'synced' && currentThreadModel.id !== serverThreadId) {
-        try {
-          await conversationRepository.deleteThread(currentThreadModel.id);
-        } catch (cleanupErr) {
-          logger.warn('Failed to cleanup pending local thread:', cleanupErr);
-        }
-      }
-
-      // Prepare temp message IDs for DB operations
-      const userId = authService.getCurrentUser()?.id || '';
-      const now = new Date();
-      const tempUserMsgId = `temp-${Date.now()}-user`;
-      const tempAiMsgId = `temp-${Date.now()}-ai`;
-
-      // Migrate optimistic messages from tempThreadId to serverThreadId and replace "Thinking..."
-      migrateTempMessagesToServerThread(
-        tempThreadId,
-        serverThreadId,
-        tempAiMessageId,
-        tempUserMessageId,
-        tempAiMsgId,
-        tempUserMsgId,
-        response,
-        userMessage
-      );
-
-      // Create messages locally directly from API response
-      await createMessagesInDatabase(
-        database,
-        serverThreadId,
-        tempUserMsgId,
-        tempAiMsgId,
-        userId,
-        userMessage,
-        response,
-        now
-      );
-      
-      // Trigger background sync to fetch actual message IDs and handle any updates
-      syncService.silentSync().catch(err => {
-        logger.warn('Background sync failed, will retry later:', err);
+      eventSource.addEventListener('open', () => {
+        logger.info('SSE Connection opened');
       });
 
-      // Also update from database to get any messages that might have been created by sync
-      const msgs = serverThreadId 
-        ? await mergeRealMessagesFromDB(serverThreadId, getMessagesForThread)
-        : [];
+      eventSource.addEventListener('message', async (event: any) => {
+        try {
+          if (!event.data) return;
+          const payload = JSON.parse(event.data);
 
-      // Update thread title if needed (only if it's still generic)
-      // This handles cases where the thread was created on the server with a generic title
-      if (localThread && (localThread.title === 'New Conversation' || localThread.title === 'Conversation')) {
-        const newTitle = generateConversationTitle(msgs);
-        // Only update if we got a better title than the generic one
-        if (newTitle && newTitle !== 'New Conversation' && newTitle !== 'Conversation') {
-          await conversationRepository.updateThread(serverThreadId, { title: newTitle });
-          // Trigger background sync for title update
-          syncService.silentSync().catch(err => {
-            logger.warn('Sync failed, will retry:', err);
-          });
+          if (payload.type === 'meta') {
+            // Received real thread ID
+            if (payload.threadId) {
+              serverThreadId = payload.threadId;
+              
+              // Determine title if new conversation
+              if (!threadIdToUse) {
+                 const initialTitle = extractTitleFromMessage(userMessage) || 'New Conversation';
+                 
+                 // Create or update local thread record
+                 // If we have a temp thread, we might want to migrate it or just create the real one
+                 // Logic here mirrors original handleSend but inside the stream
+                 const createLocalThread = async () => {
+                    try {
+                      let localThread = await conversationRepository.getThreadById(serverThreadId!);
+                      if (!localThread) {
+                        await database.write(async () => {
+                          await database.get<ConversationThread>('conversation_threads').create(t => {
+                            t._raw.id = serverThreadId!;
+                            t.userId = authService.getCurrentUser()?.id || '';
+                            t.title = initialTitle;
+                            t.summary = null;
+                            t.isActive = true;
+                            t.isPinned = false;
+                            t.status = 'synced';
+                            t.createdAt = new Date();
+                            t.updatedAt = new Date();
+                          });
+                        });
+                        // Clean up pending local thread if different
+                        if (currentThreadModel && currentThreadModel.id !== serverThreadId) {
+                           try { await conversationRepository.deleteThread(currentThreadModel.id); } catch(e) {}
+                        }
+                      }
+                    } catch (err) {
+                      logger.warn('Error creating local thread from SSE meta:', err);
+                      throw err; // Re-throw to allow caller to handle
+                    }
+                 };
+                 
+                 // Await thread creation before migrating messages to ensure thread exists
+                 try {
+                   await createLocalThread();
+                 } catch (err) {
+                   // Log error but continue with migration since server thread exists
+                   // The local thread creation failure doesn't prevent message display
+                   logger.error('Failed to create local thread, continuing with message migration:', err);
+                 }
+                 
+                 // Update current conversation ID to the real one
+                 if (serverThreadId !== currentConversationId) {
+                   setCurrentConversationId(serverThreadId!);
+                   // Migrate optimistic messages to the new ID in state
+                   setMessagesByThread(prev => {
+                     const msgs = prev[tempThreadId] || [];
+                     const newState = { ...prev };
+                     delete newState[tempThreadId];
+                     newState[serverThreadId!] = msgs;
+                     return newState;
+                   });
+                   
+                   // Update the ref so interval uses the migrated thread ID
+                   streamTargetThreadIdRef.current = serverThreadId;
+                 }
+              }
+            }
+          } else if (payload.type === 'token') {
+            // Append token to buffer
+            const token = payload.content || '';
+            streamBufferRef.current += token;
+            // Note: We don't update state here anymore; the interval handles it.
+          } else if (payload.type === 'finish') {
+            // Mark stream as completed
+            streamCompletedRef.current = true;
+            
+            // Finalize message - ensure we show everything
+            const finalMessage = payload.message || streamBufferRef.current;
+            const actions = payload.actions;
+            const modelProvider = payload.provider;
+            
+            // Clear interval immediately to stop typing effect and jump to final state
+            if (streamIntervalRef.current) {
+                clearInterval(streamIntervalRef.current);
+                streamIntervalRef.current = null;
+            }
+            
+            // Use serverThreadId if migration has occurred, otherwise use the captured stream target thread ID
+            // This ensures we update the correct thread even if migration happened during streaming
+            const targetThreadId = serverThreadId || streamTargetThreadIdRef.current || tempThreadId;
+            
+            // Update state one last time
+            setMessagesByThread(prev => {
+              const currentMsgs = prev[targetThreadId] || [];
+              const updatedMsgs = currentMsgs.map(msg => {
+                if (msg.id === tempAiMessageId) {
+                  return {
+                    ...msg,
+                    text: finalMessage,
+                    status: 'synced'
+                  };
+                }
+                return msg;
+              });
+              return { ...prev, [targetThreadId]: updatedMsgs };
+            });
+
+            // Persist to local DB
+            // We use the temp IDs for local creation to avoid duplicates if sync runs? 
+            // Actually, backend has already saved it. Sync will bring it down.
+            // We should just ensure local DB reflects this state.
+            // Using `createMessagesInDatabase` (adapted from original code)
+            if (serverThreadId) {
+               const userId = authService.getCurrentUser()?.id || '';
+               const now = new Date();
+               createMessagesInDatabase(
+                 database,
+                 serverThreadId,
+                 tempUserMessageId,
+                 tempAiMessageId,
+                 userId,
+                 userMessage,
+                 { message: finalMessage, actions },
+                 now
+               ).then(async () => {
+                 // Trigger background sync to reconcile IDs
+                 syncService.silentSync().catch(() => {});
+                 
+                 // Update title if needed (for both fast and smart modes, especially for new conversations)
+                 // Use async/await with proper error handling and debouncing to prevent race conditions
+                 try {
+                   const msgs = await mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread);
+                   
+                   // Fetch the latest thread from repository to avoid stale closure
+                   const currentThread = await conversationRepository.getThreadById(serverThreadId!);
+                   if (!currentThread) return;
+                   
+                   const genericTitles = [
+                     'New Conversation',
+                     'New Goal',
+                     'Conversation',
+                     'Goal Planning',
+                     'Scheduling Help'
+                   ];
+                   
+                   const isGenericTitle = genericTitles.some(
+                     generic => currentThread.title.toLowerCase() === generic.toLowerCase()
+                   );
+                   
+                   // Only update if title is generic and we have enough messages
+                   if (isGenericTitle && msgs.length >= 2) {
+                     const newTitle = generateConversationTitle(msgs);
+                     
+                     // Only update if new title is different and more meaningful
+                     if (newTitle && 
+                         newTitle.toLowerCase() !== currentThread.title.toLowerCase() &&
+                         newTitle.length > 5 &&
+                         !genericTitles.some(gt => newTitle.toLowerCase() === gt.toLowerCase())) {
+                       
+                       // Debounce title updates to prevent race conditions from concurrent updates
+                       const threadId = serverThreadId!;
+                       
+                       // Clear any existing timer for this thread
+                       if (titleUpdateTimersRef.current[threadId]) {
+                         clearTimeout(titleUpdateTimersRef.current[threadId]);
+                       }
+                       
+                       // Schedule the update with debounce
+                       titleUpdateTimersRef.current[threadId] = setTimeout(async () => {
+                         // Check if update is already in progress for this thread
+                         if (titleUpdateInProgressRef.current[threadId]) {
+                           return; // Skip if update is already in progress
+                         }
+                         
+                         try {
+                           titleUpdateInProgressRef.current[threadId] = true;
+                           
+                           // Re-fetch thread to get latest state before updating (avoid stale data)
+                           const latestThread = await conversationRepository.getThreadById(threadId);
+                           if (!latestThread) {
+                             titleUpdateInProgressRef.current[threadId] = false;
+                             return;
+                           }
+                           
+                           // Check again if title is still generic (might have been updated by another call)
+                           const stillGeneric = genericTitles.some(
+                             generic => latestThread.title.toLowerCase() === generic.toLowerCase()
+                           );
+                           
+                           if (stillGeneric) {
+                             await conversationRepository.updateThread(threadId, {
+                               title: newTitle
+                             });
+                             // Trigger sync to update server
+                             syncService.silentSync().catch(() => {});
+                           }
+                           
+                           titleUpdateInProgressRef.current[threadId] = false;
+                           delete titleUpdateTimersRef.current[threadId];
+                         } catch (debouncedError) {
+                           titleUpdateInProgressRef.current[threadId] = false;
+                           delete titleUpdateTimersRef.current[threadId];
+                           logger.warn('Failed to update conversation title (debounced):', debouncedError);
+                         }
+                       }, 500); // 500ms debounce - only the final update will run
+                     }
+                   }
+                 } catch (titleError) {
+                   logger.warn('Failed to update conversation title:', titleError);
+                   // Don't throw - title update is non-critical
+                 }
+               }).catch((error) => {
+                 logger.warn('Failed to complete message persistence and title update:', error);
+               });
+            }
+            
+            eventSource.close();
+            currentStreamRef.current = null;
+            setLoading(false);
+            isSendingRef.current = false;
+          } else if (payload.type === 'error') {
+             throw new Error(payload.message || 'Stream error');
+          }
+        } catch (parseError) {
+          logger.warn('SSE Parse Error:', parseError);
         }
-      }
+      });
 
-      // Track analytics
-      analyticsService.trackAIMessageSent({
-        message: userMessage,
-        threadId: serverThreadId,
-        context: null
-      }).catch(error => {
-        logger.warn('Failed to track AI message analytics:', error);
+      eventSource.addEventListener('error', (event: any) => {
+        // SSE error event doesn't always have a clear message
+        logger.warn('SSE Error:', event);
+        eventSource.close();
+        currentStreamRef.current = null;
+        
+        // Mark stream as completed (error state)
+        streamCompletedRef.current = true;
+        
+        // Clear interval and stream target thread ID ref
+        if (streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+        }
+        streamTargetThreadIdRef.current = null;
+        
+        // If we haven't finished yet and received an error
+        setLoading(false);
+        isSendingRef.current = false;
+        
+        if (!streamBufferRef.current) {
+           setError('Connection interrupted. Please try again.');
+        } else {
+           // If we have partial message, keep it but mark as error?
+           // For now, assume partial success if we have text.
+        }
       });
 
     } catch (err: any) {
-      logger.error('AI Chat error:', (err as any)?.message || err);
+      logger.error('AI Chat Setup Error:', err);
+      setError('Failed to connect to AI service. Please try again.');
+      setLoading(false);
+      isSendingRef.current = false;
       
-      // Check if we got a serverThreadId before the error (thread was created)
-      // If so, preserve it and the user message
-      if (serverThreadId) {
-        // Thread was created, preserve it and the user message
-        const threadId = serverThreadId; // Type narrowing
-        setCurrentConversationId(threadId);
-        setMessagesByThread(prev => {
-          const currentMsgs = prev[threadId] || [];
-          // Keep user message but remove "Thinking..."
-          const filtered = currentMsgs.filter(
-            (msg: Message) => msg.id !== tempAiMessageId && msg.text !== 'Thinking...'
-          );
-          return {
-            ...prev,
-            [threadId]: filtered,
-          };
-        });
-      } else {
-        // No thread was created, remove optimistic messages
-        setMessagesByThread(prev => {
+      // Mark stream as completed (error state)
+      streamCompletedRef.current = true;
+      
+      // Clear interval and stream target thread ID ref
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
+      streamTargetThreadIdRef.current = null;
+      
+      // Cleanup optimistic messages if nothing sent
+      if (!streamBufferRef.current) {
+         setMessagesByThread(prev => {
           const currentMsgs = prev[tempThreadId] || [];
           return {
             ...prev,
@@ -1453,33 +1748,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             ),
           };
         });
-        
-        // Reset conversation ID if it was a temp one
-        if (tempThreadId.startsWith('temp-thread-')) {
-          // Find the first real thread or set to empty
-          const realThread = threads.find(t => t.status === 'synced');
-          if (realThread) {
-            setCurrentConversationId(realThread.id);
-          } else if (threads.length > 0) {
-            setCurrentConversationId(threads[0].id);
-          } else {
-            setCurrentConversationId('');
-          }
-        }
       }
-      
-      let errorMessage = 'Failed to send message. Please try again.';
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      if (errorMsg.includes('not authenticated')) {
-        errorMessage = 'Authentication failed. Please log in again.';
-      } else if (errorMsg.includes('Thread not found')) {
-        errorMessage = 'Failed to create conversation. Please try again.';
-      }
-      
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-      isSendingRef.current = false; // Reset sending flag
     }
   }, [
     currentConversationId,
@@ -1489,7 +1758,6 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     threads,
     getMessagesForThread,
     database,
-    migrateTempMessagesToServerThread,
     createMessagesInDatabase,
     mergeRealMessagesFromDB,
     extractTitleFromMessage,
