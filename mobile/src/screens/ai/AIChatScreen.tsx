@@ -360,8 +360,12 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     if (!currentConversationId) {
       const tempThreadKeys = Object.keys(messagesByThread).filter(key => key.startsWith('temp-thread-'));
       if (tempThreadKeys.length > 0) {
-        // Use the most recent temp thread (last one)
-        const latestTempThreadId = tempThreadKeys[tempThreadKeys.length - 1];
+        // Use the most recent temp thread by parsing timestamps
+        const latestTempThreadId = tempThreadKeys.reduce((latest, current) => {
+          const latestTime = parseInt(latest.split('-')[2], 10) || 0;
+          const currentTime = parseInt(current.split('-')[2], 10) || 0;
+          return currentTime > latestTime ? current : latest;
+        });
         const messages = messagesByThread[latestTempThreadId] || [];
         if (messages.length > 0) {
           return {
