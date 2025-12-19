@@ -1256,6 +1256,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   }, [deduplicateMessages, mergeMessagesWithOptimistic]);
 
   const currentStreamRef = useRef<any>(null);
+  
+  // Debounce timers for title updates per thread to prevent race conditions
+  const titleUpdateTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const titleUpdateInProgressRef = useRef<Record<string, boolean>>({});
 
   // Cleanup stream on unmount
   useEffect(() => {
@@ -1264,6 +1268,11 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         currentStreamRef.current.close();
         currentStreamRef.current = null;
       }
+      // Clear all title update timers on unmount
+      Object.values(titleUpdateTimersRef.current).forEach(timer => {
+        if (timer) clearTimeout(timer);
+      });
+      titleUpdateTimersRef.current = {};
     };
   }, []);
 
@@ -1505,50 +1514,95 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
                  userMessage,
                  { message: finalMessage, actions },
                  now
-               ).then(() => {
+               ).then(async () => {
                  // Trigger background sync to reconcile IDs
                  syncService.silentSync().catch(() => {});
                  
                  // Update title if needed (for both fast and smart modes, especially for new conversations)
-                 mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread).then(async (msgs) => {
-                       try {
-                         // Check if current title is generic
-                         const currentThread = threads.find(t => t.id === serverThreadId);
-                         if (!currentThread) return;
+                 // Use async/await with proper error handling and debouncing to prevent race conditions
+                 try {
+                   const msgs = await mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread);
+                   
+                   // Fetch the latest thread from repository to avoid stale closure
+                   const currentThread = await conversationRepository.getThreadById(serverThreadId!);
+                   if (!currentThread) return;
+                   
+                   const genericTitles = [
+                     'New Conversation',
+                     'New Goal',
+                     'Conversation',
+                     'Goal Planning',
+                     'Scheduling Help'
+                   ];
+                   
+                   const isGenericTitle = genericTitles.some(
+                     generic => currentThread.title.toLowerCase() === generic.toLowerCase()
+                   );
+                   
+                   // Only update if title is generic and we have enough messages
+                   if (isGenericTitle && msgs.length >= 2) {
+                     const newTitle = generateConversationTitle(msgs);
+                     
+                     // Only update if new title is different and more meaningful
+                     if (newTitle && 
+                         newTitle.toLowerCase() !== currentThread.title.toLowerCase() &&
+                         newTitle.length > 5 &&
+                         !genericTitles.some(gt => newTitle.toLowerCase() === gt.toLowerCase())) {
+                       
+                       // Debounce title updates to prevent race conditions from concurrent updates
+                       const threadId = serverThreadId!;
+                       
+                       // Clear any existing timer for this thread
+                       if (titleUpdateTimersRef.current[threadId]) {
+                         clearTimeout(titleUpdateTimersRef.current[threadId]);
+                       }
+                       
+                       // Schedule the update with debounce
+                       titleUpdateTimersRef.current[threadId] = setTimeout(async () => {
+                         // Check if update is already in progress for this thread
+                         if (titleUpdateInProgressRef.current[threadId]) {
+                           return; // Skip if update is already in progress
+                         }
                          
-                         const genericTitles = [
-                           'New Conversation',
-                           'New Goal',
-                           'Conversation',
-                           'Goal Planning',
-                           'Scheduling Help'
-                         ];
-                         
-                         const isGenericTitle = genericTitles.some(
-                           generic => currentThread.title.toLowerCase() === generic.toLowerCase()
-                         );
-                         
-                         // Only update if title is generic and we have enough messages
-                         if (isGenericTitle && msgs.length >= 2) {
-                           const newTitle = generateConversationTitle(msgs);
+                         try {
+                           titleUpdateInProgressRef.current[threadId] = true;
                            
-                           // Only update if new title is different and more meaningful
-                           if (newTitle && 
-                               newTitle.toLowerCase() !== currentThread.title.toLowerCase() &&
-                               newTitle.length > 5 &&
-                               !genericTitles.some(gt => newTitle.toLowerCase() === gt.toLowerCase())) {
-                             await conversationRepository.updateThread(serverThreadId!, {
+                           // Re-fetch thread to get latest state before updating (avoid stale data)
+                           const latestThread = await conversationRepository.getThreadById(threadId);
+                           if (!latestThread) {
+                             titleUpdateInProgressRef.current[threadId] = false;
+                             return;
+                           }
+                           
+                           // Check again if title is still generic (might have been updated by another call)
+                           const stillGeneric = genericTitles.some(
+                             generic => latestThread.title.toLowerCase() === generic.toLowerCase()
+                           );
+                           
+                           if (stillGeneric) {
+                             await conversationRepository.updateThread(threadId, {
                                title: newTitle
                              });
                              // Trigger sync to update server
                              syncService.silentSync().catch(() => {});
                            }
+                           
+                           titleUpdateInProgressRef.current[threadId] = false;
+                           delete titleUpdateTimersRef.current[threadId];
+                         } catch (debouncedError) {
+                           titleUpdateInProgressRef.current[threadId] = false;
+                           delete titleUpdateTimersRef.current[threadId];
+                           logger.warn('Failed to update conversation title (debounced):', debouncedError);
                          }
-                       } catch (titleError) {
-                         logger.warn('Failed to update conversation title:', titleError);
-                         // Don't throw - title update is non-critical
-                       }
-                    });
+                       }, 500); // 500ms debounce - only the final update will run
+                     }
+                   }
+                 } catch (titleError) {
+                   logger.warn('Failed to update conversation title:', titleError);
+                   // Don't throw - title update is non-critical
+                 }
+               }).catch((error) => {
+                 logger.warn('Failed to complete message persistence and title update:', error);
                });
             }
             
