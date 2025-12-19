@@ -186,7 +186,8 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   // Smoothing refs
   const streamBufferRef = useRef('');
   const displayedBufferRef = useRef('');
-  const streamIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamCompletedRef = useRef(false);
   
   // Clean up interval on unmount
   useEffect(() => {
@@ -1258,7 +1259,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const currentStreamRef = useRef<any>(null);
   
   // Debounce timers for title updates per thread to prevent race conditions
-  const titleUpdateTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const titleUpdateTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const titleUpdateInProgressRef = useRef<Record<string, boolean>>({});
 
   // Cleanup stream on unmount
@@ -1353,6 +1354,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         streamIntervalRef.current = null;
       }
 
+      // Reset stream completion flag for new stream
+      streamCompletedRef.current = false;
+
       // Start the smoothing interval
       streamIntervalRef.current = setInterval(() => {
         const target = streamBufferRef.current;
@@ -1388,12 +1392,13 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             return { ...prev, [targetThreadId]: updatedMsgs };
           });
         } else {
-          // Buffer empty, nothing to do. 
-          // If stream finished (we need to know this), we could clear interval, 
-          // but we can just let it run until component unmount or next send.
-          // Or we can check a flag. For now, just idle.
+          // Buffer caught up - if stream completed, clear interval
+          if (streamCompletedRef.current && streamIntervalRef.current) {
+            clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+          }
         }
-      }, 15); // 15ms interval ~ 66fps update rate
+      }, 30); // 30ms interval ~ 33fps - better battery efficiency
 
       // Call AI service with streaming
       const eventSource = await conversationService.streamMessage(userMessage, threadIdToUse, modelMode);
@@ -1468,6 +1473,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             streamBufferRef.current += token;
             // Note: We don't update state here anymore; the interval handles it.
           } else if (payload.type === 'finish') {
+            // Mark stream as completed
+            streamCompletedRef.current = true;
+            
             // Finalize message - ensure we show everything
             const finalMessage = payload.message || streamBufferRef.current;
             const actions = payload.actions;
@@ -1624,6 +1632,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         eventSource.close();
         currentStreamRef.current = null;
         
+        // Mark stream as completed (error state)
+        streamCompletedRef.current = true;
+        
         // Clear interval
         if (streamIntervalRef.current) {
             clearInterval(streamIntervalRef.current);
@@ -1647,6 +1658,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       setError('Failed to connect to AI service. Please try again.');
       setLoading(false);
       isSendingRef.current = false;
+      
+      // Mark stream as completed (error state)
+      streamCompletedRef.current = true;
       
       // Clear interval
       if (streamIntervalRef.current) {
