@@ -370,8 +370,25 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     }
     
     const thread = threads.find(t => t.id === currentConversationId);
-    if (!thread) return null;
     const messages = messagesByThread[currentConversationId] || [];
+    
+    // If thread doesn't exist in observable yet but we have messages (optimistic updates),
+    // still return a conversation object so messages can be displayed
+    if (!thread) {
+      // Only return conversation if we have messages to show (optimistic updates)
+      if (messages.length > 0) {
+        return {
+          id: currentConversationId,
+          title: 'New Conversation',
+          messages,
+          isPinned: false,
+          createdAt: new Date(),
+          lastMessageAt: new Date(),
+        };
+      }
+      return null;
+    }
+    
     return {
       id: thread.id,
       title: thread.title,

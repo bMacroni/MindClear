@@ -544,7 +544,7 @@ Be conversational, supportive, and encouraging throughout the goal creation proc
              functionResponses.push({
                functionResponse: {
                  name: call.name,
-                 response: Array.isArray(execResult) ? { goals: execResult } : execResult
+                 response: details
                }
              });
           }
