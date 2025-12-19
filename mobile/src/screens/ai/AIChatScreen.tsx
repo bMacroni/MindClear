@@ -1422,9 +1422,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           displayedBufferRef.current += nextChunk;
           
           // Update UI state with the displayed buffer
-          // Use the captured thread ID to ensure consistency throughout the stream
+          // Use the ref to get the current thread ID (may have migrated)
+          const currentThreadId = streamTargetThreadIdRef.current || streamTargetThreadId;
           setMessagesByThread(prev => {
-            const currentMsgs = prev[streamTargetThreadId] || [];
+            const currentMsgs = prev[currentThreadId] || [];
             // Optimize: only update if we have the message to avoid unnecessary processing
             // (though React state updates are batched, mapping is cheap)
             const updatedMsgs = currentMsgs.map(msg => {
@@ -1437,7 +1438,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
               }
               return msg;
             });
-            return { ...prev, [streamTargetThreadId]: updatedMsgs };
+            return { ...prev, [currentThreadId]: updatedMsgs };
           });
         } else {
           // Buffer caught up - if stream completed, clear interval
@@ -1521,6 +1522,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
                      newState[serverThreadId!] = msgs;
                      return newState;
                    });
+                   
+                   // Update the ref so interval uses the migrated thread ID
+                   streamTargetThreadIdRef.current = serverThreadId;
                  }
               }
             }

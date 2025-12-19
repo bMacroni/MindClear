@@ -137,10 +137,6 @@ class GroqService {
   }
 
   async streamMessage(message, userId, threadId = null, userContext = {}) {
-    // #region agent log
-    const streamStartTime = Date.now();
-    fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:139',message:'streamMessage entry',data:{userId,threadId,messageLength:message?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (!this.enabled) {
       logger.warn('GROQ_API_KEY not set; falling back to Gemini for fast mode (non-streaming)');
       // Simulate a stream for fallback
@@ -190,37 +186,15 @@ class GroqService {
 
     try {
       const historyKey = this._getHistoryKey(userId, threadId);
-      // #region agent log
-      const historyStartTime = Date.now();
-      const cacheSize = this.conversationHistory.size;
-      const hasLock = this.historyLocks.has(historyKey);
-      fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:192',message:'Before history load',data:{hasThreadId:!!threadId,cacheSize,hasLock,activeLocks:this.historyLocks.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       let cachedHistory = this._getHistory(historyKey);
 
       if (cachedHistory.length === 0 && threadId) {
-        // #region agent log
-        const dbLoadStartTime = Date.now();
-        fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:199',message:'Cache MISS - Loading history from DB',data:{threadId,cacheSize:this.conversationHistory.size},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         const dbHistory = await this._loadHistoryFromDatabase(userId, threadId);
-        // #region agent log
-        const dbLoadEndTime = Date.now();
-        fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:203',message:'History loaded from DB',data:{historyLength:dbHistory.length,loadTimeMs:dbLoadEndTime-dbLoadStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         if (dbHistory.length > 0) {
           cachedHistory = dbHistory;
           this.conversationHistory.set(historyKey, dbHistory);
         }
-      } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:210',message:'Cache HIT - Using cached history',data:{cachedHistoryLength:cachedHistory.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
       }
-      // #region agent log
-      const historyEndTime = Date.now();
-      fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:205',message:'History processing complete',data:{cachedHistoryLength:cachedHistory.length,totalHistoryTimeMs:historyEndTime-historyStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
 
       const trimmedHistory = cachedHistory.slice(-this.MAX_HISTORY_MESSAGES);
       const messagesPayload = [
@@ -231,10 +205,6 @@ class GroqService {
 
       timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      // #region agent log
-      const fetchStartTime = Date.now();
-      fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:208',message:'Before Groq API fetch',data:{payloadSize:JSON.stringify(messagesPayload).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       const response = await fetch(this.baseUrl, {
         method: 'POST',
         headers: {
@@ -249,10 +219,6 @@ class GroqService {
         }),
         signal: controller.signal
       });
-      // #region agent log
-      const fetchEndTime = Date.now();
-      fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:223',message:'Groq API fetch complete',data:{status:response.status,fetchTimeMs:fetchEndTime-fetchStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
 
       clearTimeout(timeoutId);
 
@@ -301,12 +267,6 @@ class GroqService {
                                 }
 
                                 yield { type: 'token', content: token };
-                                
-                                // Only delay if NOT inside a JSON block
-                                if (!isInsideJsonBlock) {
-                                    // Artificial delay for smoother typing effect
-                                    await new Promise(resolve => setTimeout(resolve, 30));
-                                }
                             }
                         } catch (e) { }
                     }
@@ -341,14 +301,8 @@ class GroqService {
         const decoder = new TextDecoder();
         let buffer = '';
         let fullContent = '';
-        let tokenCount = 0;
-        let firstTokenTime = null;
-        let totalDelayTime = 0;
 
         try {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:312',message:'Stream reader started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
           let isInsideJsonBlock = false;
           while (true) {
             const { done, value } = await reader.read();
@@ -366,14 +320,6 @@ class GroqService {
                   const data = JSON.parse(trimmed.slice(6));
                   const token = data.choices?.[0]?.delta?.content || '';
                   if (token) {
-                    if (firstTokenTime === null) {
-                      firstTokenTime = Date.now();
-                      // #region agent log
-                      const timeToFirstToken = firstTokenTime - streamStartTime;
-                      fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:328',message:'First token received',data:{timeToFirstTokenMs:timeToFirstToken},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-                      // #endregion
-                    }
-                    tokenCount++;
                     fullContent += token;
                     // Detect if we entered or exited a JSON block
                     // Basic detection: looks for ```json marker
@@ -393,19 +339,6 @@ class GroqService {
                     // but generally any code block should probably render fast.
                     
                     yield { type: 'token', content: token };
-                    
-                    // Only delay if NOT inside a code block
-                    if (!isInsideCodeBlock) {
-                       // #region agent log
-                       const delayStartTime = Date.now();
-                       // #endregion
-                       // Artificial delay for smoother typing effect
-                       await new Promise(resolve => setTimeout(resolve, 30));
-                       // #region agent log
-                       const delayEndTime = Date.now();
-                       totalDelayTime += (delayEndTime - delayStartTime);
-                       // #endregion
-                    }
                   }
                 } catch (e) {}
               }
@@ -423,25 +356,9 @@ class GroqService {
              } catch (e) {}
           }
 
-          // #region agent log
-          const streamEndTime = Date.now();
-          const totalStreamTime = streamEndTime - streamStartTime;
-          const actualStreamTime = totalStreamTime - totalDelayTime;
-          const avgDelayPerToken = tokenCount > 0 ? totalDelayTime / tokenCount : 0;
-          fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:410',message:'Stream complete',data:{tokenCount,totalStreamTimeMs:totalStreamTime,actualStreamTimeMs:actualStreamTime,totalDelayTimeMs:totalDelayTime,avgDelayPerTokenMs:avgDelayPerToken,contentLength:fullContent.length,delayPercentage:((totalDelayTime/totalStreamTime)*100).toFixed(1)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           const sanitizedContent = self._sanitizeMessageForFrontend(fullContent);
-          // #region agent log
-          const historySaveStartTime = Date.now();
-          const locksBeforeSave = self.historyLocks.size;
-          fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:420',message:'Before history save',data:{activeLocks:locksBeforeSave},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
           await self._addToHistory(userId, threadId, { role: 'user', content: message });
           await self._addToHistory(userId, threadId, { role: 'assistant', content: sanitizedContent });
-          // #region agent log
-          const historySaveEndTime = Date.now();
-          fetch('http://127.0.0.1:7242/ingest/efa97163-9f6d-410f-895f-84f07cc2dc29',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'groqService.js:379',message:'History save complete',data:{historySaveTimeMs:historySaveEndTime-historySaveStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
 
           yield {
             type: 'finish',
