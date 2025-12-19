@@ -1295,6 +1295,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   }, [deduplicateMessages, mergeMessagesWithOptimistic]);
 
   const currentStreamRef = useRef<any>(null);
+  const streamTargetThreadIdRef = useRef<string | null>(null);
   
   // Debounce timers for title updates per thread to prevent race conditions
   const titleUpdateTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1307,6 +1308,8 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         currentStreamRef.current.close();
         currentStreamRef.current = null;
       }
+      // Clear stream target thread ID ref
+      streamTargetThreadIdRef.current = null;
       // Clear all title update timers on unmount
       Object.values(titleUpdateTimersRef.current).forEach(timer => {
         if (timer) clearTimeout(timer);
@@ -1376,9 +1379,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
     // Track serverThreadId so we can preserve it on error
     let serverThreadId: string | null = threadIdToUse;
-    // Reset buffers
+    // Reset buffers and stream target thread ID ref
     streamBufferRef.current = '';
     displayedBufferRef.current = '';
+    streamTargetThreadIdRef.current = null;
     
     try {
       // Close previous stream if exists
@@ -1395,6 +1399,11 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
       // Reset stream completion flag for new stream
       streamCompletedRef.current = false;
+
+      // Capture the target thread ID for this stream session
+      // This prevents race conditions when serverThreadId changes during the stream
+      const streamTargetThreadId = tempThreadId;
+      streamTargetThreadIdRef.current = streamTargetThreadId;
 
       // Start the smoothing interval
       streamIntervalRef.current = setInterval(() => {
@@ -1413,9 +1422,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           displayedBufferRef.current += nextChunk;
           
           // Update UI state with the displayed buffer
-          const targetThreadId = serverThreadId || tempThreadId;
+          // Use the captured thread ID to ensure consistency throughout the stream
           setMessagesByThread(prev => {
-            const currentMsgs = prev[targetThreadId] || [];
+            const currentMsgs = prev[streamTargetThreadId] || [];
             // Optimize: only update if we have the message to avoid unnecessary processing
             // (though React state updates are batched, mapping is cheap)
             const updatedMsgs = currentMsgs.map(msg => {
@@ -1428,7 +1437,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
               }
               return msg;
             });
-            return { ...prev, [targetThreadId]: updatedMsgs };
+            return { ...prev, [streamTargetThreadId]: updatedMsgs };
           });
         } else {
           // Buffer caught up - if stream completed, clear interval
@@ -1447,7 +1456,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         logger.info('SSE Connection opened');
       });
 
-      eventSource.addEventListener('message', (event: any) => {
+      eventSource.addEventListener('message', async (event: any) => {
         try {
           if (!event.data) return;
           const payload = JSON.parse(event.data);
@@ -1488,9 +1497,18 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
                       }
                     } catch (err) {
                       logger.warn('Error creating local thread from SSE meta:', err);
+                      throw err; // Re-throw to allow caller to handle
                     }
                  };
-                 createLocalThread();
+                 
+                 // Await thread creation before migrating messages to ensure thread exists
+                 try {
+                   await createLocalThread();
+                 } catch (err) {
+                   // Log error but continue with migration since server thread exists
+                   // The local thread creation failure doesn't prevent message display
+                   logger.error('Failed to create local thread, continuing with message migration:', err);
+                 }
                  
                  // Update current conversation ID to the real one
                  if (serverThreadId !== currentConversationId) {
@@ -1526,7 +1544,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
                 streamIntervalRef.current = null;
             }
             
-            const targetThreadId = serverThreadId || tempThreadId;
+            // Use serverThreadId if migration has occurred, otherwise use the captured stream target thread ID
+            // This ensures we update the correct thread even if migration happened during streaming
+            const targetThreadId = serverThreadId || streamTargetThreadIdRef.current || tempThreadId;
             
             // Update state one last time
             setMessagesByThread(prev => {
@@ -1674,11 +1694,12 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         // Mark stream as completed (error state)
         streamCompletedRef.current = true;
         
-        // Clear interval
+        // Clear interval and stream target thread ID ref
         if (streamIntervalRef.current) {
             clearInterval(streamIntervalRef.current);
             streamIntervalRef.current = null;
         }
+        streamTargetThreadIdRef.current = null;
         
         // If we haven't finished yet and received an error
         setLoading(false);
@@ -1701,11 +1722,12 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       // Mark stream as completed (error state)
       streamCompletedRef.current = true;
       
-      // Clear interval
+      // Clear interval and stream target thread ID ref
       if (streamIntervalRef.current) {
         clearInterval(streamIntervalRef.current);
         streamIntervalRef.current = null;
       }
+      streamTargetThreadIdRef.current = null;
       
       // Cleanup optimistic messages if nothing sent
       if (!streamBufferRef.current) {
