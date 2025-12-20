@@ -501,7 +501,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']} {...screenPanResponder.panHandlers}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']} {...screenPanResponder.panHandlers}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Prioritize your tasks</Text>
       </View>

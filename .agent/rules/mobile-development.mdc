@@ -9,7 +9,7 @@ globs: mobile/**/*.tsx,mobile/**/*.ts,mobile/**/*.jsx,mobile/**/*.js
 - **React Navigation v7** for navigation
 - **React Native Paper** for UI components
 - **AsyncStorage** for local data persistence
-- **React Native Vector Icons** for icons
+- **Hugeicons** (@hugeicons/react-native) for icons
 - **Firebase** for authentication and push notifications
 - **Google Sign-In** for authentication
 
@@ -21,7 +21,7 @@ globs: mobile/**/*.tsx,mobile/**/*.ts,mobile/**/*.jsx,mobile/**/*.js
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { Button, Card } from 'react-native-paper';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon, CheckmarkCircle01Icon } from '@hugeicons/react-native';
 import { TaskList } from '../components/TaskList';
 import { useTaskStore } from '../stores/taskStore';
 
@@ -59,7 +59,10 @@ const TaskManager: React.FC<TaskManagerProps> = ({ navigation, route }) => {
     <View style={styles.container}>
       <Card style={styles.card}>
         <Card.Content>
-          <Text style={styles.title}>Tasks</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <HugeiconsIcon icon={CheckmarkCircle01Icon} size={24} color="#000" />
+            <Text style={[styles.title, { marginBottom: 0, marginLeft: 8 }]}>Tasks</Text>
+          </View>
           <TaskList tasks={tasks} onTaskCreate={handleTaskCreate} />
         </Card.Content>
       </Card>
@@ -184,7 +187,7 @@ export const authService = {
 - Use proper platform-specific styling
 
 ## Icons and Assets
-- Use **React Native Vector Icons** (Octicons)
+- Use **Hugeicons** (@hugeicons/react-native)
 - Optimize images for different screen densities
 - Use proper asset organization
 - Implement proper icon sizing and colors

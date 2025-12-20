@@ -36,8 +36,6 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
-import ScreenHeader from '../../components/common/ScreenHeader';
-import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 
 interface Step {
   id: string;
@@ -194,6 +192,23 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   const [editStepHeights, setEditStepHeights] = useState<Record<string, Record<string, number>>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [triedFullPull, setTriedFullPull] = useState(false);
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => setShowAddOptions(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add goal"
+            style={styles.headerIconButton}
+          >
+            <Icon icon={PlusSignIcon} size={20} color={colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation]);
 
   // Ensure system status bar matches header background (white) with dark content
   useEffect(() => {
@@ -1176,12 +1191,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Show loading state while checking authentication
   if (authState.isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader
-          title="Goals"
-          withDivider
-        />
+
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Checking authentication...</Text>
           <Text style={styles.debugText}>Debug: {authState.isAuthenticated ? 'Authenticated' : 'Not Authenticated'}</Text>
@@ -1247,9 +1259,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Show login prompt if user is not authenticated
   if (!authState.isAuthenticated) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader title="Goals" withDivider />
+
         <View style={styles.authContainer}>
           <Text style={styles.authIcon}>🔐</Text>
           <Text style={styles.authTitle}>Welcome to Mind Clear</Text>
@@ -1275,9 +1287,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Show loading state while fetching goals
   if (goalsLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader title="Goals" withDivider />
+
         <LoadingSkeleton type="list" count={5} />
       </SafeAreaView>
     );
@@ -1285,25 +1297,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   return (
     <HelpScope scope="goals">
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader
-          title="Goals"
-          rightActions={(
-            <View style={styles.headerActions}>
-              <TouchableOpacity
-                onPress={() => setShowAddOptions(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Add goal"
-                style={styles.headerIconButton}
-              >
-                <Icon icon={PlusSignIcon} size={20} color={colors.text.secondary} />
-              </TouchableOpacity>
-              <ProfileHeaderButton />
-            </View>
-          )}
-          withDivider
-        />
+
 
         <ScrollView
           style={styles.content}

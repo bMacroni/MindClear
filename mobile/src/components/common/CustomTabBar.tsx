@@ -118,10 +118,13 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
                   );
                 })()}
               </View>
-              <Text style={[
-                styles.tabLabel,
-                { color: isFocused ? colors.primary : colors.text.disabled }
-              ]}>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: isFocused ? colors.primary : colors.text.disabled }
+                ]}
+                numberOfLines={1}
+              >
                 {label}
               </Text>
             </TouchableOpacity>
@@ -197,10 +200,13 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
                   color={colors.secondary}
                 />
               </View>
-              <Text style={[
-                styles.brainDumpLabel,
-                { color: isFocused ? colors.primary : colors.text.primary }
-              ]}>
+              <Text
+                style={[
+                  styles.brainDumpLabel,
+                  { color: isFocused ? colors.primary : colors.text.primary }
+                ]}
+                numberOfLines={1}
+              >
                 {label}
               </Text>
             </TouchableOpacity>
@@ -254,10 +260,13 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
                   );
                 })()}
               </View>
-              <Text style={[
-                styles.tabLabel,
-                { color: isFocused ? colors.primary : colors.text.disabled }
-              ]}>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: isFocused ? colors.primary : colors.text.disabled }
+                ]}
+                numberOfLines={1}
+              >
                 {label}
               </Text>
             </TouchableOpacity>

@@ -19,8 +19,6 @@ import axios from 'axios';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
-import ScreenHeader from '../../components/common/ScreenHeader';
-import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 import { OnboardingState, QuickAction } from '../../types/onboarding';
 import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
@@ -252,6 +250,11 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     }
     return Array.from(seen.values());
   }, []);
+
+
+
+
+
 
   // Helper to get messages for a thread
   const getMessagesForThread = useCallback(async (threadId: string): Promise<Message[]> => {
@@ -2065,26 +2068,29 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     );
   };
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} animated />
-      <ScreenHeader
-        title={currentConversation?.title || 'Mind Clear AI Chat'}
-        leftAction={(
-          <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
-            <Icon icon={Menu01Icon} size={20} color={colors.text.primary} />
+  // Update header options
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: currentConversation?.title || 'Mind Clear AI Chat',
+      headerLeft: () => (
+        <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
+          <Icon icon={Menu01Icon} size={20} color={colors.text.primary} />
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.helpButton} onPress={handleHelpPressWithSend}>
+            <Icon icon={HelpCircleIcon} size={20} color={colors.text.primary} />
           </TouchableOpacity>
-        )}
-        rightActions={(
-          <View style={[styles.headerActions, { gap: spacing.sm }]}>
-            <TouchableOpacity style={styles.helpButton} onPress={handleHelpPressWithSend}>
-              <Icon icon={HelpCircleIcon} size={20} color={colors.text.primary} />
-            </TouchableOpacity>
-            <ProfileHeaderButton />
-          </View>
-        )}
-        withDivider
-      />
+        </View>
+      ),
+    });
+  }, [navigation, currentConversation?.title, toggleSidebar, handleHelpPressWithSend]);
+
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} animated />
+
 
 
       <KeyboardAvoidingView

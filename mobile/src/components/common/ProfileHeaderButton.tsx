@@ -6,8 +6,11 @@ import { UserIcon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing } from '../../themes/spacing';
 
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../navigation/types';
+
 export const ProfileHeaderButton: React.FC = () => {
-    const navigation = useNavigation<any>();
+    const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
     const handlePress = () => {
         navigation.navigate('Profile');

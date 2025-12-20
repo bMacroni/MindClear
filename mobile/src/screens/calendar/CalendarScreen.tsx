@@ -20,8 +20,6 @@ import { CalendarImportModal } from '../../components/calendar/CalendarImportMod
 import { GoalDueCard } from '../../components/goals/GoalDueCard';
 // import { VirtualizedEventList } from '../../components/calendar/VirtualizedEventList';
 import { OfflineIndicator } from '../../components/common/OfflineIndicator';
-import ScreenHeader from '../../components/common/ScreenHeader';
-import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 import { ErrorDisplay, ErrorBanner } from '../../components/common/ErrorDisplay';
 import { SearchAndFilter } from '../../components/calendar/SearchAndFilter';
 import { enhancedAPI } from '../../services/enhancedApi';
@@ -114,6 +112,8 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   // Animation hooks
   const { } = useFadeAnimation(1); // animations disabled for now
   const { } = useScaleAnimation(1);
+
+
 
   // Stagger animation for event cards (disabled)
   // const eventAnimations = useRef<Animated.Value[]>([]).current;
@@ -1068,8 +1068,38 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     Alert.alert('Sync Complete', 'Manual sync has finished.');
   };
 
+
+  // Configure header options
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          {__DEV__ && (
+            <TouchableOpacity onPress={addDebugEvent}>
+              <Icon icon={Bug01Icon} size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+          )}
+          {__DEV__ && (
+            <TouchableOpacity onPress={handleSync}>
+              <Icon icon={ReloadIcon} size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={() => setShowImportModal(true)}
+            style={styles.importButton}
+          >
+            <Icon icon={Download01Icon} size={18} color={colors.text.secondary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
+            <Text style={styles.refreshButtonText}>↻</Text>
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation, addDebugEvent, handleSync, onRefresh]);
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       {/* Error Banner for critical errors */}
       {currentError && currentError.severity === 'CRITICAL' && (
         <ErrorBanner
@@ -1095,35 +1125,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
       {/* Offline Indicator */}
       <OfflineIndicator />
 
-      {/* Header */}
-      <ScreenHeader
-        title="Calendar"
-        rightActions={(
-          <View style={styles.headerActions}>
-            {__DEV__ && (
-              <TouchableOpacity onPress={addDebugEvent}>
-                <Icon icon={Bug01Icon} size={18} color={colors.text.secondary} />
-              </TouchableOpacity>
-            )}
-            {__DEV__ && (
-              <TouchableOpacity onPress={handleSync}>
-                <Icon icon={ReloadIcon} size={18} color={colors.text.secondary} />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              onPress={() => setShowImportModal(true)}
-              style={styles.importButton}
-            >
-              <Icon icon={Download01Icon} size={18} color={colors.text.secondary} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
-              <Text style={styles.refreshButtonText}>↻</Text>
-            </TouchableOpacity>
-            <ProfileHeaderButton />
-          </View>
-        )}
-        withDivider
-      />
+
 
       {/* First-run Import Prompt */}
       {showImportPrompt && (

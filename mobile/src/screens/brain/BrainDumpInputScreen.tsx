@@ -23,7 +23,7 @@ type IncomingItem = {
 };
 
 export default function BrainDumpInputScreen({ navigation }: any) {
-  const insets = useSafeAreaInsets();
+  // const insets = useSafeAreaInsets(); // Not needed if MainHeader handles it and no manual padding
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -163,7 +163,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.headerRow}>
@@ -200,7 +200,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
       </KeyboardAvoidingView>
 
       {/* Help button to reopen onboarding */}
-      <View style={{ position: 'absolute', top: insets.top + spacing.sm, right: spacing.sm }}>
+      <View style={{ position: 'absolute', top: spacing.sm, right: spacing.sm }}>
         <TouchableOpacity
           accessibilityLabel="Help"
           onPress={() => navigation.navigate('BrainDumpOnboarding')}

@@ -23,7 +23,7 @@ export default function BrainDumpOnboardingScreen({ navigation }: any) {
   }, [navigation]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <View style={styles.content}>
         <View style={styles.step}>
           <View style={styles.iconCircle}><Icon icon={PencilEdit01Icon} size={24} color={colors.primary} /></View>

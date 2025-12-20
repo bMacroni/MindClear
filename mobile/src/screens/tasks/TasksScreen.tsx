@@ -50,8 +50,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HelpIcon } from '../../components/help/HelpIcon';
 import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
-import ScreenHeader from '../../components/common/ScreenHeader';
-import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingService } from '../../services/onboarding';
 import { hapticFeedback } from '../../utils/hapticFeedback';
@@ -79,6 +77,12 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const _insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => <HelpIcon />,
+    });
+  }, [navigation]);
 
   // Audio cues
   const exitSound = useSoundEffect('taskcard_exit.wav', { volume: 1 });
@@ -1609,18 +1613,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   return (
     <HelpScope scope="tasks">
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
         <View style={styles.container}>
-          <ScreenHeader
-            title="Tasks"
-            rightActions={(
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                <HelpIcon />
-                <ProfileHeaderButton />
-              </View>
-            )}
-            withDivider
-          />
+
           <View style={styles.dashboardContainer}>
             <View style={styles.dashboardRow}>
               <HelpTarget helpId="tasks-header-summary" style={{ flex: 1 }}>

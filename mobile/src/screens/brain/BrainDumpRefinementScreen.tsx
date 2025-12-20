@@ -233,7 +233,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Let’s pick one small step</Text>
       </View>
