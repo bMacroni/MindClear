@@ -11,11 +11,12 @@ export type RootStackParamList = {
   AnalyticsDashboard: undefined;
   ForgotPassword: undefined;
   ResetPassword: { access_token?: string } | undefined;
-  EmailConfirmation: { 
+  EmailConfirmation: {
     code?: string;
     error?: string;
     error_description?: string;
   } | undefined;
+  Profile: undefined;
 };
 
 export type MainTabParamList = {
@@ -23,5 +24,5 @@ export type MainTabParamList = {
   AIChat: { initialMessage?: string; threadId?: string; taskTitle?: string } | undefined;
   Goals: undefined;
   Tasks: undefined;
-  Profile: undefined;
+  Calendar: undefined;
 };

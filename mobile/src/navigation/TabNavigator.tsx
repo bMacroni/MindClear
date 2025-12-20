@@ -17,7 +17,7 @@ import BrainDumpEntryScreen from '../screens/brain/BrainDumpEntryScreen';
 import FocusTaskGuidanceScreen from '../screens/tasks/FocusTaskGuidanceScreen';
 import GoalsScreen from '../screens/goals/GoalsScreen';
 import TasksScreen from '../screens/tasks/TasksScreen';
-import ProfileScreen from '../screens/profile/ProfileScreen';
+import CalendarScreen from '../screens/calendar/CalendarScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -31,8 +31,8 @@ export default function TabNavigator() {
       }}
       tabBar={props => <CustomTabBar {...props} />}
     >
-      <Tab.Screen 
-        name="BrainDump" 
+      <Tab.Screen
+        name="BrainDump"
         options={{ title: 'Brain Dump' }}
         listeners={({ navigation }) => ({
           tabPress: () => {
@@ -48,7 +48,7 @@ export default function TabNavigator() {
                 if (!sessionHasItems && !lastHasItems) {
                   navigation.navigate('BrainDump' as never);
                 }
-              } catch {}
+              } catch { }
             })();
           },
         })}
@@ -66,25 +66,25 @@ export default function TabNavigator() {
           </BrainDumpProvider>
         )}
       </Tab.Screen>
-      <Tab.Screen 
-        name="AIChat" 
+      <Tab.Screen
+        name="AIChat"
         component={AIChatScreen}
         options={{ title: 'AI Chat' }}
       />
-      <Tab.Screen 
-        name="Goals" 
+      <Tab.Screen
+        name="Goals"
         component={GoalsScreen}
         options={{ title: 'Goals' }}
       />
-      <Tab.Screen 
-        name="Tasks" 
+      <Tab.Screen
+        name="Tasks"
         component={TasksScreen}
         options={{ title: 'Tasks' }}
       />
-      <Tab.Screen 
-        name="Profile" 
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
+      <Tab.Screen
+        name="Calendar"
+        component={CalendarScreen}
+        options={{ title: 'Calendar' }}
       />
     </Tab.Navigator>
   );

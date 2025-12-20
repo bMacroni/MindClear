@@ -24,11 +24,10 @@ interface QuickScheduleRadialProps {
 const RADIUS = 120; // Increased from 96 for better touch targets
 const INNER_CANCEL_RADIUS = 60; // Increased proportionally from 52
 
-const OPTIONS: Array<{ key: QuickSchedulePreset; label: string; icon: any }> = [
-  { key: 'today', label: 'Today', icon: Sun01Icon },
-  { key: 'tomorrow', label: 'Tomorrow', icon: ArrowRight01Icon },
-  { key: 'this_week', label: 'This week', icon: Calendar01Icon },
-  { key: 'next_week', label: 'Next week', icon: Calendar01Icon },
+const OPTIONS: Array<{ key: QuickSchedulePreset; label: string; icon: string }> = [{ key: 'today', label: 'Today', icon: Sun01Icon },
+{ key: 'tomorrow', label: 'Tomorrow', icon: ArrowRight01Icon },
+{ key: 'this_week', label: 'This week', icon: Calendar01Icon },
+{ key: 'next_week', label: 'Next week', icon: Calendar01Icon },
 ];
 
 const QuickScheduleRadial: React.FC<QuickScheduleRadialProps> = ({ visible, center, onSelect, onClose, openTimestamp }) => {

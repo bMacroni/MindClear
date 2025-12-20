@@ -20,6 +20,7 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
 import ScreenHeader from '../../components/common/ScreenHeader';
+import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 import { OnboardingState, QuickAction } from '../../types/onboarding';
 import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
@@ -2075,9 +2076,12 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           </TouchableOpacity>
         )}
         rightActions={(
-          <TouchableOpacity style={styles.helpButton} onPress={handleHelpPressWithSend}>
-            <Icon icon={HelpCircleIcon} size={20} color={colors.text.primary} />
-          </TouchableOpacity>
+          <View style={[styles.headerActions, { gap: spacing.sm }]}>
+            <TouchableOpacity style={styles.helpButton} onPress={handleHelpPressWithSend}>
+              <Icon icon={HelpCircleIcon} size={20} color={colors.text.primary} />
+            </TouchableOpacity>
+            <ProfileHeaderButton />
+          </View>
         )}
         withDivider
       />

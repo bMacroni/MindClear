@@ -51,6 +51,7 @@ import { HelpIcon } from '../../components/help/HelpIcon';
 import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import ScreenHeader from '../../components/common/ScreenHeader';
+import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingService } from '../../services/onboarding';
 import { hapticFeedback } from '../../utils/hapticFeedback';
@@ -1610,7 +1611,16 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     <HelpScope scope="tasks">
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <View style={styles.container}>
-          <ScreenHeader title="Tasks" rightActions={(<HelpIcon />)} withDivider />
+          <ScreenHeader
+            title="Tasks"
+            rightActions={(
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <HelpIcon />
+                <ProfileHeaderButton />
+              </View>
+            )}
+            withDivider
+          />
           <View style={styles.dashboardContainer}>
             <View style={styles.dashboardRow}>
               <HelpTarget helpId="tasks-header-summary" style={{ flex: 1 }}>

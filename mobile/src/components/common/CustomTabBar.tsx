@@ -7,7 +7,7 @@ import {
   Comment01Icon,
   Flag01Icon,
   Task01Icon,
-  UserIcon,
+  Calendar01Icon,
   ArrowDown01Icon,
   AiBrain02Icon
 } from '@hugeicons/core-free-icons';
@@ -44,21 +44,21 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
         return Flag01Icon;
       case 'Tasks':
         return Task01Icon;
-      case 'Profile':
-        return UserIcon;
+      case 'Calendar':
+        return Calendar01Icon;
       default:
         return Comment01Icon;
     }
   };
 
-  // Filter out Calendar tab and reorder: Goals, Tasks, BrainDump (center), AIChat, Profile
-  const orderedRoutes = state.routes.filter((route: any) => route.name !== 'Calendar');
+  // Reorder: Goals, Tasks, BrainDump (center), AIChat, Calendar
+  const orderedRoutes = state.routes;
   const reorderedRoutes = [
     orderedRoutes.find((r: any) => r.name === 'Goals'),
     orderedRoutes.find((r: any) => r.name === 'Tasks'),
     orderedRoutes.find((r: any) => r.name === 'BrainDump'),
     orderedRoutes.find((r: any) => r.name === 'AIChat'),
-    orderedRoutes.find((r: any) => r.name === 'Profile'),
+    orderedRoutes.find((r: any) => r.name === 'Calendar'),
   ].filter(Boolean);
 
   // Separate Brain Dump from other routes

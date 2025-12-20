@@ -37,6 +37,7 @@ import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
 import ScreenHeader from '../../components/common/ScreenHeader';
+import { ProfileHeaderButton } from '../../components/common/ProfileHeaderButton';
 
 interface Step {
   id: string;
@@ -1298,6 +1299,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
               >
                 <Icon icon={PlusSignIcon} size={20} color={colors.text.secondary} />
               </TouchableOpacity>
+              <ProfileHeaderButton />
             </View>
           )}
           withDivider

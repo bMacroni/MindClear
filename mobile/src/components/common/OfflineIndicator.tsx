@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
-import { WifiOffIcon, WifiHighIcon, RefreshIcon, Clock01Icon } from '@hugeicons/core-free-icons';
+import { WifiOffIcon, Wifi01Icon, RefreshIcon, Clock01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
@@ -96,7 +96,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ onSyncPress 
     if (offlineState.pendingActions > 0) {
       return Clock01Icon;
     }
-    return WifiHighIcon;
+    return Wifi01Icon;
   };
 
   // Don't show indicator if online and no pending actions

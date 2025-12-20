@@ -123,7 +123,6 @@ const NotificationScreen = ({ navigation }: any) => {
           {debugInfo ? (
             <Text style={styles.debugText}>Debug: {debugInfo}</Text>
           ) : null}
-          reen
           {error.includes('log in') || error.includes('Authentication') ? (
             <TouchableOpacity
               style={styles.retryButton}
