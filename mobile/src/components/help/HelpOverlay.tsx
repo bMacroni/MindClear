@@ -1,7 +1,16 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, TouchableWithoutFeedback, TouchableOpacity, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import {
+  Cancel01Icon,
+  HelpCircleIcon,
+  Target01Icon,
+  Task01Icon,
+  Calendar01Icon,
+  ZapIcon,
+  Comment01Icon
+} from '@hugeicons/core-free-icons';
 import { useHelp } from '../../contexts/HelpContext';
 import { colors } from '../../themes/colors';
 
@@ -106,7 +115,7 @@ export const HelpOverlay: React.FC = () => {
 
       {/* Close button in the top-right corner */}
       <View style={[styles.closeContainer, { top: insets.top + 16 }]} pointerEvents="box-none">
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.closeButton}
           onPress={() => setIsHelpOverlayActive(false)}
           activeOpacity={0.7}
@@ -115,7 +124,7 @@ export const HelpOverlay: React.FC = () => {
           accessible={true}
           onAccessibilityTap={() => setIsHelpOverlayActive(false)}
         >
-          <Icon name="x" size={18} color={colors.secondary} />
+          <Icon icon={Cancel01Icon} size={18} color={colors.secondary} />
         </TouchableOpacity>
       </View>
     </View>

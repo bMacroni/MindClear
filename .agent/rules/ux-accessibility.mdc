@@ -1,0 +1,468 @@
+---
+description: User experience and accessibility guidelines for Mind Clear
+---
+
+# User Experience & Accessibility Rules
+
+## Design Principles
+
+### Core UX Principles
+- **Simplicity First**: Keep interfaces clean and intuitive
+- **Consistency**: Use consistent patterns across all platforms
+- **Feedback**: Provide clear feedback for all user actions
+- **Accessibility**: Ensure the app is usable by everyone
+- **Performance**: Optimize for fast, responsive interactions
+
+### Mind Clear Brand Guidelines
+- Use "Mind Clear" as the app name in all user-facing content
+- Maintain a calm, focused aesthetic that supports productivity
+- Use colors that reduce eye strain and promote focus
+- Implement smooth, purposeful animations
+
+## Accessibility Standards
+
+### WCAG 2.1 AA Compliance
+- **Perceivable**: All content must be perceivable by users
+- **Operable**: Interface components must be operable
+- **Understandable**: Information and UI operation must be understandable
+- **Robust**: Content must be robust enough for assistive technologies
+
+### Color and Contrast
+```css
+/* Minimum contrast ratios */
+.primary-text {
+  color: #1a1a1a; /* 4.5:1 contrast ratio minimum */
+}
+
+.secondary-text {
+  color: #666666; /* 4.5:1 contrast ratio minimum */
+}
+
+.error-text {
+  color: #d32f2f; /* 4.5:1 contrast ratio minimum */
+}
+
+.success-text {
+  color: #2e7d32; /* 4.5:1 contrast ratio minimum */
+}
+```
+
+### Typography
+- Use clear, readable fonts (system fonts preferred)
+- Minimum font size: 16px for body text
+- Line height: 1.5 for body text, 1.2 for headings
+- Use semantic heading hierarchy (h1, h2, h3, etc.)
+
+## Frontend UX Patterns
+
+### Component Accessibility
+```jsx
+// Accessible button component
+const AccessibleButton = ({ 
+  children, 
+  onClick, 
+  disabled = false, 
+  variant = 'primary',
+  ariaLabel,
+  ...props 
+}) => {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className={`
+        px-4 py-2 rounded-lg font-medium
+        focus:outline-none focus:ring-2 focus:ring-blue-500
+        disabled:opacity-50 disabled:cursor-not-allowed
+        ${variant === 'primary' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-800'}
+      `}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+};
+
+// Accessible form input
+const AccessibleInput = ({ 
+  label, 
+  error, 
+  required = false,
+  ...props 
+}) => {
+  const id = useId();
+  
+  return (
+    <div className="space-y-2">
+      <label 
+        htmlFor={id}
+        className="block text-sm font-medium text-gray-700"
+      >
+        {label}
+        {required && <span className="text-red-500 ml-1" aria-label="required">*</span>}
+      </label>
+      <input
+        id={id}
+        required={required}
+        aria-invalid={error ? 'true' : 'false'}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={`
+          w-full px-3 py-2 border rounded-lg
+          focus:outline-none focus:ring-2 focus:ring-blue-500
+          ${error ? 'border-red-500' : 'border-gray-300'}
+        `}
+        {...props}
+      />
+      {error && (
+        <p id={`${id}-error`} className="text-sm text-red-600" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+};
+```
+
+### Loading States
+```jsx
+// Accessible loading component
+const LoadingSpinner = ({ message = 'Loading...' }) => {
+  return (
+    <div 
+      className="flex items-center justify-center p-4"
+      role="status"
+      aria-live="polite"
+    >
+      <div 
+        className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"
+        aria-hidden="true"
+      />
+      <span className="sr-only">{message}</span>
+      <span className="ml-2 text-gray-600">{message}</span>
+    </div>
+  );
+};
+
+// Skeleton loading for better perceived performance
+const TaskSkeleton = () => {
+  return (
+    <div className="animate-pulse">
+      <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+    </div>
+  );
+};
+```
+
+### Error Handling
+```jsx
+// Accessible error display
+const ErrorMessage = ({ error, onRetry }) => {
+  return (
+    <div 
+      className="bg-red-50 border border-red-200 rounded-lg p-4"
+      role="alert"
+      aria-live="assertive"
+    >
+      <div className="flex items-start">
+        <div className="flex-shrink-0">
+          <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <div className="ml-3">
+          <h3 className="text-sm font-medium text-red-800">
+            Something went wrong
+          </h3>
+          <div className="mt-2 text-sm text-red-700">
+            <p>{error}</p>
+          </div>
+          {onRetry && (
+            <div className="mt-4">
+              <button
+                onClick={onRetry}
+                className="bg-red-100 px-3 py-2 rounded-md text-sm font-medium text-red-800 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+## Mobile UX Patterns
+
+### Touch Interactions
+```tsx
+// Accessible touch targets (minimum 44px)
+const TouchableButton = ({ 
+  children, 
+  onPress, 
+  disabled = false,
+  accessibilityLabel,
+  ...props 
+}) => {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      style={[
+        styles.button,
+        disabled && styles.buttonDisabled
+      ]}
+      {...props}
+    >
+      {children}
+    </TouchableOpacity>
+  );
+};
+
+const styles = StyleSheet.create({
+  button: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonDisabled: {
+    backgroundColor: '#C7C7CC',
+    opacity: 0.6,
+  },
+});
+```
+
+### Haptic Feedback
+```tsx
+// Haptic feedback for important actions
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+
+const useHapticFeedback = () => {
+  const triggerHaptic = (type: 'light' | 'medium' | 'heavy' = 'light') => {
+    ReactNativeHapticFeedback.trigger(type, {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+  };
+
+  return { triggerHaptic };
+};
+
+// Usage in components
+const TaskItem = ({ task, onComplete }) => {
+  const { triggerHaptic } = useHapticFeedback();
+
+  const handleComplete = () => {
+    triggerHaptic('medium');
+    onComplete(task.id);
+  };
+
+  return (
+    <TouchableOpacity onPress={handleComplete}>
+      {/* Task content */}
+    </TouchableOpacity>
+  );
+};
+```
+
+### Screen Reader Support
+```tsx
+// Accessible screen components
+const TaskScreen = () => {
+  return (
+    <View style={styles.container}>
+      <Text 
+        accessibilityRole="header"
+        accessibilityLevel={1}
+        style={styles.title}
+      >
+        My Tasks
+      </Text>
+      
+      <FlatList
+        data={tasks}
+        keyExtractor={(item) => item.id}
+        accessibilityLabel="List of tasks"
+        renderItem={({ item }) => (
+          <TaskItem
+            task={item}
+            accessibilityLabel={`Task: ${item.title}. ${item.completed ? 'Completed' : 'Pending'}`}
+            accessibilityHint="Double tap to toggle completion"
+          />
+        )}
+      />
+    </View>
+  );
+};
+```
+
+## Performance UX
+
+### Optimistic Updates
+```jsx
+// Optimistic UI updates for better perceived performance
+const useOptimisticTaskUpdate = () => {
+  const [optimisticTasks, setOptimisticTasks] = useState(tasks);
+  
+  const updateTask = async (taskId, updates) => {
+    // Optimistically update UI
+    setOptimisticTasks(prev => 
+      prev.map(task => 
+        task.id === taskId ? { ...task, ...updates } : task
+      )
+    );
+    
+    try {
+      // Make API call
+      await taskService.updateTask(taskId, updates);
+    } catch (error) {
+      // Revert on error
+      setOptimisticTasks(tasks);
+      showError('Failed to update task');
+    }
+  };
+  
+  return { optimisticTasks, updateTask };
+};
+```
+
+### Progressive Loading
+```jsx
+// Progressive loading for better UX
+const TaskList = () => {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  
+  const loadTasks = async (page = 1) => {
+    if (page === 1) setLoading(true);
+    
+    try {
+      const newTasks = await taskService.getTasks(page);
+      setTasks(prev => page === 1 ? newTasks : [...prev, ...newTasks]);
+      setHasMore(newTasks.length === 20); // Assuming 20 items per page
+    } catch (error) {
+      showError('Failed to load tasks');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <InfiniteScroll
+      data={tasks}
+      onLoadMore={() => loadTasks(Math.ceil(tasks.length / 20) + 1)}
+      hasMore={hasMore}
+      loading={loading}
+      renderItem={TaskItem}
+    />
+  );
+};
+```
+
+## User Feedback
+
+### Toast Notifications
+```jsx
+// Accessible toast notifications
+const useToast = () => {
+  const [toasts, setToasts] = useState([]);
+  
+  const showToast = (message, type = 'info', duration = 3000) => {
+    const id = Date.now();
+    const toast = { id, message, type };
+    
+    setToasts(prev => [...prev, toast]);
+    
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+  };
+  
+  return { showToast, toasts };
+};
+
+const ToastContainer = ({ toasts }) => {
+  return (
+    <div className="fixed top-4 right-4 z-50 space-y-2">
+      {toasts.map(toast => (
+        <div
+          key={toast.id}
+          className={`
+            px-4 py-2 rounded-lg shadow-lg
+            ${toast.type === 'success' ? 'bg-green-500 text-white' : 
+              toast.type === 'error' ? 'bg-red-500 text-white' : 
+              'bg-blue-500 text-white'}
+          `}
+          role="alert"
+          aria-live="polite"
+        >
+          {toast.message}
+        </div>
+      ))}
+    </div>
+  );
+};
+```
+
+### Form Validation
+```jsx
+// Real-time form validation with accessibility
+const useFormValidation = (schema) => {
+  const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
+  
+  const validateField = (name, value) => {
+    try {
+      schema.validateSyncAt(name, { [name]: value });
+      setErrors(prev => ({ ...prev, [name]: null }));
+    } catch (error) {
+      setErrors(prev => ({ ...prev, [name]: error.message }));
+    }
+  };
+  
+  const handleBlur = (name) => {
+    setTouched(prev => ({ ...prev, [name]: true }));
+  };
+  
+  const handleChange = (name, value) => {
+    if (touched[name]) {
+      validateField(name, value);
+    }
+  };
+  
+  return { errors, touched, handleBlur, handleChange };
+};
+```
+
+## Accessibility Testing
+
+### Testing Checklist
+- [ ] All interactive elements have proper focus indicators
+- [ ] Color is not the only way to convey information
+- [ ] Text has sufficient contrast ratio (4.5:1 minimum)
+- [ ] All images have alt text or are decorative
+- [ ] Forms have proper labels and error messages
+- [ ] Keyboard navigation works for all functionality
+- [ ] Screen reader testing with actual users
+- [ ] Touch targets are at least 44px
+- [ ] Content is readable at 200% zoom
+- [ ] No content flashes more than 3 times per second
+
+### Testing Tools
+- **axe-core** for automated accessibility testing
+- **Lighthouse** for accessibility audits
+- **WAVE** for web accessibility evaluation
+- **VoiceOver** (iOS) and **TalkBack** (Android) for screen reader testing
+- **Keyboard-only navigation** testing

@@ -2,7 +2,25 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Switch, StatusBar, Linking, Alert, Modal } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import {
+  Moon02Icon,
+  Sun01Icon,
+  Notification01Icon,
+  ArrowRight01Icon,
+  Mail01Icon,
+  Task01Icon,
+  Flag01Icon,
+  Calendar01Icon,
+  Tick01Icon,
+  Alert01Icon,
+  SecurityCheckIcon,
+  Analytics01Icon,
+  Clock01Icon,
+  Logout01Icon,
+  Delete01Icon,
+  HelpCircleIcon // for fallback or alert?
+} from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -21,8 +39,8 @@ type Profile = {
   avatar_url?: string;
   join_date?: string;
   last_login?: string;
-  account_status?: 'active'|'suspended'|'deleted';
-  theme_preference?: 'light'|'dark';
+  account_status?: 'active' | 'suspended' | 'deleted';
+  theme_preference?: 'light' | 'dark';
   notification_preferences?: any;
   geographic_location?: string;
   timezone?: string;
@@ -53,7 +71,7 @@ export default function ProfileScreen({ navigation }: any) {
   const [notificationPermission, setNotificationPermission] = useState<boolean>(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
-  
+
   // Ref for tracking delete timeout to enable cleanup
   const deleteTimeoutRef = useRef<number | null>(null);
   const deletingRef = useRef(false);
@@ -104,7 +122,7 @@ export default function ProfileScreen({ navigation }: any) {
   }, []);
 
   const toggleTheme = useCallback(async () => {
-    if (!profile) {return;}
+    if (!profile) { return; }
     setSaving(true);
     try {
       const next = profile.theme_preference === 'dark' ? 'light' : 'dark';
@@ -196,7 +214,7 @@ export default function ProfileScreen({ navigation }: any) {
       deletingRef.current = true;
       setDeleting(true);
       const result = await usersAPI.deleteAccount();
-      
+
       // Check if deletion was partial (status 202 or success: 'partial')
       if (result.status === 202 || result.payload.success === 'partial') {
         // Partial deletion - show support contact message and keep modal open
@@ -215,14 +233,14 @@ export default function ProfileScreen({ navigation }: any) {
         );
         return; // Exit early - don't proceed with logout/navigation
       }
-      
+
       // Full success (status 200 and success: true) - proceed with normal flow
       if (result.status === 200 && result.payload.success === true) {
         // Account deletion successful - show success message briefly then navigate to sign-in
         setToastMessage('Account deleted successfully');
         setToastVisible(true);
         setShowDeleteModal(false);
-        
+
         // Wait a moment for the toast to show, then navigate to sign-in
         deleteTimeoutRef.current = setTimeout(async () => {
           try {
@@ -243,7 +261,7 @@ export default function ProfileScreen({ navigation }: any) {
         // Unexpected response format - treat as error
         throw new Error('Unexpected response format from account deletion');
       }
-      
+
     } catch (error) {
       console.error('Failed to delete account', error);
       Alert.alert(
@@ -269,7 +287,7 @@ export default function ProfileScreen({ navigation }: any) {
         // Request permission
         const granted = await notificationService.requestUserPermission();
         setNotificationPermission(granted);
-        
+
         if (granted) {
           setToastMessage('Notifications enabled');
           setToastVisible(true);
@@ -300,7 +318,7 @@ export default function ProfileScreen({ navigation }: any) {
   if (!profile) {
     return (
       <View style={styles.centered}>
-        <Icon name="alert" size={20} color={colors.text.primary} />
+        <Icon icon={Alert01Icon} size={20} color={colors.text.primary} />
         <Text style={styles.loadingText}>Unable to load profile</Text>
       </View>
     );
@@ -309,292 +327,296 @@ export default function ProfileScreen({ navigation }: any) {
   // Avatar hidden for now
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}> 
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.secondary} animated />
       <ScrollView contentContainerStyle={styles.container}>
-      <SuccessToast visible={toastVisible} message={toastMessage} onClose={() => setToastVisible(false)} />
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.name}>{profile.full_name || 'Your Name'}</Text>
-          <Text style={styles.email}>{profile.email}</Text>
-          {!!profile.join_date && (
-            <Text style={styles.meta}>Joined: {new Date(profile.join_date).toLocaleDateString()}</Text>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Appearance</Text>
-        <TouchableOpacity style={styles.row} onPress={toggleTheme} disabled={saving}>
-          <Icon name={profile.theme_preference === 'dark' ? 'moon' : 'sun'} size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Theme</Text>
-          <Text style={styles.rowValue}>{profile.theme_preference || 'light'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notifications</Text>
-        <TouchableOpacity style={styles.row} onPress={handleNotificationPermissionToggle}>
-          <Icon name="bell" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Push Notifications</Text>
-          <View style={styles.permissionStatus}>
-            <Text style={[styles.rowValue, { color: notificationPermission ? colors.success : colors.error }]}>
-              {notificationPermission ? 'Enabled' : 'Disabled'}
-            </Text>
-            <Icon name="chevron-right" size={16} color={colors.text.secondary} />
+        <SuccessToast visible={toastVisible} message={toastMessage} onClose={() => setToastVisible(false)} />
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.name}>{profile.full_name || 'Your Name'}</Text>
+            <Text style={styles.email}>{profile.email}</Text>
+            {!!profile.join_date && (
+              <Text style={styles.meta}>Joined: {new Date(profile.join_date).toLocaleDateString()}</Text>
+            )}
           </View>
-        </TouchableOpacity>
-        <View style={styles.row}> 
-          <Icon name="bell" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>In-App</Text>
-          <Switch
-            value={prefs.channels.in_app}
-            onValueChange={v => setPrefs(p => ({ ...p, channels: { ...p.channels, in_app: v } }))}
-          />
         </View>
-        <View style={styles.row}> 
-          <Icon name="mail" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Email</Text>
-          <Switch
-            value={prefs.channels.email}
-            onValueChange={v => setPrefs(p => ({ ...p, channels: { ...p.channels, email: v } }))}
-          />
-        </View>
-        <View style={styles.row}> 
-          <Icon name="checklist" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Tasks</Text>
-          <Switch
-            testID="tasks-notification-toggle"
-            accessibilityLabel="Toggle tasks notifications"
-            value={prefs.categories.tasks}
-            onValueChange={async (v) => {
-              const prevValue = prefs.categories.tasks;
-              setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: v } }));
-              // Also update daily focus reminder preference
-              try {
-                await usersAPI.updateNotificationPreference('daily_focus_reminder', 'push', v);
-              } catch (error) {
-                console.error('Failed to update focus reminder preference:', error);
-                // Rollback on error
-                setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: prevValue } }));
-                Alert.alert('Error', 'Failed to update notification preference. Please try again.');
-              }
-            }}
-          />
-        </View>
-        <View style={styles.row}> 
-          <Icon name="milestone" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Goals</Text>
-          <Switch
-            value={prefs.categories.goals}
-            onValueChange={v => setPrefs(p => ({ ...p, categories: { ...p.categories, goals: v } }))}
-          />
-        </View>
-        <View style={styles.row}> 
-          <Icon name="calendar" size={18} color={colors.primary} />
-          <Text style={styles.rowLabel}>Scheduling</Text>
-          <Switch
-            value={prefs.categories.scheduling}
-            onValueChange={v => setPrefs(p => ({ ...p, categories: { ...p.categories, scheduling: v } }))}
-          />
-        </View>
-        <TouchableOpacity style={[styles.cta, savingPrefs && { opacity: 0.7 }]} onPress={savePrefs} disabled={savingPrefs}>
-          <Icon name="check" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
-          <Text style={styles.ctaText}>{savingPrefs ? 'Saving…' : 'Save Preferences'}</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Profile</Text>
-        {/* Notifications navigation hidden per request */}
-        <Text style={styles.inputLabel}>Full Name</Text>
-        <TextInput
-          style={styles.input}
-          value={fullName}
-          onChangeText={setFullName}
-          placeholder="Your name"
-          placeholderTextColor={colors.text.disabled}
-        />
-        {/* Avatar URL hidden for now */}
-        <Text style={styles.inputLabel}>Location</Text>
-        <TextInput
-          style={styles.input}
-          value={location}
-          onChangeText={setLocation}
-          placeholder="City, ST"
-          placeholderTextColor={colors.text.disabled}
-        />
-        <Text style={styles.inputLabel}>Timezone</Text>
-        <Text style={styles.inputLabel}>Current: {timezone}</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            testID="timezone-picker"
-            selectedValue={timezone}
-            style={styles.picker}
-            onValueChange={(itemValue) => setTimezone(itemValue)}
-          >
-            <Picker.Item label="America/New_York (Eastern)" value="America/New_York" />
-            <Picker.Item label="America/Chicago (Central)" value="America/Chicago" />
-            <Picker.Item label="America/Denver (Mountain)" value="America/Denver" />
-            <Picker.Item label="America/Los_Angeles (Pacific)" value="America/Los_Angeles" />
-            <Picker.Item label="America/Phoenix (Arizona)" value="America/Phoenix" />
-            <Picker.Item label="America/Anchorage (Alaska)" value="America/Anchorage" />
-            <Picker.Item label="Pacific/Honolulu (Hawaii)" value="Pacific/Honolulu" />
-            <Picker.Item label="Europe/London (GMT)" value="Europe/London" />
-            <Picker.Item label="Europe/Paris (CET)" value="Europe/Paris" />
-            <Picker.Item label="Asia/Tokyo (JST)" value="Asia/Tokyo" />
-            <Picker.Item label="Australia/Sydney (AEST)" value="Australia/Sydney" />
-          </Picker>
-        </View>
-        <TouchableOpacity style={[styles.cta, savingProfile && { opacity: 0.7 }]} onPress={saveProfile} disabled={savingProfile}>
-          <Icon name="check" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
-          <Text style={styles.ctaText}>{savingProfile ? 'Saving…' : 'Save Changes'}</Text>
-        </TouchableOpacity>
-      </View>
 
-      {/* Admin Section - Only visible to admin users */}
-      {profile?.is_admin && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Admin</Text>
-          <View style={styles.rowStatic}>
-            <Icon name="shield-check" size={18} color={colors.primary} />
-            <Text style={styles.rowLabel}>Admin Access</Text>
-            <Text style={styles.rowValue}>Enabled</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.row}
-            onPress={() => navigation.navigate('AnalyticsDashboard' as never)}
-          >
-            <Icon name="graph" size={18} color={colors.primary} />
-            <Text style={styles.rowLabel}>Analytics Dashboard</Text>
-            <Icon name="chevron-right" size={16} color={colors.text.secondary} />
+          <Text style={styles.sectionTitle}>Appearance</Text>
+          <TouchableOpacity style={styles.row} onPress={toggleTheme} disabled={saving}>
+            {profile.theme_preference === 'dark' ? (
+              <Icon icon={Moon02Icon} size={18} color={colors.primary} />
+            ) : (
+              <Icon icon={Sun01Icon} size={18} color={colors.primary} />
+            )}
+            <Text style={styles.rowLabel}>Theme</Text>
+            <Text style={styles.rowValue}>{profile.theme_preference || 'light'}</Text>
           </TouchableOpacity>
         </View>
-      )}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Security</Text>
-        {!!profile.last_login && (
-          <View style={styles.rowStatic}>
-            <Icon name="clock" size={18} color={colors.text.secondary} />
-            <Text style={styles.rowLabel}>Last Login</Text>
-            <Text style={styles.rowValue}>{new Date(profile.last_login).toLocaleString()}</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notifications</Text>
+          <TouchableOpacity style={styles.row} onPress={handleNotificationPermissionToggle}>
+            <Icon icon={Notification01Icon} size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Push Notifications</Text>
+            <View style={styles.permissionStatus}>
+              <Text style={[styles.rowValue, { color: notificationPermission ? colors.success : colors.error }]}>
+                {notificationPermission ? 'Enabled' : 'Disabled'}
+              </Text>
+              <Icon icon={ArrowRight01Icon} size={16} color={colors.text.secondary} />
+            </View>
+          </TouchableOpacity>
+          <View style={styles.row}>
+            <Icon icon={Notification01Icon} size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>In-App</Text>
+            <Switch
+              value={prefs.channels.in_app}
+              onValueChange={v => setPrefs(p => ({ ...p, channels: { ...p.channels, in_app: v } }))}
+            />
+          </View>
+          <View style={styles.row}>
+            <Icon icon={Mail01Icon} size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Email</Text>
+            <Switch
+              value={prefs.channels.email}
+              onValueChange={v => setPrefs(p => ({ ...p, channels: { ...p.channels, email: v } }))}
+            />
+          </View>
+          <View style={styles.row}>
+            <Icon icon={Task01Icon} size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Tasks</Text>
+            <Switch
+              testID="tasks-notification-toggle"
+              accessibilityLabel="Toggle tasks notifications"
+              value={prefs.categories.tasks}
+              onValueChange={async (v) => {
+                const prevValue = prefs.categories.tasks;
+                setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: v } }));
+                // Also update daily focus reminder preference
+                try {
+                  await usersAPI.updateNotificationPreference('daily_focus_reminder', 'push', v);
+                } catch (error) {
+                  console.error('Failed to update focus reminder preference:', error);
+                  // Rollback on error
+                  setPrefs(p => ({ ...p, categories: { ...p.categories, tasks: prevValue } }));
+                  Alert.alert('Error', 'Failed to update notification preference. Please try again.');
+                }
+              }}
+            />
+          </View>
+          <View style={styles.row}>
+            <Icon icon={Flag01Icon} size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Goals</Text>
+            <Switch
+              value={prefs.categories.goals}
+              onValueChange={v => setPrefs(p => ({ ...p, categories: { ...p.categories, goals: v } }))}
+            />
+          </View>
+          <View style={styles.row}>
+            <Icon icon={Calendar01Icon} size={18} color={colors.primary} />
+            <Text style={styles.rowLabel}>Scheduling</Text>
+            <Switch
+              value={prefs.categories.scheduling}
+              onValueChange={v => setPrefs(p => ({ ...p, categories: { ...p.categories, scheduling: v } }))}
+            />
+          </View>
+          <TouchableOpacity style={[styles.cta, savingPrefs && { opacity: 0.7 }]} onPress={savePrefs} disabled={savingPrefs}>
+            <Icon icon={Tick01Icon} size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+            <Text style={styles.ctaText}>{savingPrefs ? 'Saving…' : 'Save Preferences'}</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Profile</Text>
+          {/* Notifications navigation hidden per request */}
+          <Text style={styles.inputLabel}>Full Name</Text>
+          <TextInput
+            style={styles.input}
+            value={fullName}
+            onChangeText={setFullName}
+            placeholder="Your name"
+            placeholderTextColor={colors.text.disabled}
+          />
+          {/* Avatar URL hidden for now */}
+          <Text style={styles.inputLabel}>Location</Text>
+          <TextInput
+            style={styles.input}
+            value={location}
+            onChangeText={setLocation}
+            placeholder="City, ST"
+            placeholderTextColor={colors.text.disabled}
+          />
+          <Text style={styles.inputLabel}>Timezone</Text>
+          <Text style={styles.inputLabel}>Current: {timezone}</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              testID="timezone-picker"
+              selectedValue={timezone}
+              style={styles.picker}
+              onValueChange={(itemValue) => setTimezone(itemValue)}
+            >
+              <Picker.Item label="America/New_York (Eastern)" value="America/New_York" />
+              <Picker.Item label="America/Chicago (Central)" value="America/Chicago" />
+              <Picker.Item label="America/Denver (Mountain)" value="America/Denver" />
+              <Picker.Item label="America/Los_Angeles (Pacific)" value="America/Los_Angeles" />
+              <Picker.Item label="America/Phoenix (Arizona)" value="America/Phoenix" />
+              <Picker.Item label="America/Anchorage (Alaska)" value="America/Anchorage" />
+              <Picker.Item label="Pacific/Honolulu (Hawaii)" value="Pacific/Honolulu" />
+              <Picker.Item label="Europe/London (GMT)" value="Europe/London" />
+              <Picker.Item label="Europe/Paris (CET)" value="Europe/Paris" />
+              <Picker.Item label="Asia/Tokyo (JST)" value="Asia/Tokyo" />
+              <Picker.Item label="Australia/Sydney (AEST)" value="Australia/Sydney" />
+            </Picker>
+          </View>
+          <TouchableOpacity style={[styles.cta, savingProfile && { opacity: 0.7 }]} onPress={saveProfile} disabled={savingProfile}>
+            <Icon icon={Tick01Icon} size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+            <Text style={styles.ctaText}>{savingProfile ? 'Saving…' : 'Save Changes'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Admin Section - Only visible to admin users */}
+        {profile?.is_admin && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Admin</Text>
+            <View style={styles.rowStatic}>
+              <Icon icon={SecurityCheckIcon} size={18} color={colors.primary} />
+              <Text style={styles.rowLabel}>Admin Access</Text>
+              <Text style={styles.rowValue}>Enabled</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => navigation.navigate('AnalyticsDashboard' as never)}
+            >
+              <Icon icon={Analytics01Icon} size={18} color={colors.primary} />
+              <Text style={styles.rowLabel}>Analytics Dashboard</Text>
+              <Icon icon={ArrowRight01Icon} size={16} color={colors.text.secondary} />
+            </TouchableOpacity>
           </View>
         )}
-        <TouchableOpacity
-          style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}
-          onPress={async () => {
-            try {
-              await authService.logout();
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } catch (error) {
-              console.error('Logout failed:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
-            }
-          }}
-          accessibilityLabel="Sign out of your account"
-          accessibilityRole="button"
-        >
-          <Icon name="sign-out" size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
-          <Text style={styles.ctaText}>Sign Out</Text>
-        </TouchableOpacity>
-      </View>
 
-      {/* Developer Settings - Only visible to admin users */}
-      {profile?.is_admin && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Developer Settings</Text>
-          <ApiToggle 
-            onLogout={() => {
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            }}
-          />
-        </View>
-      )}
-
-      {/* Delete Account Section */}
-      <View style={[styles.section, { marginTop: spacing.xl }]}>
-        <Text style={styles.sectionTitle}>Danger Zone</Text>
-        <TouchableOpacity
-          style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.sm }]}
-          onPress={handleDeleteAccount}
-          accessibilityLabel="Delete your account permanently"
-          accessibilityRole="button"
-        >
-          <Icon name="trash" size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
-          <Text style={styles.ctaText}>Delete Account</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        visible={showDeleteModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowDeleteModal(false)}
-        accessibilityViewIsModal={true}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Icon name="alert" size={24} color={colors.error} />
-              <Text style={styles.modalTitle}>Final Confirmation</Text>
+          <Text style={styles.sectionTitle}>Security</Text>
+          {!!profile.last_login && (
+            <View style={styles.rowStatic}>
+              <Icon icon={Clock01Icon} size={18} color={colors.text.secondary} />
+              <Text style={styles.rowLabel}>Last Login</Text>
+              <Text style={styles.rowValue}>{new Date(profile.last_login).toLocaleString()}</Text>
             </View>
-            
-            <Text style={styles.modalMessage}>
-              This will permanently delete your account and all data. This action cannot be undone.
-            </Text>
-            
-            <Text style={styles.modalInstruction}>
-              Type <Text style={styles.deleteText}>DELETE</Text> to confirm:
-            </Text>
-            
-            <TextInput
-              style={styles.modalInput}
-              value={deleteConfirmationText}
-              onChangeText={setDeleteConfirmationText}
-              placeholder="Type DELETE here"
-              placeholderTextColor={colors.text.secondary}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              accessibilityLabel="Confirmation text input. Type DELETE to confirm account deletion"
+          )}
+          <TouchableOpacity
+            style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.md }]}
+            onPress={async () => {
+              try {
+                await authService.logout();
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              } catch (error) {
+                console.error('Logout failed:', error);
+                Alert.alert('Error', 'Failed to sign out. Please try again.');
+              }
+            }}
+            accessibilityLabel="Sign out of your account"
+            accessibilityRole="button"
+          >
+            <Icon icon={Logout01Icon} size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+            <Text style={styles.ctaText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Developer Settings - Only visible to admin users */}
+        {profile?.is_admin && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Developer Settings</Text>
+            <ApiToggle
+              onLogout={() => {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Login' }],
+                });
+              }}
             />
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalCancelButton, deleting && { opacity: 0.5 }]}
-                onPress={() => setShowDeleteModal(false)}
-                disabled={deleting}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel account deletion"
-              >
-                <Text style={styles.modalCancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  styles.modalDeleteButton,
-                  (deleteConfirmationText !== 'DELETE' || deleting) && styles.modalDeleteButtonDisabled
-                ]}
-                onPress={handleConfirmDelete}
-                disabled={deleteConfirmationText !== 'DELETE' || deleting}
-                accessibilityRole="button"
-                accessibilityLabel="Confirm and delete account permanently"
-              >
-                <Text style={styles.modalDeleteButtonText}>
-                  {deleting ? 'Deleting...' : 'Delete Account'}
-                </Text>
-              </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Delete Account Section */}
+        <View style={[styles.section, { marginTop: spacing.xl }]}>
+          <Text style={styles.sectionTitle}>Danger Zone</Text>
+          <TouchableOpacity
+            style={[styles.cta, { backgroundColor: colors.error, marginTop: spacing.sm }]}
+            onPress={handleDeleteAccount}
+            accessibilityLabel="Delete your account permanently"
+            accessibilityRole="button"
+          >
+            <Icon icon={Delete01Icon} size={20} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+            <Text style={styles.ctaText}>Delete Account</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Delete Confirmation Modal */}
+        <Modal
+          visible={showDeleteModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowDeleteModal(false)}
+          accessibilityViewIsModal={true}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Icon icon={Alert01Icon} size={24} color={colors.error} />
+                <Text style={styles.modalTitle}>Final Confirmation</Text>
+              </View>
+
+              <Text style={styles.modalMessage}>
+                This will permanently delete your account and all data. This action cannot be undone.
+              </Text>
+
+              <Text style={styles.modalInstruction}>
+                Type <Text style={styles.deleteText}>DELETE</Text> to confirm:
+              </Text>
+
+              <TextInput
+                style={styles.modalInput}
+                value={deleteConfirmationText}
+                onChangeText={setDeleteConfirmationText}
+                placeholder="Type DELETE here"
+                placeholderTextColor={colors.text.secondary}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                accessibilityLabel="Confirmation text input. Type DELETE to confirm account deletion"
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalCancelButton, deleting && { opacity: 0.5 }]}
+                  onPress={() => setShowDeleteModal(false)}
+                  disabled={deleting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel account deletion"
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.modalDeleteButton,
+                    (deleteConfirmationText !== 'DELETE' || deleting) && styles.modalDeleteButtonDisabled
+                  ]}
+                  onPress={handleConfirmDelete}
+                  disabled={deleteConfirmationText !== 'DELETE' || deleting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm and delete account permanently"
+                >
+                  <Text style={styles.modalDeleteButtonText}>
+                    {deleting ? 'Deleting...' : 'Delete Account'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );

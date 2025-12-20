@@ -23,6 +23,5 @@ export type MainTabParamList = {
   AIChat: { initialMessage?: string; threadId?: string; taskTitle?: string } | undefined;
   Goals: undefined;
   Tasks: undefined;
-  Calendar: undefined;
   Profile: undefined;
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { WifiOffIcon, WifiHighIcon, RefreshIcon, Clock01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
@@ -30,7 +31,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ onSyncPress 
     // Subscribe to state changes
     const unsubscribe = offlineService.subscribe((state) => {
       setOfflineState(state);
-      
+
       // Animate in/out based on offline status
       if (!state.isOnline || state.pendingActions > 0) {
         Animated.spring(slideAnim, {
@@ -87,15 +88,15 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ onSyncPress 
 
   const getStatusIcon = () => {
     if (!offlineState.isOnline) {
-      return 'wifi-off';
+      return WifiOffIcon;
     }
     if (offlineState.isSyncing) {
-      return 'sync';
+      return RefreshIcon;
     }
     if (offlineState.pendingActions > 0) {
-      return 'clock';
+      return Clock01Icon;
     }
-    return 'wifi';
+    return WifiHighIcon;
   };
 
   // Don't show indicator if online and no pending actions
@@ -104,25 +105,25 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ onSyncPress 
   }
 
   return (
-    <Animated.View 
+    <Animated.View
       style={[
         styles.container,
         { transform: [{ translateY: slideAnim }] }
       ]}
     >
       <View style={[styles.indicator, { backgroundColor: getStatusColor() }]}>
-        <Icon name={getStatusIcon()} size={16} color={colors.secondary} />
+        <Icon icon={getStatusIcon()} size={16} color={colors.secondary} />
         <Text style={styles.text}>{getStatusText()}</Text>
-        
+
         {(offlineState.pendingActions > 0 || !offlineState.isOnline) && (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.syncButton}
             onPress={handleSyncPress}
             disabled={offlineState.isSyncing}
           >
-            <Icon 
-              name="sync" 
-              size={14} 
+            <Icon
+              icon={RefreshIcon}
+              size={14}
               color={colors.secondary}
               style={offlineState.isSyncing ? styles.spinning : undefined}
             />

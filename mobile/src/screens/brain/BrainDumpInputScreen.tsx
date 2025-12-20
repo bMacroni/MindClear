@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { SparklesIcon, Shield01Icon, HelpCircleIcon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -35,7 +36,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
         const tid = await AsyncStorage.getItem('lastBrainDumpThreadId');
         const items = await AsyncStorage.getItem('lastBrainDumpItems');
         setHasSavedRefinement(Boolean(tid && items));
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -57,7 +58,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
   const sanitizeText = (s: string) => String(s || '').replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
 
   const onSubmit = async () => {
-    if (!text.trim() || loading) {return;}
+    if (!text.trim() || loading) { return; }
     setLoading(true);
     setError('');
     try {
@@ -70,11 +71,11 @@ export default function BrainDumpInputScreen({ navigation }: any) {
         const map = new Map<string, any>();
         existing.forEach((it) => {
           const key = normalizeKey(it?.text);
-          if (key) {map.set(key, { ...it, text: sanitizeText(it?.text) });}
+          if (key) { map.set(key, { ...it, text: sanitizeText(it?.text) }); }
         });
         (Array.isArray(items) ? (items as IncomingItem[]) : []).forEach((it) => {
           const key = normalizeKey(it?.text);
-          if (!key) {return;}
+          if (!key) { return; }
           if (!map.has(key)) {
             map.set(key, {
               text: sanitizeText(it?.text),
@@ -130,12 +131,12 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           ['lastBrainDumpItems', JSON.stringify(mergedItems)],
         ]);
         setHasSavedRefinement(true);
-      } catch {}
+      } catch { }
       // Update shared session so SubNav enables Refine/Prioritize immediately
       try {
         setThreadId(threadId);
         setSessionItems(mergedItems as any);
-      } catch {}
+      } catch { }
       navigation.navigate('BrainDumpRefinement', { threadId, items: mergedItems, duplicatesRemovedCount });
     } catch (e: any) {
       setError(e?.message || 'Failed to process brain dump. Please try again.');
@@ -158,11 +159,11 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           return;
         }
       }
-    } catch {}
+    } catch { }
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>      
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.headerRow}>
@@ -187,12 +188,12 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           {!!error && <Text style={styles.error}>{error}</Text>}
 
           <TouchableOpacity style={[styles.cta, loading && { opacity: 0.7 }]} onPress={onSubmit} disabled={loading}>
-            <Icon name="north-star" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+            <Icon icon={SparklesIcon} size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
             <Text style={styles.ctaText}>{loading ? 'Working…' : 'Untangle My Thoughts'}</Text>
           </TouchableOpacity>
 
           <View style={styles.privacyBox}>
-            <Icon name="shield" size={16} color={colors.text.secondary} style={{ marginRight: spacing.xs }} />
+            <Icon icon={Shield01Icon} size={16} color={colors.text.secondary} style={{ marginRight: spacing.xs }} />
             <Text style={styles.privacyText}>Your brain dump is private to you. We store it securely and only use it to help you organize your thoughts. You’re always in control.</Text>
           </View>
         </ScrollView>
@@ -206,7 +207,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           activeOpacity={0.7}
           style={styles.helpBtn}
         >
-          <Icon name="question" size={18} color={colors.text.secondary} />
+          <Icon icon={HelpCircleIcon} size={18} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>

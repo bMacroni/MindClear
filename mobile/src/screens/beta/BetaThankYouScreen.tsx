@@ -7,7 +7,8 @@ import { spacing, borderRadius } from '../../themes/spacing';
 import { Button } from '../../components/common';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navigation/types';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Calendar01Icon, Task01Icon } from '@hugeicons/core-free-icons';
 
 type BetaThankYouScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'BetaThankYou'>;
@@ -20,15 +21,15 @@ export default function BetaThankYouScreen({ navigation }: BetaThankYouScreenPro
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.content}>
           {/* Logo */}
           <View style={styles.logoContainer}>
-            <Image 
-              source={require('../../../assets/icon.png')} 
+            <Image
+              source={require('../../../assets/icon.png')}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -43,12 +44,12 @@ export default function BetaThankYouScreen({ navigation }: BetaThankYouScreenPro
           {/* Main Content Card */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Your participation helps us build better</Text>
-            
+
             {/* Instructions */}
             <View style={styles.instructionContainer}>
               <View style={styles.instructionRow}>
                 <View style={styles.iconContainer}>
-                  <Icon name="calendar" size={24} color={colors.primary} />
+                  <Icon icon={Calendar01Icon} size={24} color={colors.primary} />
                 </View>
                 <View style={styles.instructionTextContainer}>
                   <Text style={styles.instructionTitle}>Keep the app installed</Text>
@@ -60,7 +61,7 @@ export default function BetaThankYouScreen({ navigation }: BetaThankYouScreenPro
 
               <View style={styles.instructionRow}>
                 <View style={styles.iconContainer}>
-                  <Icon name="checklist" size={24} color={colors.primary} />
+                  <Icon icon={Task01Icon} size={24} color={colors.primary} />
                 </View>
                 <View style={styles.instructionTextContainer}>
                   <Text style={styles.instructionTitle}>Open daily and make one change</Text>

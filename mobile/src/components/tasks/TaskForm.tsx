@@ -16,7 +16,16 @@ import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
 import { formatRelativeDueLabel } from '../../utils/dateUtils';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import {
+  Clock01Icon,
+  Alert01Icon,
+  ArrowUp01Icon,
+  ArrowDown01Icon,
+  Location01Icon,
+  Cancel01Icon,
+  Tick01Icon
+} from '@hugeicons/core-free-icons';
 
 interface Task {
   id?: string;
@@ -129,7 +138,8 @@ export const TaskForm: React.FC<TaskFormProps> = ({
         scheduling_preferences: task.scheduling_preferences ?? null,
         max_daily_tasks: task.max_daily_tasks ?? 10,
         buffer_time_minutes: task.buffer_time_minutes ?? 15,
-        task_type: task.task_type ?? 'other',      });
+        task_type: task.task_type ?? 'other',
+      });
       if (task.due_date) {
         setSelectedDate(new Date(task.due_date));
       }
@@ -228,7 +238,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
               key={window.value}
               style={[
                 styles.timeWindowButton,
-                formData.preferred_time_windows?.includes(window.value) && 
+                formData.preferred_time_windows?.includes(window.value) &&
                 styles.timeWindowButtonSelected
               ]}
               onPress={() => {
@@ -241,7 +251,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
             >
               <Text style={[
                 styles.timeWindowText,
-                formData.preferred_time_windows?.includes(window.value) && 
+                formData.preferred_time_windows?.includes(window.value) &&
                 styles.timeWindowTextSelected
               ]}>
                 {window.label}
@@ -254,7 +264,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   };
 
   const getCategoryLabel = (category?: string) => {
-    if (!category) {return 'Select category';}
+    if (!category) { return 'Select category'; }
     const option = categoryOptions.find(opt => opt.value === category);
     return option?.label || category;
   };
@@ -265,7 +275,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   };
 
   const getGoalLabel = (goalId?: string) => {
-    if (!goalId) {return 'Select a goal';}
+    if (!goalId) { return 'Select a goal'; }
     const goal = goals.find(g => g.id === goalId);
     return goal?.title || 'Unknown Goal';
   };
@@ -285,7 +295,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
     if (showCategoryDropdown) {
       setShowCategoryDropdown(false);
     }
-    
+
     event.target.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
       setGoalDropdownPosition({ x: pageX, y: pageY + height, width });
       setShowGoalDropdown(!showGoalDropdown);
@@ -297,7 +307,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
     if (showGoalDropdown) {
       setShowGoalDropdown(false);
     }
-    
+
     event.target.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
       setCategoryDropdownPosition({ x: pageX, y: pageY + height, width });
       setShowCategoryDropdown(!showCategoryDropdown);
@@ -308,8 +318,8 @@ export const TaskForm: React.FC<TaskFormProps> = ({
 
   return (
     <View style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!showCategoryDropdown && !showGoalDropdown}
         contentContainerStyle={[styles.scrollContent, stickyFooter ? { paddingBottom: spacing['2xl'] } : null]}
@@ -322,7 +332,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
             )}
             {Number.isFinite((formData as any).estimated_duration_minutes) && (
               <View style={styles.durationBadge}>
-                <Icon name="clock" size={14} color={colors.text.secondary} />
+                <Icon icon={Clock01Icon} size={14} color={colors.text.secondary} />
                 <Text style={styles.durationText}>{(formData as any).estimated_duration_minutes}m</Text>
               </View>
             )}
@@ -374,8 +384,8 @@ export const TaskForm: React.FC<TaskFormProps> = ({
                       formData.status === status && styles.segmentTextActive,
                     ]}
                   >
-                    {status === 'not_started' ? 'Not Started' : 
-                     status === 'in_progress' ? 'In Progress' : 'Completed'}
+                    {status === 'not_started' ? 'Not Started' :
+                      status === 'in_progress' ? 'In Progress' : 'Completed'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -433,7 +443,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
             </View>
             {dueMeta?.tone === 'overdue' && (
               <View style={styles.noticeRow}>
-                <Icon name="alert" size={14} color={colors.error} />
+                <Icon icon={Alert01Icon} size={14} color={colors.error} />
                 <Text style={styles.noticeText}>{dueMeta.label}</Text>
               </View>
             )}
@@ -462,10 +472,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({
                 <Text style={styles.dropdownButtonText}>
                   {getCategoryLabel(formData.category)}
                 </Text>
-                <Icon 
-                  name={showCategoryDropdown ? "chevron-up" : "chevron-down"} 
-                  size={16} 
-                  color={colors.text.secondary} 
+                <Icon
+                  icon={showCategoryDropdown ? ArrowUp01Icon : ArrowDown01Icon}
+                  size={16}
+                  color={colors.text.secondary}
                 />
               </TouchableOpacity>
             </View>
@@ -483,10 +493,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({
                   <Text style={styles.dropdownButtonText}>
                     {getGoalLabel(formData.goal_id)}
                   </Text>
-                  <Icon 
-                    name={showGoalDropdown ? "chevron-up" : "chevron-down"} 
-                    size={16} 
-                    color={colors.text.secondary} 
+                  <Icon
+                    icon={showGoalDropdown ? ArrowUp01Icon : ArrowDown01Icon}
+                    size={16}
+                    color={colors.text.secondary}
                   />
                 </TouchableOpacity>
               </View>
@@ -512,7 +522,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
           {/* Auto-Scheduling Section */}
           <View style={styles.autoScheduleSection}>
             <Text style={styles.sectionTitle}>Auto-Scheduling</Text>
-            
+
             {renderSwitch(
               'Enable Auto-Scheduling',
               formData.auto_schedule_enabled || false,
@@ -526,7 +536,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
                 <View style={styles.field}>
                   <Text style={styles.label}>Location</Text>
                   <View style={styles.locationInputContainer}>
-                    <Icon name="location" size={16} color={colors.text.secondary} />
+                    <Icon icon={Location01Icon} size={16} color={colors.text.secondary} />
                     <TextInput
                       style={styles.locationInput}
                       value={formData.location}
@@ -555,10 +565,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({
           {stickyFooter ? null : (
             <View style={styles.actions}>
               <TouchableOpacity style={[styles.footerIconBtn]} onPress={onCancel} accessibilityLabel="Cancel">
-                <Icon name="x" size={22} color={colors.text.primary} />
+                <Icon icon={Cancel01Icon} size={22} color={colors.text.primary} />
               </TouchableOpacity>
               <TouchableOpacity style={[styles.footerIconBtn]} onPress={handleSave} disabled={loading} accessibilityLabel="Save task">
-                <Icon name="check" size={22} color={colors.text.primary} />
+                <Icon icon={Tick01Icon} size={22} color={colors.text.primary} />
               </TouchableOpacity>
             </View>
           )}
@@ -568,10 +578,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       {stickyFooter && (
         <View style={styles.stickyFooter}>
           <TouchableOpacity style={styles.footerIconBtn} onPress={onCancel} accessibilityLabel="Cancel">
-            <Icon name="x" size={24} color={colors.text.primary} />
+            <Icon icon={Cancel01Icon} size={24} color={colors.text.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.footerIconBtn} onPress={handleSave} disabled={loading} accessibilityLabel="Save task">
-            <Icon name="check" size={24} color={colors.text.primary} />
+            <Icon icon={Tick01Icon} size={24} color={colors.text.primary} />
           </TouchableOpacity>
         </View>
       )}

@@ -12,7 +12,8 @@ import { taskRepository } from '../../repositories/TaskRepository';
 import { goalRepository } from '../../repositories/GoalRepository';
 import { syncService } from '../../services/SyncService';
 import { authService } from '../../services/auth';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface Task {
@@ -76,7 +77,7 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
   const handleSave = async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
-      
+
       if (taskId) {
         // Update existing task
         await taskRepository.updateTask(taskId, taskData);
@@ -87,10 +88,10 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
           userId: authService.getCurrentUser()?.id,
         });
       }
-      
+
       // Trigger background sync
       syncService.silentSync();
-      
+
       navigation.goBack();
     } catch (error) {
       console.error('Error saving task:', error);
@@ -117,10 +118,10 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
       <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
         <View style={styles.headerBar}>
           <TouchableOpacity style={styles.headerIconBtn} onPress={handleCancel}>
-            <Icon name="x" size={24} color={colors.text.primary} />
+            <Icon icon={Cancel01Icon} size={24} color={colors.text.primary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSaveSignal((s) => s + 1)}>
-            <Icon name="check" size={24} color={colors.text.primary} />
+            <Icon icon={Tick01Icon} size={24} color={colors.text.primary} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>

@@ -8,7 +8,8 @@ import {
   ActionSheetIOS,
   Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Clock01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
@@ -51,7 +52,7 @@ export const EventCard: React.FC<EventCardProps> = ({
     tomorrow.setDate(tomorrow.getDate() + 1);
     const nextWeek = new Date(now);
     nextWeek.setDate(nextWeek.getDate() + 7);
-    
+
     return [
       { label: 'Today', date: today },
       { label: 'Tomorrow', date: tomorrow },
@@ -142,11 +143,11 @@ export const EventCard: React.FC<EventCardProps> = ({
   };
 
   const handleLongPress = () => {
-    if (!onReschedule) {return;}
-    
+    if (!onReschedule) { return; }
+
     hapticFeedback.medium();
     const options = getRescheduleOptions();
-    
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -229,8 +230,8 @@ export const EventCard: React.FC<EventCardProps> = ({
   };
 
   const handleCompleteTask = async () => {
-    if (!isTask) {return;}
-    
+    if (!isTask) { return; }
+
     hapticFeedback.success();
     setCompleting(true);
     try {
@@ -249,8 +250,8 @@ export const EventCard: React.FC<EventCardProps> = ({
   if (compact) {
     return (
       <View style={[styles.compactCard, { borderLeftColor: getEventColor() }]}>
-        <TouchableOpacity 
-          onPress={handleCardPress} 
+        <TouchableOpacity
+          onPress={handleCardPress}
           onLongPress={handleLongPress}
           style={styles.compactContent}
         >
@@ -265,8 +266,8 @@ export const EventCard: React.FC<EventCardProps> = ({
 
   return (
     <View style={[styles.card, { borderLeftColor: getEventColor() }]}>
-      <TouchableOpacity 
-        onPress={handleCardPress} 
+      <TouchableOpacity
+        onPress={handleCardPress}
         onLongPress={handleLongPress}
         style={styles.content}
       >
@@ -275,10 +276,10 @@ export const EventCard: React.FC<EventCardProps> = ({
             <Text style={styles.title}>{getEventTitle()}</Text>
             {getStatusIndicator()}
           </View>
-                     <View style={styles.headerRight}>
-             <Text style={styles.time}>{getEventTime()}</Text>
-             <Icon name="clock" size={16} color={colors.text.secondary} style={styles.rescheduleIcon} />
-           </View>
+          <View style={styles.headerRight}>
+            <Text style={styles.time}>{getEventTime()}</Text>
+            <Icon icon={Clock01Icon} size={16} color={colors.text.secondary} style={styles.rescheduleIcon} />
+          </View>
         </View>
 
         {getEventDescription() && (
@@ -300,50 +301,50 @@ export const EventCard: React.FC<EventCardProps> = ({
           </View>
         )}
 
-                 {isExpanded && (
-           <View style={styles.expandedContent}>
-             <View style={styles.actions}>
-               {onReschedule && (
-                 <Button
-                   title="Reschedule"
-                   onPress={handleLongPress}
-                   variant="outline"
-                   style={styles.actionButton}
-                 />
-               )}
-               {onEdit && (
-                 <Button
-                   title="Edit"
-                   onPress={() => onEdit(event)}
-                   variant="outline"
-                   style={styles.actionButton}
-                 />
-               )}
-                {isTask && onCompleteTask && task?.status !== 'completed' && (
-                 <Button
-                    title={_completing ? 'Completing...' : 'Complete'}
-                   onPress={handleCompleteTask}
-                   variant="outline"
-                   style={styles.actionButton}
-                    disabled={_completing}
-                 />
-               )}
-               {onDelete && (
-                 <Button
-                    title={_deleting ? 'Deleting...' : 'Delete'}
-                   onPress={handleDelete}
-                   variant="outline"
-                    style={styles.actionButton}
-                    disabled={_deleting}
-                 />
-               )}
-             </View>
-           </View>
-         )}
-              </TouchableOpacity>
-      </View>
-    );
-  };
+        {isExpanded && (
+          <View style={styles.expandedContent}>
+            <View style={styles.actions}>
+              {onReschedule && (
+                <Button
+                  title="Reschedule"
+                  onPress={handleLongPress}
+                  variant="outline"
+                  style={styles.actionButton}
+                />
+              )}
+              {onEdit && (
+                <Button
+                  title="Edit"
+                  onPress={() => onEdit(event)}
+                  variant="outline"
+                  style={styles.actionButton}
+                />
+              )}
+              {isTask && onCompleteTask && task?.status !== 'completed' && (
+                <Button
+                  title={_completing ? 'Completing...' : 'Complete'}
+                  onPress={handleCompleteTask}
+                  variant="outline"
+                  style={styles.actionButton}
+                  disabled={_completing}
+                />
+              )}
+              {onDelete && (
+                <Button
+                  title={_deleting ? 'Deleting...' : 'Delete'}
+                  onPress={handleDelete}
+                  variant="outline"
+                  style={styles.actionButton}
+                  disabled={_deleting}
+                />
+              )}
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   card: {

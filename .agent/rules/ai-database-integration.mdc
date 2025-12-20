@@ -1,0 +1,474 @@
+---
+description: AI and database integration patterns for Mind Clear
+---
+
+# AI & Database Integration Rules
+
+## AI Integration (Google Gemini 2.5 Flash)
+
+### AI Service Architecture
+```javascript
+// src/services/aiService.js
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+
+export const aiService = {
+  async generateGoalBreakdown(goal, context = {}) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    
+    const prompt = `
+      Break down this goal into actionable tasks: "${goal}"
+      
+      Context:
+      - User timezone: ${context.timezone || 'UTC'}
+      - Available time: ${context.availableTime || 'flexible'}
+      - Priority level: ${context.priority || 'medium'}
+      
+      Return a JSON array of tasks with:
+      - title: Task title
+      - description: Detailed description
+      - estimatedDuration: Duration in minutes
+      - priority: 1-5 (1=highest)
+      - dependencies: Array of task IDs this depends on
+    `;
+    
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      // Parse JSON response
+      const tasks = JSON.parse(text);
+      return tasks;
+    } catch (error) {
+      console.error('AI goal breakdown failed:', error);
+      throw new Error('Failed to generate goal breakdown');
+    }
+  },
+
+  async generateTaskSuggestions(userId, context = {}) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    
+    const prompt = `
+      Suggest tasks for a user based on their context:
+      
+      User ID: ${userId}
+      Current time: ${new Date().toISOString()}
+      Weather: ${context.weather || 'unknown'}
+      Calendar events: ${context.calendarEvents || 'none'}
+      
+      Return 3-5 task suggestions as JSON array with:
+      - title: Task title
+      - description: Why this task is suggested
+      - category: Task category
+      - estimatedDuration: Duration in minutes
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return JSON.parse(response.text());
+  },
+
+  async processNaturalLanguageInput(input, userId) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    
+    const prompt = `
+      Process this natural language input and determine the intent:
+      
+      Input: "${input}"
+      User ID: ${userId}
+      
+      Classify the intent and return JSON with:
+      - intent: "create_task" | "create_goal" | "schedule_task" | "query" | "other"
+      - entities: Object with extracted entities
+      - confidence: 0-1 confidence score
+      - suggestedAction: Recommended action to take
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return JSON.parse(response.text());
+  }
+};
+```
+
+### AI Chat Integration
+```javascript
+// src/services/chatService.js
+import { aiService } from './aiService.js';
+import { supabase } from '../utils/supabase.js';
+
+export const chatService = {
+  async processMessage(message, userId, conversationId = null) {
+    // Process natural language input
+    const intent = await aiService.processNaturalLanguageInput(message, userId);
+    
+    let response = '';
+    let action = null;
+    
+    switch (intent.intent) {
+      case 'create_task':
+        action = await this.createTaskFromMessage(intent.entities, userId);
+        response = `I've created a task: "${action.title}"`;
+        break;
+        
+      case 'create_goal':
+        action = await this.createGoalFromMessage(intent.entities, userId);
+        response = `I've created a goal: "${action.title}"`;
+        break;
+        
+      case 'schedule_task':
+        action = await this.scheduleTaskFromMessage(intent.entities, userId);
+        response = `I've scheduled the task for you`;
+        break;
+        
+      default:
+        response = await this.generateGeneralResponse(message, userId);
+    }
+    
+    // Save conversation
+    await this.saveConversation({
+      userId,
+      conversationId,
+      message,
+      response,
+      intent: intent.intent,
+      action
+    });
+    
+    return { response, action, intent };
+  },
+
+  async createTaskFromMessage(entities, userId) {
+    const taskData = {
+      title: entities.title || 'New Task',
+      description: entities.description || '',
+      priority: entities.priority || 3,
+      estimated_duration: entities.duration || 30,
+      user_id: userId,
+      created_by_ai: true
+    };
+    
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert([taskData])
+      .select()
+      .single();
+    
+    if (error) throw new Error(`Failed to create task: ${error.message}`);
+    return data;
+  }
+};
+```
+
+## Database Integration (Supabase)
+
+### Database Schema Patterns
+```sql
+-- Users table with extended profile
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  timezone VARCHAR(50) DEFAULT 'UTC',
+  preferences JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Goals with hierarchical structure
+CREATE TABLE goals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  parent_goal_id UUID REFERENCES goals(id),
+  status VARCHAR(50) DEFAULT 'active',
+  priority INTEGER DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+  target_date DATE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Tasks with auto-scheduling fields
+CREATE TABLE tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  goal_id UUID REFERENCES goals(id) ON DELETE SET NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  status VARCHAR(50) DEFAULT 'pending',
+  priority INTEGER DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+  estimated_duration INTEGER DEFAULT 30, -- minutes
+  actual_duration INTEGER,
+  scheduled_start TIMESTAMP WITH TIME ZONE,
+  scheduled_end TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_by_ai BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- AI conversation tracking
+CREATE TABLE conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  thread_id UUID,
+  message TEXT NOT NULL,
+  response TEXT,
+  intent VARCHAR(100),
+  action_data JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### Database Service Patterns
+```javascript
+// src/services/databaseService.js
+import { supabase } from '../utils/supabase.js';
+
+export const databaseService = {
+  // User operations
+  async getUserById(userId) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    
+    if (error) throw new Error(`Failed to fetch user: ${error.message}`);
+    return data;
+  },
+
+  // Goal operations
+  async getGoalsByUserId(userId, includeTasks = false) {
+    let query = supabase
+      .from('goals')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    
+    if (includeTasks) {
+      query = query.select(`
+        *,
+        tasks (*)
+      `);
+    }
+    
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to fetch goals: ${error.message}`);
+    return data;
+  },
+
+  // Task operations with auto-scheduling
+  async getTasksByUserId(userId, filters = {}) {
+    let query = supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', userId);
+    
+    if (filters.status) {
+      query = query.eq('status', filters.status);
+    }
+    
+    if (filters.goalId) {
+      query = query.eq('goal_id', filters.goalId);
+    }
+    
+    if (filters.scheduledDate) {
+      const startOfDay = new Date(filters.scheduledDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(filters.scheduledDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      query = query
+        .gte('scheduled_start', startOfDay.toISOString())
+        .lte('scheduled_start', endOfDay.toISOString());
+    }
+    
+    const { data, error } = await query.order('scheduled_start', { ascending: true });
+    if (error) throw new Error(`Failed to fetch tasks: ${error.message}`);
+    return data;
+  },
+
+  // Auto-scheduling operations
+  async scheduleTask(taskId, startTime, endTime) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({
+        scheduled_start: startTime,
+        scheduled_end: endTime,
+        status: 'scheduled'
+      })
+      .eq('id', taskId)
+      .select()
+      .single();
+    
+    if (error) throw new Error(`Failed to schedule task: ${error.message}`);
+    return data;
+  },
+
+  // AI conversation tracking
+  async saveConversation(conversationData) {
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert([conversationData])
+      .select()
+      .single();
+    
+    if (error) throw new Error(`Failed to save conversation: ${error.message}`);
+    return data;
+  }
+};
+```
+
+## Auto-Scheduling Integration
+
+### Scheduling Service
+```javascript
+// src/services/schedulingService.js
+import { databaseService } from './databaseService.js';
+import { weatherService } from './weatherService.js';
+import { calendarService } from './calendarService.js';
+
+export const schedulingService = {
+  async findOptimalTimeSlot(task, userId, preferences = {}) {
+    const user = await databaseService.getUserById(userId);
+    const timezone = user.timezone || 'UTC';
+    
+    // Get user's calendar events
+    const calendarEvents = await calendarService.getEvents(userId, {
+      start: new Date(),
+      end: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // Next 7 days
+    });
+    
+    // Get weather data for outdoor tasks
+    let weatherData = null;
+    if (task.category === 'outdoor' || task.description?.includes('outdoor')) {
+      weatherData = await weatherService.getWeatherForecast(userId);
+    }
+    
+    // Find available time slots
+    const availableSlots = this.findAvailableSlots(
+      calendarEvents,
+      task.estimated_duration,
+      preferences
+    );
+    
+    // Score slots based on preferences and context
+    const scoredSlots = availableSlots.map(slot => ({
+      ...slot,
+      score: this.scoreTimeSlot(slot, task, weatherData, preferences)
+    }));
+    
+    // Return best slot
+    return scoredSlots.sort((a, b) => b.score - a.score)[0];
+  },
+
+  findAvailableSlots(calendarEvents, duration, preferences) {
+    const slots = [];
+    const now = new Date();
+    const endDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    // Generate potential time slots
+    for (let date = new Date(now); date <= endDate; date.setDate(date.getDate() + 1)) {
+      const daySlots = this.generateDaySlots(date, duration, preferences);
+      slots.push(...daySlots);
+    }
+    
+    // Filter out conflicting slots
+    return slots.filter(slot => 
+      !this.hasConflict(slot, calendarEvents)
+    );
+  },
+
+  scoreTimeSlot(slot, task, weatherData, preferences) {
+    let score = 0;
+    
+    // Time of day preference
+    const hour = slot.start.getHours();
+    if (preferences.preferredTime === 'morning' && hour >= 6 && hour < 12) {
+      score += 10;
+    } else if (preferences.preferredTime === 'afternoon' && hour >= 12 && hour < 18) {
+      score += 10;
+    } else if (preferences.preferredTime === 'evening' && hour >= 18 && hour < 22) {
+      score += 10;
+    }
+    
+    // Weather consideration
+    if (weatherData && task.category === 'outdoor') {
+      if (weatherData.condition === 'sunny') score += 5;
+      else if (weatherData.condition === 'rainy') score -= 10;
+    }
+    
+    // Task priority
+    score += task.priority * 2;
+    
+    return score;
+  }
+};
+```
+
+## Error Handling and Monitoring
+
+### AI Service Error Handling
+```javascript
+// src/utils/aiErrorHandler.js
+export const handleAIError = (error, context = {}) => {
+  console.error('AI Service Error:', {
+    error: error.message,
+    context,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Log to monitoring service
+  if (process.env.NODE_ENV === 'production') {
+    // Send to monitoring service (e.g., Sentry)
+    // monitoringService.captureException(error, { extra: context });
+  }
+  
+  // Return user-friendly error
+  return {
+    success: false,
+    message: 'AI service temporarily unavailable. Please try again.',
+    error: process.env.NODE_ENV === 'development' ? error.message : undefined
+  };
+};
+```
+
+### Database Error Handling
+```javascript
+// src/utils/databaseErrorHandler.js
+export const handleDatabaseError = (error, operation, context = {}) => {
+  console.error('Database Error:', {
+    operation,
+    error: error.message,
+    context,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Handle specific Supabase errors
+  if (error.code === '23505') { // Unique constraint violation
+    return {
+      success: false,
+      message: 'This item already exists',
+      code: 'DUPLICATE_ENTRY'
+    };
+  }
+  
+  if (error.code === '23503') { // Foreign key constraint violation
+    return {
+      success: false,
+      message: 'Referenced item not found',
+      code: 'FOREIGN_KEY_VIOLATION'
+    };
+  }
+  
+  // Generic error
+  return {
+    success: false,
+    message: 'Database operation failed',
+    code: 'DATABASE_ERROR'
+  };
+};
+```

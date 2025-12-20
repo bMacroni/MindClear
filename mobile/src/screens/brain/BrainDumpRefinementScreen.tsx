@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, LayoutAnimation, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Task01Icon, Target01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -11,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { authService } from '../../services/auth';
 import { configService } from '../../services/config';
-import { secureConfigService } from '../../services/secureConfig';
+import secureConfigService from '../../services/secureConfig';
 import logger from '../../utils/logger';
 
 // Helper function to get secure API base URL
@@ -27,16 +28,16 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { ErrorToast } from '../../components/common/ErrorToast';
 import { useFocusEffect } from '@react-navigation/native';
 
-type Item = { id: string; text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level?: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
+type Item = { id: string; text: string; type: 'task' | 'goal'; confidence?: number; category?: string | null; stress_level?: 'low' | 'medium' | 'high'; priority: 'low' | 'medium' | 'high' };
 
 export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const params = route?.params || {};
   const { threadId, setThreadId, items, setItems } = useBrainDump();
-  const [tab, setTab] = useState<'task'|'goal'>('task');
-  
+  const [tab, setTab] = useState<'task' | 'goal'>('task');
+
   // Helper function to generate unique IDs
   const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
+
   const sanitizeText = (text: string): string => {
     return String(text || '')
       .replace(/\r?\n|\r/g, ' ')
@@ -69,9 +70,9 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const [errorToastMessage, setErrorToastMessage] = useState('');
   const [initialToastShown, setInitialToastShown] = useState(false);
 
-  const list = useMemo(()=> Array.isArray(editedItems) ? editedItems : [], [editedItems]);
-  const tasks = useMemo(()=> list.filter(i=>i.type==='task'), [list]);
-  const goals = useMemo(()=> list.filter(i=>i.type==='goal'), [list]);
+  const list = useMemo(() => Array.isArray(editedItems) ? editedItems : [], [editedItems]);
+  const tasks = useMemo(() => list.filter(i => i.type === 'task'), [list]);
+  const goals = useMemo(() => list.filter(i => i.type === 'goal'), [list]);
 
   // If navigated without params, try loading last session from AsyncStorage
   useEffect(() => {
@@ -84,9 +85,9 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         if (Array.isArray(parsed) && parsed.length > 0 && editedItems.length === 0 && (items?.length ?? 0) === 0) {
           setEditedItems(parsed.map((it: any) => normalizeItem(it)).filter((it: Item) => it.text.length > 0));
         }
-      } catch {}
+      } catch { }
     })();
-   
+
   }, []);
 
   // Show toast if duplicates were removed on entry
@@ -132,7 +133,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
           if (!sessionHasItems && !lastHasItems) {
             setEditedItems([]);
           }
-        } catch {}
+        } catch { }
       })();
     }, [])
   );
@@ -151,11 +152,11 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       const token = await authService.getAuthToken();
       if (token) {
         const baseUrl = getSecureApiBaseUrl();
-        
+
         // Create AbortController with 4 second timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
-        
+
         try {
           const response = await fetch(`${baseUrl}/ai/threads/${threadId}`, {
             method: 'PUT',
@@ -166,10 +167,10 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
             body: JSON.stringify({ title: item.text }),
             signal: controller.signal,
           });
-          
+
           // Clear timeout on success
           clearTimeout(timeoutId);
-          
+
           // Check if response is successful
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -177,7 +178,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         } catch (fetchError) {
           // Clear timeout on error
           clearTimeout(timeoutId);
-          
+
           // Handle different error types
           if (fetchError instanceof Error && fetchError.name === 'AbortError') {
             setErrorToastMessage('Could not update conversation title - request timed out');
@@ -186,10 +187,10 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
           } else {
             setErrorToastMessage('Could not update conversation title');
           }
-          
+
           // Show error toast
           setErrorToastVisible(true);
-          
+
           // Re-throw to maintain existing error handling flow
           throw fetchError;
         }
@@ -205,8 +206,8 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
 
 
-  const setType = (target: Item, newType: 'task'|'goal') => {
-    if (target.type === newType) {return;}
+  const setType = (target: Item, newType: 'task' | 'goal') => {
+    if (target.type === newType) { return; }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditedItems(prev => prev.map(it => {
       if (it.id === target.id) {
@@ -226,7 +227,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   };
 
   const goToPrioritize = () => {
-    if (tasks.length === 0) {return;}
+    if (tasks.length === 0) { return; }
     const payload = tasks.map(t => ({ id: t.id, text: sanitizeText(t.text), priority: t.priority, category: t.category ?? undefined }));
     navigation.navigate('BrainDumpPrioritization', { tasks: payload });
   };
@@ -236,13 +237,13 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       <View style={styles.headerRow}>
         <Text style={styles.title}>Let’s pick one small step</Text>
       </View>
-      <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length>0} />
+      <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
       <View style={styles.tabs}>
-        <TouchableOpacity style={[styles.tabBtn, tab==='task' && styles.tabBtnActive]} onPress={()=>setTab('task')}>
-          <Text style={[styles.tabText, tab==='task' && styles.tabTextActive]}>Tasks ({tasks.length})</Text>
+        <TouchableOpacity style={[styles.tabBtn, tab === 'task' && styles.tabBtnActive]} onPress={() => setTab('task')}>
+          <Text style={[styles.tabText, tab === 'task' && styles.tabTextActive]}>Tasks ({tasks.length})</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, tab==='goal' && styles.tabBtnActive]} onPress={()=>setTab('goal')}>
-          <Text style={[styles.tabText, tab==='goal' && styles.tabTextActive]}>Goals ({goals.length})</Text>
+        <TouchableOpacity style={[styles.tabBtn, tab === 'goal' && styles.tabBtnActive]} onPress={() => setTab('goal')}>
+          <Text style={[styles.tabText, tab === 'goal' && styles.tabTextActive]}>Goals ({goals.length})</Text>
         </TouchableOpacity>
       </View>
 
@@ -251,7 +252,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       </View>
 
       <FlatList
-        data={tab==='task' ? tasks : goals}
+        data={tab === 'task' ? tasks : goals}
         keyExtractor={(it) => it.id}
         contentContainerStyle={{ padding: spacing.md }}
         renderItem={({ item }) => (
@@ -261,18 +262,18 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                 <TouchableOpacity
                   onPress={() => setType(item, 'task')}
                   activeOpacity={0.8}
-                  style={[styles.segment, item.type==='task' && styles.segmentActive]}
+                  style={[styles.segment, item.type === 'task' && styles.segmentActive]}
                 >
-                  <Icon name="checklist" size={12} color={item.type==='task' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.segmentLabel, item.type==='task' && styles.segmentLabelActive]}>Task</Text>
+                  <Icon icon={Task01Icon} size={12} color={item.type === 'task' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.segmentLabel, item.type === 'task' && styles.segmentLabelActive]}>Task</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setType(item, 'goal')}
                   activeOpacity={0.8}
-                  style={[styles.segment, item.type==='goal' && styles.segmentActive]}
+                  style={[styles.segment, item.type === 'goal' && styles.segmentActive]}
                 >
-                  <Icon name="milestone" size={12} color={item.type==='goal' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.segmentLabel, item.type==='goal' && styles.segmentLabelActive]}>Goal</Text>
+                  <Icon icon={Target01Icon} size={12} color={item.type === 'goal' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.segmentLabel, item.type === 'goal' && styles.segmentLabelActive]}>Goal</Text>
                 </TouchableOpacity>
               </View>
               {!!item.category && (
@@ -284,14 +285,14 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
               <TextInput
                 style={[styles.input, { marginTop: spacing.xs }]}
                 value={item.text}
-                onChangeText={(t)=>onChangeItemText(item, t)}
-                onBlur={()=>setEditingKey(null)}
+                onChangeText={(t) => onChangeItemText(item, t)}
+                onBlur={() => setEditingKey(null)}
                 autoFocus
               />
             ) : (
-              <Text onPress={()=>setEditingKey(item.id)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
+              <Text onPress={() => setEditingKey(item.id)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
             )}
-            {item.type==='goal' ? (
+            {item.type === 'goal' ? (
               <TouchableOpacity onPress={() => startGoalBreakdown(item)}>
                 <Text style={styles.hint}>Tap to break this goal into tiny steps</Text>
               </TouchableOpacity>
@@ -303,7 +304,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       />
 
       <View style={styles.footer}>
-        <TouchableOpacity testID="nextPrioritizeButton" style={[styles.primaryBtn, (tasks.length===0) && { opacity: 0.6 }]} disabled={tasks.length===0} onPress={goToPrioritize}>
+        <TouchableOpacity testID="nextPrioritizeButton" style={[styles.primaryBtn, (tasks.length === 0) && { opacity: 0.6 }]} disabled={tasks.length === 0} onPress={goToPrioritize}>
           <Text style={styles.primaryBtnText}>Next: Prioritize Tasks</Text>
         </TouchableOpacity>
       </View>

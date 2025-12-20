@@ -8,7 +8,8 @@ import {
   ActionSheetIOS,
   Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Clock01Icon, PencilEdit01Icon, Tick01Icon, Delete01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
@@ -26,7 +27,7 @@ interface EventCardProps {
   compact?: boolean;
 }
 
-export const EventCard = React.memo<EventCardProps>(({ 
+export const EventCard = React.memo<EventCardProps>(({
   event,
   type,
   onEdit,
@@ -45,7 +46,7 @@ export const EventCard = React.memo<EventCardProps>(({
   // Quick reschedule options
   const getRescheduleOptions = () => {
     const now = new Date();
-    
+
     // Today: Schedule for 2 hours from now, or 9 AM if it's early morning
     const today = new Date(now);
     const currentHour = now.getHours();
@@ -56,17 +57,17 @@ export const EventCard = React.memo<EventCardProps>(({
       // Otherwise, schedule for 2 hours from now
       today.setHours(today.getHours() + 2, 0, 0, 0);
     }
-    
+
     // Tomorrow: Schedule for 9 AM
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(9, 0, 0, 0);
-    
+
     // Next Week: Schedule for same day next week at 9 AM
     const nextWeek = new Date(now);
     nextWeek.setDate(nextWeek.getDate() + 7);
     nextWeek.setHours(9, 0, 0, 0);
-    
+
     return [
       { label: 'Today', date: today },
       { label: 'Tomorrow', date: tomorrow },
@@ -170,11 +171,11 @@ export const EventCard = React.memo<EventCardProps>(({
   };
 
   const handleLongPress = () => {
-    if (!onReschedule) {return;}
-    
+    if (!onReschedule) { return; }
+
     hapticFeedback.medium();
     const options = getRescheduleOptions();
-    
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -216,8 +217,8 @@ export const EventCard = React.memo<EventCardProps>(({
               }
             },
           })),
-          { 
-            text: 'Cancel', 
+          {
+            text: 'Cancel',
             style: 'cancel',
             onPress: () => {
               // User explicitly cancelled - do nothing
@@ -240,8 +241,8 @@ export const EventCard = React.memo<EventCardProps>(({
       'Custom Date Selection',
       'Custom date picker will be implemented in a future update. For now, please use the quick options or edit the event directly.',
       [
-        { 
-          text: 'OK', 
+        {
+          text: 'OK',
           onPress: () => {
             // User acknowledged - do nothing
           }
@@ -265,31 +266,31 @@ export const EventCard = React.memo<EventCardProps>(({
         {
           text: 'Delete',
           style: 'destructive',
-                     onPress: async () => {
-             hapticFeedback.warning();
-             setDeleting(true);
-             try {
-               await onDelete?.(event.id);
-               hapticFeedback.success();
-             } catch (error) {
-               console.error('Error deleting event:', error);
-               hapticFeedback.error();
-               Alert.alert('Error', 'Failed to delete event');
-             } finally {
-               setDeleting(false);
-             }
-           },
+          onPress: async () => {
+            hapticFeedback.warning();
+            setDeleting(true);
+            try {
+              await onDelete?.(event.id);
+              hapticFeedback.success();
+            } catch (error) {
+              console.error('Error deleting event:', error);
+              hapticFeedback.error();
+              Alert.alert('Error', 'Failed to delete event');
+            } finally {
+              setDeleting(false);
+            }
+          },
         },
       ]
     );
   };
 
   const handleCompleteTask = async () => {
-    if (!isTask) {return;}
-    
+    if (!isTask) { return; }
+
     const isCurrentlyCompleted = task?.status === 'completed';
     const actionText = isCurrentlyCompleted ? 'uncompleting' : 'completing';
-    
+
     hapticFeedback.success();
     try {
       await onCompleteTask?.(event.id);
@@ -303,8 +304,8 @@ export const EventCard = React.memo<EventCardProps>(({
   if (compact) {
     return (
       <View style={[styles.compactCard, { borderLeftColor: getEventColor() }]}>
-        <TouchableOpacity 
-          onPress={handleCardPress} 
+        <TouchableOpacity
+          onPress={handleCardPress}
           onLongPress={handleLongPress}
           style={styles.compactContent}
         >
@@ -319,8 +320,8 @@ export const EventCard = React.memo<EventCardProps>(({
 
   return (
     <View style={[styles.card, { borderLeftColor: getEventColor() }]}>
-      <TouchableOpacity 
-        onPress={handleCardPress} 
+      <TouchableOpacity
+        onPress={handleCardPress}
         onLongPress={handleLongPress}
         style={styles.content}
       >
@@ -339,8 +340,8 @@ export const EventCard = React.memo<EventCardProps>(({
                       return pl === 'high'
                         ? colors.error
                         : pl === 'medium'
-                        ? colors.warning
-                        : colors.success;
+                          ? colors.warning
+                          : colors.success;
                     })((calendarEvent as any)?.task_priority || (calendarEvent as any)?.priority))
                 }
               ]}>
@@ -350,10 +351,10 @@ export const EventCard = React.memo<EventCardProps>(({
               </View>
             ) : null}
           </View>
-                     <View style={styles.headerRight}>
-             <Text style={styles.time}>{getEventTime()}</Text>
-             <Icon name="clock" size={16} color={colors.text.secondary} style={styles.rescheduleIcon} />
-           </View>
+          <View style={styles.headerRight}>
+            <Text style={styles.time}>{getEventTime()}</Text>
+            <Icon icon={Clock01Icon} size={16} color={colors.text.secondary} style={styles.rescheduleIcon} />
+          </View>
         </View>
 
         {getEventDescription() && (
@@ -375,58 +376,58 @@ export const EventCard = React.memo<EventCardProps>(({
           </View>
         )}
 
-                 {isExpanded && (
-            <View style={styles.expandedContent}>
-              <View style={styles.actions}>
-                {/* For events: Show Reschedule, Edit, Delete */}
-                {!isTask && onReschedule && (
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.iconButton]}
-                    onPress={handleLongPress}
-                  >
-                    <Icon name="clock" size={16} color={colors.primary} />
-                  </TouchableOpacity>
-                )}
-                {onEdit && (
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.iconButton]}
-                    onPress={() => onEdit(event)}
-                  >
-                    <Icon name="pencil" size={16} color={colors.primary} />
-                  </TouchableOpacity>
-                )}
-                {/* For tasks: Show Edit, Complete, Delete (no Reschedule) */}
-                 {isTask && onCompleteTask && (
-                   <TouchableOpacity 
-                     style={[
-                       styles.actionButton, 
-                       styles.iconButton,
-                       task?.status === 'completed' && styles.completedButton
-                     ]}
-                     onPress={handleCompleteTask}
-                   >
-                     <Icon 
-                       name="check" 
-                       size={16} 
-                       color={task?.status === 'completed' ? colors.secondary : colors.success} 
-                     />
-                   </TouchableOpacity>
-                 )}
-                {onDelete && (
-                  <TouchableOpacity 
-                    style={[styles.actionButton, styles.iconButton, styles.deleteButton]}
-                    onPress={handleDelete}
-                  >
-                    <Icon name="trash" size={16} color={colors.error} />
-                  </TouchableOpacity>
-                )}
-              </View>
+        {isExpanded && (
+          <View style={styles.expandedContent}>
+            <View style={styles.actions}>
+              {/* For events: Show Reschedule, Edit, Delete */}
+              {!isTask && onReschedule && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.iconButton]}
+                  onPress={handleLongPress}
+                >
+                  <Icon icon={Clock01Icon} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              )}
+              {onEdit && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.iconButton]}
+                  onPress={() => onEdit(event)}
+                >
+                  <Icon icon={PencilEdit01Icon} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              )}
+              {/* For tasks: Show Edit, Complete, Delete (no Reschedule) */}
+              {isTask && onCompleteTask && (
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    styles.iconButton,
+                    task?.status === 'completed' && styles.completedButton
+                  ]}
+                  onPress={handleCompleteTask}
+                >
+                  <Icon
+                    name="check"
+                    size={16}
+                    color={task?.status === 'completed' ? colors.secondary : colors.success}
+                  />
+                </TouchableOpacity>
+              )}
+              {onDelete && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.iconButton, styles.deleteButton]}
+                  onPress={handleDelete}
+                >
+                  <Icon icon={Delete01Icon} size={16} color={colors.error} />
+                </TouchableOpacity>
+              )}
             </View>
-          )}
-              </TouchableOpacity>
-      </View>
-    );
-  });
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   card: {

@@ -17,7 +17,6 @@ import BrainDumpEntryScreen from '../screens/brain/BrainDumpEntryScreen';
 import FocusTaskGuidanceScreen from '../screens/tasks/FocusTaskGuidanceScreen';
 import GoalsScreen from '../screens/goals/GoalsScreen';
 import TasksScreen from '../screens/tasks/TasksScreen';
-import CalendarScreen from '../screens/calendar/CalendarScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -81,11 +80,6 @@ export default function TabNavigator() {
         name="Tasks" 
         component={TasksScreen}
         options={{ title: 'Tasks' }}
-      />
-      <Tab.Screen 
-        name="Calendar" 
-        component={CalendarScreen}
-        options={{ title: 'Calendar' }}
       />
       <Tab.Screen 
         name="Profile" 

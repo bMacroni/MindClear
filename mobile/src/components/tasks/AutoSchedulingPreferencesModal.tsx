@@ -14,7 +14,8 @@ import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Clock01Icon, MinusSignIcon, PlusSignIcon, Cancel01Icon } from '@hugeicons/core-free-icons';
 import { autoSchedulingAPI } from '../../services/api';
 import { SchedulingPreferences } from '../../types/autoScheduling';
 
@@ -82,11 +83,11 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
       setSaving(true);
       const updatedPrefs = await autoSchedulingAPI.updatePreferences(preferences);
       setPreferences(updatedPrefs);
-      
+
       if (onSave) {
         onSave(updatedPrefs);
       }
-      
+
       Alert.alert('Success', 'Auto-scheduling preferences saved successfully!');
       onClose();
     } catch (error) {
@@ -106,7 +107,7 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
     const newWorkDays = currentWorkDays.includes(dayValue)
       ? currentWorkDays.filter(day => day !== dayValue)
       : [...currentWorkDays, dayValue].sort();
-    
+
     updatePreference('work_days', newWorkDays);
   };
 
@@ -129,12 +130,12 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
     const [hours, minutes] = value.split(':');
     const timeDate = new Date();
     timeDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
-    
+
     const showPicker = isStartTime ? showStartTimePicker : showEndTimePicker;
     const setShowPicker = isStartTime ? setShowStartTimePicker : setShowEndTimePicker;
-    
 
-    
+
+
     return (
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>{label}</Text>
@@ -143,7 +144,7 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
             style={styles.timeInput}
             onPress={() => setShowPicker(true)}
           >
-            <Icon name="clock" size={16} color={colors.text.secondary} />
+            <Icon icon={Clock01Icon} size={16} color={colors.text.secondary} />
             <Text style={styles.timeInputText}>{formatTime(value)}</Text>
           </TouchableOpacity>
         </View>
@@ -179,7 +180,7 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
           onPress={() => onValueChange(Math.max(min, value - 1))}
           disabled={value <= min}
         >
-          <Icon name="dash" size={16} color={colors.text.secondary} />
+          <Icon icon={MinusSignIcon} size={16} color={colors.text.secondary} />
         </TouchableOpacity>
         <Text style={styles.numberInputText}>{value}</Text>
         <TouchableOpacity
@@ -187,7 +188,7 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
           onPress={() => onValueChange(Math.min(max, value + 1))}
           disabled={value >= max}
         >
-          <Icon name="plus" size={16} color={colors.text.secondary} />
+          <Icon icon={PlusSignIcon} size={16} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -261,7 +262,7 @@ export const AutoSchedulingPreferencesModal: React.FC<AutoSchedulingPreferencesM
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Icon name="x" size={24} color={colors.text.secondary} />
+            <Icon icon={Cancel01Icon} size={24} color={colors.text.secondary} />
           </TouchableOpacity>
           <Text style={styles.title}>Auto-Scheduling Preferences</Text>
           <TouchableOpacity

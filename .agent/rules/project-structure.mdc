@@ -1,0 +1,55 @@
+---
+alwaysApply: true
+---
+
+# Mind Clear Project Structure & Naming Conventions
+
+## Project Overview
+This is a full-stack AI-powered goal and task management system called **Mind Clear** (formerly MindGarden). The project consists of three main applications:
+
+- **Frontend**: React 18 + Vite + Tailwind CSS web application
+- **Mobile**: React Native + TypeScript mobile application  
+- **Backend**: Node.js + Express + Supabase API server
+
+## Directory Structure
+```
+mindgarden/
+├── frontend/          # React web app (Vite + Tailwind)
+├── mobile/            # React Native mobile app (TypeScript)
+├── backend/           # Node.js API server (Express + Supabase)
+├── SQL/               # Database migrations and schema
+├── PRD/               # Product Requirements Documents
+└── .cursor/           # Cursor IDE configuration
+```
+
+## Naming Conventions
+
+### Files and Directories
+- Use **kebab-case** for directories: `user-profile/`, `task-management/`
+- Use **PascalCase** for React components: `TaskList.jsx`, `UserProfile.tsx`
+- Use **camelCase** for utility files: `dateUtils.js`, `apiService.ts`
+- Use **snake_case** for database files: `user_goals.sql`, `task_scheduling.sql`
+
+### Variables and Functions
+- Use **camelCase** for variables and functions: `userGoals`, `handleTaskUpdate`
+- Use **PascalCase** for React components and classes: `TaskList`, `UserService`
+- Use **UPPER_SNAKE_CASE** for constants: `API_BASE_URL`, `MAX_TASK_LENGTH`
+
+### Database
+- Use **snake_case** for table and column names: `user_goals`, `created_at`
+- Use **plural** table names: `users`, `goals`, `tasks`
+- Use **singular** column names: `user_id`, `goal_title`
+
+## Key Technologies
+- **Frontend**: React 18, Vite, Tailwind CSS, React Router, Zustand
+- **Mobile**: React Native, TypeScript, React Navigation, AsyncStorage
+- **Backend**: Node.js, Express, Supabase, Google AI (Gemini), Firebase
+- **Database**: PostgreSQL (via Supabase)
+- **Deployment**: Railway (backend), Vercel (frontend)
+
+## Important Notes
+- Always use "Mind Clear" as the app name in user-facing content
+- The project uses Supabase for authentication and database
+- Google AI (Gemini 2.5 Flash) powers the AI features
+- Firebase is used for mobile authentication and push notifications
+- All major changes should include test cases first

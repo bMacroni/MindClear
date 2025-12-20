@@ -37,12 +37,13 @@ import {
 import { formatDateToYYYYMMDD, getLocalDateKey } from '../../utils/dateUtils';
 import { hapticFeedback } from '../../utils/hapticFeedback';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
-import { 
-  useFadeAnimation, 
-  useScaleAnimation 
+import {
+  useFadeAnimation,
+  useScaleAnimation
 } from '../../utils/animations';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Bug01Icon, ReloadIcon, Download01Icon, PlusSignIcon } from '@hugeicons/core-free-icons';
 import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import CalendarEvent from '../../db/models/CalendarEvent';
@@ -77,7 +78,7 @@ const convertCalendarEventToType = (event: CalendarEvent): CalendarEventType => 
 const convertTaskToType = (task: Task): TaskType => {
   const priority = (task.priority as 'low' | 'medium' | 'high') || 'medium';
   const status = (task.status as 'not_started' | 'in_progress' | 'completed') || 'not_started';
-  
+
   return {
     id: task.id,
     title: task.title,
@@ -108,14 +109,14 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const dayViewScrollRef = useRef<ScrollView>(null);
-  
+
   // Animation hooks
   const { } = useFadeAnimation(1); // animations disabled for now
   const { } = useScaleAnimation(1);
-  
+
   // Stagger animation for event cards (disabled)
   // const eventAnimations = useRef<Animated.Value[]>([]).current;
-  
+
   const [state, setState] = useState<Omit<CalendarState, 'events' | 'tasks' | 'goals'>>({
     selectedDate: new Date(),
     viewType: 'month',
@@ -137,7 +138,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
 
   // Track if this is the first load to avoid double loading
   const [isFirstLoad, setIsFirstLoad] = useState(true);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [_hasMoreEvents, setHasMoreEvents] = useState(true);
@@ -160,7 +161,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   // Only update filtered state from source data if SearchAndFilter hasn't applied filters yet
   // Use a ref to track if we need to sync with source data
   const hasActiveFiltersRef = useRef(false);
-  
+
   useEffect(() => {
     // If SearchAndFilter hasn't called handleFilterChange yet, sync with source data
     if (!hasActiveFiltersRef.current) {
@@ -174,15 +175,15 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     hasActiveFiltersRef.current = true;
     // Only update if the arrays are actually different to prevent infinite loops
     setFilteredEvents(prev => {
-      if (prev.length !== nextFilteredEvents.length || 
-          prev.some((e, i) => e.id !== nextFilteredEvents[i]?.id)) {
+      if (prev.length !== nextFilteredEvents.length ||
+        prev.some((e, i) => e.id !== nextFilteredEvents[i]?.id)) {
         return nextFilteredEvents;
       }
       return prev;
     });
     setFilteredTasks(prev => {
-      if (prev.length !== nextFilteredTasks.length || 
-          prev.some((t, i) => t.id !== nextFilteredTasks[i]?.id)) {
+      if (prev.length !== nextFilteredTasks.length ||
+        prev.some((t, i) => t.id !== nextFilteredTasks[i]?.id)) {
         return nextFilteredTasks;
       }
       return prev;
@@ -293,7 +294,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     try {
       // Check if it's a calendar event or task by looking for event-specific fields
       const isCalendarEvent = 'start_time' in event || 'start' in event;
-      
+
       if (isCalendarEvent) {
         // Look up the database model
         const dbEvent = (await database.get('calendar_events').find(event.id)) as CalendarEvent;
@@ -317,7 +318,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     try {
       hapticFeedback.medium();
       const eventToDelete = (await database.get('calendar_events').find(eventId)) as CalendarEvent;
-      
+
       await database.write(async () => {
         await eventToDelete.update((e: CalendarEvent) => {
           e.status = 'pending_delete';
@@ -403,7 +404,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
         //   location: formData.location,
         // });
       }
-      
+
       // Refresh data
       // await loadCalendarData(); // No longer needed
       hapticFeedback.success();
@@ -426,8 +427,8 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   // Handle Today button press
   const handleTodayPress = useCallback(() => {
     hapticFeedback.selection();
-    setState(prev => ({ 
-      ...prev, 
+    setState(prev => ({
+      ...prev,
       selectedDate: new Date(),
       viewType: 'day' // Automatically switch to Day view when Today is pressed
     }));
@@ -445,7 +446,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   const getLapsedGoals = useCallback(() => {
     const todayKey = formatDateToYYYYMMDD(new Date());
     return goals.filter((goal: any) => {
-      if (!goal?.targetCompletionDate) {return false;}
+      if (!goal?.targetCompletionDate) { return false; }
       try {
         const goalKey = formatDateToYYYYMMDD(new Date(goal.targetCompletionDate));
         const isOverdue = goalKey < todayKey;
@@ -468,9 +469,9 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
       try {
         const startTime = event.start_time ? new Date(event.start_time) : (event.start?.dateTime ? new Date(event.start.dateTime) : null);
         if (!startTime) return;
-        
+
         const eventDateStr = getLocalDateKey(startTime);
-        
+
         if (eventDateStr === selectedDateStr) {
           const endTime = event.end_time ? new Date(event.end_time) : (event.end?.dateTime ? new Date(event.end.dateTime) : startTime);
           const dayEvent: DayViewEvent = {
@@ -491,13 +492,13 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
 
     // Collect goals due today for a lightweight summary card in Day view
     goals.forEach(goal => {
-      if (!goal.targetCompletionDate) {return;}
+      if (!goal.targetCompletionDate) { return; }
       try {
         const goalDate = new Date(goal.targetCompletionDate);
         if (getLocalDateKey(goalDate) === selectedDateStr) {
           goalsDueToday.push(goal);
         }
-      } catch {}
+      } catch { }
     });
 
     // Attach as property for renderDayView to read (avoid prop threading for now)
@@ -510,10 +511,10 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   const getGoalsForCurrentMonth = useCallback(() => {
     const currentMonth = state.selectedDate.getMonth();
     const currentYear = state.selectedDate.getFullYear();
-    
+
     return goals.filter(goal => {
-      if (!goal.targetCompletionDate) {return false;}
-      
+      if (!goal.targetCompletionDate) { return false; }
+
       try {
         const goalDate = new Date(goal.targetCompletionDate);
         return goalDate.getMonth() === currentMonth && goalDate.getFullYear() === currentYear;
@@ -547,7 +548,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     filteredEvents.forEach(event => {
       try {
         const startTime = event.start_time ? new Date(event.start_time) : (event.start?.dateTime ? new Date(event.start.dateTime) : null);
-        if (!startTime) {return;}
+        if (!startTime) { return; }
         const date = getLocalDateKey(startTime);
         const entry = ensureEntry(date);
 
@@ -556,19 +557,19 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
         if (!entry.dots.some(d => d.color === dotColor)) {
           entry.dots.push({ color: dotColor });
         }
-      } catch {}
+      } catch { }
     });
 
     // Goals
     goals.forEach(goal => {
-      if (!goal.targetCompletionDate) {return;}
+      if (!goal.targetCompletionDate) { return; }
       try {
         const date = getLocalDateKey(new Date(goal.targetCompletionDate));
         const entry = ensureEntry(date);
         if (!entry.dots.some(d => d.color === colors.warning)) {
           entry.dots.push({ color: colors.warning });
         }
-      } catch {}
+      } catch { }
     });
 
     return marked;
@@ -576,12 +577,12 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
 
   // Render day view with time blocks
   const renderDayView = useCallback(() => {
-    
+
     // Get events for the selected date
     const dayEvents = getEventsForSelectedDate();
     const goalsDueToday: any[] = (getEventsForSelectedDate as any)._goalsDueToday || [];
     // day view rendering
-    
+
     // Group events by time blocks (6-hour segments)
     const timeBlocks: Array<{
       name: string;
@@ -589,37 +590,37 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
       end: number;
       events: DayViewEvent[];
     }> = [
-      {
-        name: 'Early Morning',
-        start: 0,
-        end: 6,
-        events: [],
-      },
-      {
-        name: 'Morning',
-        start: 6,
-        end: 12,
-        events: [],
-      },
-      {
-        name: 'Afternoon',
-        start: 12,
-        end: 18,
-        events: [],
-      },
-      {
-        name: 'Evening',
-        start: 18,
-        end: 24,
-        events: [],
-      },
-    ];
-    
+        {
+          name: 'Early Morning',
+          start: 0,
+          end: 6,
+          events: [],
+        },
+        {
+          name: 'Morning',
+          start: 6,
+          end: 12,
+          events: [],
+        },
+        {
+          name: 'Afternoon',
+          start: 12,
+          end: 18,
+          events: [],
+        },
+        {
+          name: 'Evening',
+          start: 18,
+          end: 24,
+          events: [],
+        },
+      ];
+
     // Distribute events into time blocks
     dayEvents.forEach(event => {
       const eventHour = event.startTime.getHours();
       let blockIndex = -1;
-      
+
       if (eventHour >= 0 && eventHour < 6) {
         blockIndex = 0; // Early Morning
       } else if (eventHour >= 6 && eventHour < 12) {
@@ -629,19 +630,19 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
       } else if (eventHour >= 18 && eventHour < 24) {
         blockIndex = 3; // Evening
       }
-      
+
       if (blockIndex >= 0 && blockIndex < timeBlocks.length) {
         timeBlocks[blockIndex].events.push(event);
       }
     });
-    
+
     // Sort events within each block by start time
     timeBlocks.forEach(block => {
       block.events.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
     });
 
     return (
-      <ScrollView 
+      <ScrollView
         ref={dayViewScrollRef}
         style={styles.dayViewContainer}
         contentContainerStyle={styles.dayViewContent}
@@ -662,7 +663,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
             day: 'numeric',
           })}
         </Text>
-        
+
         {/* Goals due today (show at top before time blocks) */}
         {goalsDueToday.length > 0 && (
           <View style={{ marginBottom: spacing.md }}>
@@ -694,7 +695,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
                   {block.start === 0 ? '12:00 AM' : block.start === 12 ? '12:00 PM' : block.start > 12 ? `${block.start - 12}:00 PM` : `${block.start}:00 AM`} - {block.end === 24 ? '12:00 AM' : block.end === 12 ? '12:00 PM' : block.end > 12 ? `${block.end - 12}:00 PM` : `${block.end}:00 AM`}
                 </Text>
               </View>
-              
+
               {block.events.length === 0 ? (
                 <View style={styles.emptyTimeBlock}>
                   <Text style={styles.emptyTimeBlockText}>No events</Text>
@@ -720,7 +721,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
           ))
         )}
 
-        
+
       </ScrollView>
     );
   }, [handleCreateEvent, handleEventDelete, handleEventEdit, handleReschedule, handleTaskComplete, onRefresh, refreshing, state.selectedDate, getEventsForSelectedDate]);
@@ -730,7 +731,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     const weekStart = new Date(state.selectedDate);
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     // week view rendering
-    
+
     // Create date groups for the week
     const dateGroups: Array<{
       date: Date;
@@ -738,13 +739,13 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
       dateString: string;
       events: WeekViewEvent[];
     }> = [];
-    
+
     // Initialize date groups for the week
     for (let i = 0; i < 7; i++) {
       const currentDate = new Date(weekStart);
       currentDate.setDate(currentDate.getDate() + i);
       const dateStr = getLocalDateKey(currentDate);
-      
+
       dateGroups.push({
         date: currentDate,
         dayName: currentDate.toLocaleDateString([], { weekday: 'long' }),
@@ -752,17 +753,17 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
         events: [],
       });
     }
-    
+
     // Distribute events into date groups (calendar events only)
     filteredEvents.forEach(event => {
       try {
         // Handle both database format and Google Calendar API format
         const startTime = event.start_time ? new Date(event.start_time) : (event.start?.dateTime ? new Date(event.start.dateTime) : null);
         if (!startTime) return;
-        
+
         const eventDateStr = getLocalDateKey(startTime);
         const endTime = event.end_time ? new Date(event.end_time) : (event.end?.dateTime ? new Date(event.end.dateTime) : startTime);
-        
+
         const group = dateGroups.find(g => g.dateString === eventDateStr);
         if (group) {
           group.events.push({
@@ -780,17 +781,17 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
         // error processing event
       }
     });
-    
+
     // Do not add raw tasks to date groups; tasks should appear as calendar events linked via task_id
-    
+
     // Sort events within each date group by start time
     dateGroups.forEach(group => {
       group.events.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
     });
-    
+
     // Add a compact goal-due entry into each group's end if any goal is due that day
     goals.forEach(goal => {
-      if (!goal.targetCompletionDate) {return;}
+      if (!goal.targetCompletionDate) { return; }
       try {
         const goalDateStr = getLocalDateKey(new Date(goal.targetCompletionDate));
         const group = dateGroups.find(g => g.dateString === goalDateStr);
@@ -814,7 +815,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
             color: colors.warning,
           });
         }
-      } catch {}
+      } catch { }
     });
 
     // Filter out empty date groups or show them with empty state
@@ -822,7 +823,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
     const hasAnyEvents = nonEmptyGroups.length > 0;
 
     return (
-      <ScrollView 
+      <ScrollView
         style={styles.weekViewContainer}
         scrollEventThrottle={16}
         directionalLockEnabled={true}
@@ -835,7 +836,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
             new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' })
           }
         </Text>
-        
+
         {!hasAnyEvents ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>No events scheduled this week</Text>
@@ -852,13 +853,13 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
               <View style={styles.dateGroupHeader}>
                 <Text style={styles.dateGroupTitle}>{group.dayName}</Text>
                 <Text style={styles.dateGroupDate}>
-                  {group.date.toLocaleDateString([], { 
-                    month: 'short', 
-                    day: 'numeric' 
+                  {group.date.toLocaleDateString([], {
+                    month: 'short',
+                    day: 'numeric'
                   })}
                 </Text>
               </View>
-              
+
               {group.events.length === 0 ? (
                 <View style={styles.emptyDateGroup}>
                   <Text style={styles.emptyDateGroupText}>No events</Text>
@@ -896,7 +897,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
       .sort((a, b) => {
         const aDate = a.targetCompletionDate ? new Date(a.targetCompletionDate).getTime() : Number.MAX_SAFE_INTEGER;
         const bDate = b.targetCompletionDate ? new Date(b.targetCompletionDate).getTime() : Number.MAX_SAFE_INTEGER;
-        if (aDate !== bDate) {return aDate - bDate;}
+        if (aDate !== bDate) { return aDate - bDate; }
         const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bCreated - aCreated;
@@ -985,9 +986,9 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
             {(() => {
               const lapsed = getLapsedGoals();
               const count = lapsed.length;
-              if (count <= 0) {return null;}
+              if (count <= 0) { return null; }
               return (
-                <View style={[styles.lapsedBanner, { marginTop: spacing.md }]}> 
+                <View style={[styles.lapsedBanner, { marginTop: spacing.md }]}>
                   <View style={styles.lapsedLeft}>
                     <Text style={styles.lapsedTitle}>Lapsed goals</Text>
                     <Text style={styles.lapsedSubtitle}>{count} {count === 1 ? 'goal needs review' : 'goals need review'}</Text>
@@ -995,7 +996,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
                   <TouchableOpacity
                     style={styles.lapsedButton}
                     onPress={() => {
-                      try { navigation.navigate('Goals', { focus: 'needsReview' }); } catch {}
+                      try { navigation.navigate('Goals', { focus: 'needsReview' }); } catch { }
                     }}
                     activeOpacity={0.9}
                   >
@@ -1013,7 +1014,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
   // Render view content based on selected view type
   const renderViewContent = () => {
     // rendering view content
-    
+
     switch (state.viewType) {
       case 'day':
         return renderDayView();
@@ -1089,30 +1090,30 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
           }}
         />
       )}
-      
+
       {/* Offline Indicator */}
       <OfflineIndicator />
-      
+
       {/* Header */}
       <ScreenHeader
         title="Calendar"
         rightActions={(
           <>
             {__DEV__ && (
-              <TouchableOpacity onPress={addDebugEvent} style={{marginRight: 10}}>
-                <Icon name="bug" size={18} color={colors.text.secondary} />
+              <TouchableOpacity onPress={addDebugEvent} style={{ marginRight: 10 }}>
+                <Icon icon={Bug01Icon} size={18} color={colors.text.secondary} />
               </TouchableOpacity>
             )}
             {__DEV__ && (
-              <TouchableOpacity onPress={handleSync} style={{marginRight: 10}}>
-                <Icon name="sync" size={18} color={colors.text.secondary} />
+              <TouchableOpacity onPress={handleSync} style={{ marginRight: 10 }}>
+                <Icon icon={ReloadIcon} size={18} color={colors.text.secondary} />
               </TouchableOpacity>
             )}
-            <TouchableOpacity 
-              onPress={() => setShowImportModal(true)} 
+            <TouchableOpacity
+              onPress={() => setShowImportModal(true)}
               style={styles.importButton}
             >
-              <Icon name="download" size={18} color={colors.text.secondary} />
+              <Icon icon={Download01Icon} size={18} color={colors.text.secondary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={onRefresh} style={styles.refreshButton}>
               <Text style={styles.refreshButtonText}>↻</Text>
@@ -1199,7 +1200,7 @@ function CalendarScreen({ events, tasks, goals, database }: CalendarScreenProps)
           accessibilityRole="button"
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <Icon name="plus" size={20} color={colors.text.secondary} />
+          <Icon icon={PlusSignIcon} size={20} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
 
@@ -1725,7 +1726,7 @@ const styles = StyleSheet.create({
   },
 });
 
-const enhance = withObservables(['database'], ({database}) => ({
+const enhance = withObservables(['database'], ({ database }) => ({
   events: database.collections.get('calendar_events').query(
     Q.where('status', Q.notEq('pending_delete'))
   ).observe(),

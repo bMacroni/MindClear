@@ -16,6 +16,8 @@
     "build:aab": "cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
+    "@hugeicons/core-free-icons": "^3.0.0",
+    "@hugeicons/react-native": "^1.0.9",
     "@nozbe/watermelondb": "^0.28.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "^8.4.3",

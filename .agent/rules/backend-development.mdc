@@ -1,0 +1,261 @@
+---
+globs: backend/**/*.js,backend/**/*.ts
+---
+
+# Backend Development Rules (Node.js + Express + Supabase)
+
+## Technology Stack
+- **Node.js** with ES modules (`"type": "module"`)
+- **Express.js** for web framework
+- **Supabase** for database and authentication
+- **Google AI (Gemini 2.5 Flash)** for AI features
+- **Firebase Admin SDK** for Google Sign-In verification
+- **Google OAuth** for calendar integration
+- **WebSocket** for real-time communication
+- **Node-cron** for background jobs
+
+## Project Structure
+```
+backend/
+├── src/
+│   ├── controllers/     # Route handlers
+│   ├── middleware/      # Express middleware
+│   ├── routes/         # API routes
+│   ├── services/       # Business logic
+│   ├── utils/          # Utility functions
+│   └── server.js       # Main server file
+├── tests/              # Test files
+└── package.json
+```
+
+## API Design Guidelines
+
+### Route Structure
+```javascript
+// Route file example: src/routes/tasks.js
+import express from 'express';
+import { authenticateToken } from '../middleware/auth.js';
+import { validateTask } from '../middleware/validation.js';
+import { 
+  getTasks, 
+  createTask, 
+  updateTask, 
+  deleteTask 
+} from '../controllers/taskController.js';
+
+const router = express.Router();
+
+// Apply authentication middleware to all routes
+router.use(authenticateToken);
+
+// GET /api/tasks
+router.get('/', getTasks);
+
+// POST /api/tasks
+router.post('/', validateTask, createTask);
+
+// PUT /api/tasks/:id
+router.put('/:id', validateTask, updateTask);
+
+// DELETE /api/tasks/:id
+router.delete('/:id', deleteTask);
+
+export default router;
+```
+
+### Controller Pattern
+```javascript
+// Controller example: src/controllers/taskController.js
+import { taskService } from '../services/taskService.js';
+import { handleAsync } from '../utils/errorHandler.js';
+
+export const getTasks = handleAsync(async (req, res) => {
+  const { userId } = req.user;
+  const tasks = await taskService.getTasksByUserId(userId);
+  
+  res.json({
+    success: true,
+    data: tasks,
+    message: 'Tasks retrieved successfully'
+  });
+});
+
+export const createTask = handleAsync(async (req, res) => {
+  const { userId } = req.user;
+  const taskData = { ...req.body, userId };
+  
+  const task = await taskService.createTask(taskData);
+  
+  res.status(201).json({
+    success: true,
+    data: task,
+    message: 'Task created successfully'
+  });
+});
+```
+
+### Service Layer
+```javascript
+// Service example: src/services/taskService.js
+import { supabase } from '../utils/supabase.js';
+import { validateTaskData } from '../utils/validation.js';
+
+export const taskService = {
+  async getTasksByUserId(userId) {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw new Error(`Failed to fetch tasks: ${error.message}`);
+    return data;
+  },
+
+  async createTask(taskData) {
+    validateTaskData(taskData);
+    
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert([taskData])
+      .select()
+      .single();
+    
+    if (error) throw new Error(`Failed to create task: ${error.message}`);
+    return data;
+  }
+};
+```
+
+## Database Integration
+
+### Supabase Client Setup
+```javascript
+// src/utils/supabase.js
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+
+export const supabase = createClient(supabaseUrl, supabaseKey);
+```
+
+### Database Queries
+- Use Supabase client for all database operations
+- Implement proper error handling
+- Use transactions for complex operations
+- Follow the established schema patterns
+
+## Authentication & Authorization
+
+### JWT Token Handling
+```javascript
+// src/middleware/auth.js
+import jwt from 'jsonwebtoken';
+import { supabase } from '../utils/supabase.js';
+
+export const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Access token required' 
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Invalid token' 
+    });
+  }
+};
+```
+
+## AI Integration
+
+### Google AI (Gemini) Service
+```javascript
+// src/services/aiService.js
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+
+export const aiService = {
+  async generateTaskBreakdown(goal) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    
+    const prompt = `Break down this goal into actionable tasks: ${goal}`;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    
+    return response.text();
+  }
+};
+```
+
+## Error Handling
+
+### Global Error Handler
+```javascript
+// src/utils/errorHandler.js
+export const handleAsync = (fn) => {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
+
+export const errorHandler = (err, req, res, next) => {
+  console.error(err.stack);
+  
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+};
+```
+
+## Environment Variables
+- Use proper environment variable validation
+- Never commit sensitive data
+- Use different configs for development/production
+- Document all required environment variables
+
+## Testing
+- Use **Vitest** for unit tests
+- Test API endpoints with **Supertest**
+- Mock external services (Supabase, Google AI)
+- Write integration tests for critical flows
+
+## Security
+- Use **Helmet** for security headers
+- Implement rate limiting with **express-rate-limit**
+- Validate all input data
+- Use proper CORS configuration
+- Sanitize user inputs
+
+## Performance
+- Use compression middleware
+- Implement proper caching strategies
+- Use connection pooling for database
+- Monitor API response times
+- Implement proper logging
+
+## Background Jobs
+- Use **node-cron** for scheduled tasks
+- Implement proper job queuing
+- Handle job failures gracefully
+- Monitor job execution
+
+## WebSocket Integration
+- Use **ws** library for WebSocket connections
+- Implement proper connection management
+- Handle reconnection logic
+- Use proper message formatting

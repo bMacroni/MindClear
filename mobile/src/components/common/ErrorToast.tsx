@@ -12,7 +12,8 @@ import type { TextStyle } from 'react-native';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Alert01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ErrorToastProps {
@@ -78,7 +79,7 @@ export const ErrorToast: React.FC<ErrorToastProps> = ({
     }
   }, [visible, duration, hideToast, fadeAnim, slideAnim]);
 
-  if (!visible) {return null;}
+  if (!visible) { return null; }
 
   return (
     <Animated.View
@@ -100,15 +101,15 @@ export const ErrorToast: React.FC<ErrorToastProps> = ({
     >
       <View style={styles.toast}>
         <View style={styles.iconContainer}>
-          <Icon name="alert" size={24} color={colors.error} />
+          <Icon icon={Alert01Icon} size={24} color={colors.error} />
         </View>
-        
+
         <View style={styles.content}>
           <Text style={styles.message}>{message}</Text>
-          
+
           {actionLabel && onActionPress && (
-            <TouchableOpacity 
-              style={styles.actionBtn} 
+            <TouchableOpacity
+              style={styles.actionBtn}
               onPress={() => { onActionPress(); hideToast(); }}
               accessibilityRole="button"
               accessibilityLabel={`${actionLabel} button`}
@@ -119,16 +120,16 @@ export const ErrorToast: React.FC<ErrorToastProps> = ({
             </TouchableOpacity>
           )}
         </View>
-        
-        <TouchableOpacity 
-          style={styles.closeButton} 
+
+        <TouchableOpacity
+          style={styles.closeButton}
           onPress={hideToast}
           accessibilityRole="button"
           accessibilityLabel="Close error message"
           accessible={true}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <Icon name="x" size={16} color={colors.text.secondary} />
+          <Icon icon={Cancel01Icon} size={16} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
     </Animated.View>

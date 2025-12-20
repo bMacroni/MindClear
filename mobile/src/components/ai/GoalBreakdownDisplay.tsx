@@ -1,6 +1,7 @@
 import React, { useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Calendar01Icon, Tag01Icon, Target01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -15,321 +16,321 @@ interface GoalBreakdownDisplayProps {
 
 // Parse goal breakdown from text - extracted to avoid recreating on every render
 const parseGoalBreakdown = (breakdownText: string, conversationalText?: string, conversationTitle?: string): GoalData => {
-    try {
-      // First try to parse standardized JSON format
-      const jsonMatch = breakdownText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
-      if (jsonMatch) {
-        const jsonData = JSON.parse(jsonMatch[1]);
-        // Case A: { category: 'goal', milestones: [...] } (older schema)
-        if (jsonData.category === 'goal' && jsonData.milestones) {
-          const rawCategory =
-            jsonData.category && jsonData.category !== 'goal'
-              ? jsonData.category
-              : jsonData.priority;
-          return {
-            title: jsonData.title || '',
-            description: jsonData.description || '',
-            dueDate: jsonData.due_date || jsonData.dueDate,
-            category: rawCategory ?? undefined,
-            milestones: jsonData.milestones
-          };
-        }
-        // Case B: { category: 'goal', goal: { ...full goal... } } (current backend schema)
-        if (jsonData.category === 'goal' && jsonData.goal) {
-          const g = jsonData.goal || {};
-          return {
-            title: g.title || jsonData.title || '',
-            description: g.description || '',
-            dueDate: g.target_completion_date || g.due_date || g.dueDate,
-            category: g.category || g.priority,
-            milestones: Array.isArray(g.milestones) ? g.milestones : [],
-          };
-        }
-        // Case C: read action wrapper { action_type:'read', entity_type:'goal', details: {...} }
-        if (jsonData.action_type === 'read' && jsonData.entity_type === 'goal') {
-          const details = jsonData.details || {};
-          const first = Array.isArray(details?.goals) ? details.goals[0] : (Array.isArray(details) ? details[0] : details);
-          const g = first || {};
-          if (g && typeof g === 'object') {
-            return {
-              title: g.title || '',
-              description: g.description || '',
-              dueDate: g.target_completion_date || g.due_date || g.dueDate,
-              category: g.category || g.priority,
-              milestones: Array.isArray(g.milestones) ? g.milestones : [],
-            };
-          }
-        }
-      }
-      
-      // Also try to parse if the text is just JSON
-      const directJsonMatch = breakdownText.match(/\{[\s\S]*\}/);
-      if (directJsonMatch) {
-        const jsonData = JSON.parse(directJsonMatch[0]);
-        // Mirror the same three cases for direct JSON
-        if (jsonData.category === 'goal' && jsonData.milestones) {
-          const rawCategory =
-            jsonData.category && jsonData.category !== 'goal'
-              ? jsonData.category
-              : jsonData.priority;
-          return {
-            title: jsonData.title || '',
-            description: jsonData.description || '',
-            dueDate: jsonData.due_date || jsonData.dueDate,
-            category: rawCategory ?? undefined,
-            milestones: jsonData.milestones
-          };
-        }
-        if (jsonData.category === 'goal' && jsonData.goal) {
-          const g = jsonData.goal || {};
-          return {
-            title: g.title || jsonData.title || '',
-            description: g.description || '',
-            dueDate: g.target_completion_date || g.due_date || g.dueDate,
-            category: g.category || g.priority,
-            milestones: Array.isArray(g.milestones) ? g.milestones : [],
-          };
-        }
-        if (jsonData.action_type === 'read' && jsonData.entity_type === 'goal') {
-          const details = jsonData.details || {};
-          const first = Array.isArray(details?.goals) ? details.goals[0] : (Array.isArray(details) ? details[0] : details);
-          const g = first || {};
-          if (g && typeof g === 'object') {
-            return {
-              title: g.title || '',
-              description: g.description || '',
-              dueDate: g.target_completion_date || g.due_date || g.dueDate,
-              category: g.category || g.priority,
-              milestones: Array.isArray(g.milestones) ? g.milestones : [],
-            };
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Failed to parse JSON goal data:', error);
-    }
-    
-    // Fallback to old parsing method for backward compatibility
-    const goalData: GoalData = {
-      title: '',
-      description: '',
-      dueDate: undefined,
-      category: undefined,
-      milestones: []
-    };
-    
-    // Split by lines and look for goal information
-    const lines = breakdownText.split('\n');
-    let currentMilestone: GoalMilestone | null = null;
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-
-      // Extract goal title
-      const goalTitleMatch = trimmedLine.match(/^(?:\*\*goal\*\*|goal):\s*(.+)/i);
-      if (goalTitleMatch) {
-        let fullTitle = goalTitleMatch[1].trim();
-        // Check for a due date in parentheses and strip it
-        const dueDateInTitle = fullTitle.match(/\((?:due by|due date|due).*?\)/i);
-        if (dueDateInTitle) {
-          goalData.dueDate = dueDateInTitle[0].replace(/\(|\)/g, '').replace(/due by/i, '').trim();
-          fullTitle = fullTitle.replace(dueDateInTitle[0], '').trim();
-        }
-        goalData.title = fullTitle;
-        continue;
-      }
-
-      // Extract goal description
-      const goalDescMatch = trimmedLine.match(/^(?:\*\*description\*\*|description):\s*(.+)/i);
-      if (goalDescMatch) {
-        const descText = goalDescMatch[1].trim();
-        // Only set description if it's not obviously conversational text
-        // Skip if it starts with conversational phrases
-        if (!descText.toLowerCase().match(/^(that's|it's|this is|i've|i'm|you're)/i)) {
-          goalData.description = descText;
-        }
-        continue;
-      }
-
-      // Extract due date
-      const dueDateMatch = trimmedLine.match(/^(?:\*\*due\s*date\*\*|due\s*date):\s*([^\n*]+)/i);
-      if (dueDateMatch) {
-        goalData.dueDate = dueDateMatch[1].trim();
-        continue;
-      }
-
-      // Extract category or priority
-      const categoryMatch = trimmedLine.match(/^(?:\*\*category\*\*|\*\*priority\*\*|category|priority):\s*([^\n*]+)/i);
-      if (categoryMatch) {
-        const raw = categoryMatch[1].trim();
-        goalData.category = raw.split('(')[0].trim();
-        continue;
-      }
-
-      // Ignore any explicit "Steps:" label lines
-      if (/^([•\-\*]\s*)?\*\*?\s*steps\s*:\s*\*\*?/i.test(trimmedLine)) {
-        continue;
-      }
-
-      // Skip a plain "Milestones:" header line so it doesn't render as a milestone card
-      if (/^([•\-\*]\s*)?\*\*?\s*milestones\s*:\s*\*\*?$/i.test(trimmedLine)) {
-        continue;
-      }
-
-      // Detect milestone headers in multiple common formats, even without a
-      // preceding "Milestones:" section header.
-      // Examples handled:
-      // * **Milestone 3: React Native Core (Approx. 3–4 months)**
-      // * Milestone 1: Fundamentals
-      // Milestone 2: Advanced Topics
-      const milestoneHeaderRegexes: RegExp[] = [
-        /^([•\-\*]\s*)?\*\*(.+?)\*\*:?\s*$/i, // bullet with bold title
-        /^([•\-\*]\s*)?\s*(Milestone\s*\d+[^:]*)\s*:?.*$/i, // bullet no bold
-        /^\s*(Milestone\s*\d+[^:]*)\s*:?.*$/i, // no bullet
-      ];
-
-      let newMilestoneTitle: string | null = null;
-      for (const rx of milestoneHeaderRegexes) {
-        const m = trimmedLine.match(rx);
-        if (m) {
-          // If the match captured the whole bold title (case 1), prefer group 2; otherwise group 2 or 1 depending on pattern
-          newMilestoneTitle = (m[2] || m[1] || '').trim();
-          // Ensure this looks like a milestone title
-          if (!/milestone/i.test(newMilestoneTitle)) {
-            // In the bold-title case, the bold content might include "Milestone" or not.
-            // If it does not, skip; this prevents treating bold regular lines as milestones.
-            newMilestoneTitle = null;
-          }
-        }
-        if (newMilestoneTitle) {break;}
-      }
-
-      if (newMilestoneTitle) {
-        // Save previous milestone if exists
-        if (currentMilestone) {
-          goalData.milestones.push(currentMilestone);
-        }
-
-        currentMilestone = {
-          title: newMilestoneTitle.replace(/\*\*/g, '').trim(),
-          steps: [],
+  try {
+    // First try to parse standardized JSON format
+    const jsonMatch = breakdownText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+    if (jsonMatch) {
+      const jsonData = JSON.parse(jsonMatch[1]);
+      // Case A: { category: 'goal', milestones: [...] } (older schema)
+      if (jsonData.category === 'goal' && jsonData.milestones) {
+        const rawCategory =
+          jsonData.category && jsonData.category !== 'goal'
+            ? jsonData.category
+            : jsonData.priority;
+        return {
+          title: jsonData.title || '',
+          description: jsonData.description || '',
+          dueDate: jsonData.due_date || jsonData.dueDate,
+          category: rawCategory ?? undefined,
+          milestones: jsonData.milestones
         };
-        continue;
       }
+      // Case B: { category: 'goal', goal: { ...full goal... } } (current backend schema)
+      if (jsonData.category === 'goal' && jsonData.goal) {
+        const g = jsonData.goal || {};
+        return {
+          title: g.title || jsonData.title || '',
+          description: g.description || '',
+          dueDate: g.target_completion_date || g.due_date || g.dueDate,
+          category: g.category || g.priority,
+          milestones: Array.isArray(g.milestones) ? g.milestones : [],
+        };
+      }
+      // Case C: read action wrapper { action_type:'read', entity_type:'goal', details: {...} }
+      if (jsonData.action_type === 'read' && jsonData.entity_type === 'goal') {
+        const details = jsonData.details || {};
+        const first = Array.isArray(details?.goals) ? details.goals[0] : (Array.isArray(details) ? details[0] : details);
+        const g = first || {};
+        if (g && typeof g === 'object') {
+          return {
+            title: g.title || '',
+            description: g.description || '',
+            dueDate: g.target_completion_date || g.due_date || g.dueDate,
+            category: g.category || g.priority,
+            milestones: Array.isArray(g.milestones) ? g.milestones : [],
+          };
+        }
+      }
+    }
 
-      // Accumulate steps only if within a milestone block
+    // Also try to parse if the text is just JSON
+    const directJsonMatch = breakdownText.match(/\{[\s\S]*\}/);
+    if (directJsonMatch) {
+      const jsonData = JSON.parse(directJsonMatch[0]);
+      // Mirror the same three cases for direct JSON
+      if (jsonData.category === 'goal' && jsonData.milestones) {
+        const rawCategory =
+          jsonData.category && jsonData.category !== 'goal'
+            ? jsonData.category
+            : jsonData.priority;
+        return {
+          title: jsonData.title || '',
+          description: jsonData.description || '',
+          dueDate: jsonData.due_date || jsonData.dueDate,
+          category: rawCategory ?? undefined,
+          milestones: jsonData.milestones
+        };
+      }
+      if (jsonData.category === 'goal' && jsonData.goal) {
+        const g = jsonData.goal || {};
+        return {
+          title: g.title || jsonData.title || '',
+          description: g.description || '',
+          dueDate: g.target_completion_date || g.due_date || g.dueDate,
+          category: g.category || g.priority,
+          milestones: Array.isArray(g.milestones) ? g.milestones : [],
+        };
+      }
+      if (jsonData.action_type === 'read' && jsonData.entity_type === 'goal') {
+        const details = jsonData.details || {};
+        const first = Array.isArray(details?.goals) ? details.goals[0] : (Array.isArray(details) ? details[0] : details);
+        const g = first || {};
+        if (g && typeof g === 'object') {
+          return {
+            title: g.title || '',
+            description: g.description || '',
+            dueDate: g.target_completion_date || g.due_date || g.dueDate,
+            category: g.category || g.priority,
+            milestones: Array.isArray(g.milestones) ? g.milestones : [],
+          };
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to parse JSON goal data:', error);
+  }
+
+  // Fallback to old parsing method for backward compatibility
+  const goalData: GoalData = {
+    title: '',
+    description: '',
+    dueDate: undefined,
+    category: undefined,
+    milestones: []
+  };
+
+  // Split by lines and look for goal information
+  const lines = breakdownText.split('\n');
+  let currentMilestone: GoalMilestone | null = null;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    // Extract goal title
+    const goalTitleMatch = trimmedLine.match(/^(?:\*\*goal\*\*|goal):\s*(.+)/i);
+    if (goalTitleMatch) {
+      let fullTitle = goalTitleMatch[1].trim();
+      // Check for a due date in parentheses and strip it
+      const dueDateInTitle = fullTitle.match(/\((?:due by|due date|due).*?\)/i);
+      if (dueDateInTitle) {
+        goalData.dueDate = dueDateInTitle[0].replace(/\(|\)/g, '').replace(/due by/i, '').trim();
+        fullTitle = fullTitle.replace(dueDateInTitle[0], '').trim();
+      }
+      goalData.title = fullTitle;
+      continue;
+    }
+
+    // Extract goal description
+    const goalDescMatch = trimmedLine.match(/^(?:\*\*description\*\*|description):\s*(.+)/i);
+    if (goalDescMatch) {
+      const descText = goalDescMatch[1].trim();
+      // Only set description if it's not obviously conversational text
+      // Skip if it starts with conversational phrases
+      if (!descText.toLowerCase().match(/^(that's|it's|this is|i've|i'm|you're)/i)) {
+        goalData.description = descText;
+      }
+      continue;
+    }
+
+    // Extract due date
+    const dueDateMatch = trimmedLine.match(/^(?:\*\*due\s*date\*\*|due\s*date):\s*([^\n*]+)/i);
+    if (dueDateMatch) {
+      goalData.dueDate = dueDateMatch[1].trim();
+      continue;
+    }
+
+    // Extract category or priority
+    const categoryMatch = trimmedLine.match(/^(?:\*\*category\*\*|\*\*priority\*\*|category|priority):\s*([^\n*]+)/i);
+    if (categoryMatch) {
+      const raw = categoryMatch[1].trim();
+      goalData.category = raw.split('(')[0].trim();
+      continue;
+    }
+
+    // Ignore any explicit "Steps:" label lines
+    if (/^([•\-\*]\s*)?\*\*?\s*steps\s*:\s*\*\*?/i.test(trimmedLine)) {
+      continue;
+    }
+
+    // Skip a plain "Milestones:" header line so it doesn't render as a milestone card
+    if (/^([•\-\*]\s*)?\*\*?\s*milestones\s*:\s*\*\*?$/i.test(trimmedLine)) {
+      continue;
+    }
+
+    // Detect milestone headers in multiple common formats, even without a
+    // preceding "Milestones:" section header.
+    // Examples handled:
+    // * **Milestone 3: React Native Core (Approx. 3–4 months)**
+    // * Milestone 1: Fundamentals
+    // Milestone 2: Advanced Topics
+    const milestoneHeaderRegexes: RegExp[] = [
+      /^([•\-\*]\s*)?\*\*(.+?)\*\*:?\s*$/i, // bullet with bold title
+      /^([•\-\*]\s*)?\s*(Milestone\s*\d+[^:]*)\s*:?.*$/i, // bullet no bold
+      /^\s*(Milestone\s*\d+[^:]*)\s*:?.*$/i, // no bullet
+    ];
+
+    let newMilestoneTitle: string | null = null;
+    for (const rx of milestoneHeaderRegexes) {
+      const m = trimmedLine.match(rx);
+      if (m) {
+        // If the match captured the whole bold title (case 1), prefer group 2; otherwise group 2 or 1 depending on pattern
+        newMilestoneTitle = (m[2] || m[1] || '').trim();
+        // Ensure this looks like a milestone title
+        if (!/milestone/i.test(newMilestoneTitle)) {
+          // In the bold-title case, the bold content might include "Milestone" or not.
+          // If it does not, skip; this prevents treating bold regular lines as milestones.
+          newMilestoneTitle = null;
+        }
+      }
+      if (newMilestoneTitle) { break; }
+    }
+
+    if (newMilestoneTitle) {
+      // Save previous milestone if exists
       if (currentMilestone) {
-        // Look for step patterns (bullet points with step content)
-        const stepPattern = /^[•\-\*]\s*(.+)$/;
-        const stepMatch = trimmedLine.match(stepPattern);
+        goalData.milestones.push(currentMilestone);
+      }
 
-        if (stepMatch) {
-          const stepText = stepMatch[1].replace(/\*\*/g, '').trim();
-          if (
-            stepText &&
-            !/^steps\s*:/i.test(stepText) &&
-            !/^(milestone\s*\d+\b)/i.test(stepText)
-          ) {
-            currentMilestone.steps.push({ text: stepText });
-          }
-        }
-      }
+      currentMilestone = {
+        title: newMilestoneTitle.replace(/\*\*/g, '').trim(),
+        steps: [],
+      };
+      continue;
     }
-    
-    // Add the last milestone
+
+    // Accumulate steps only if within a milestone block
     if (currentMilestone) {
-      goalData.milestones.push(currentMilestone);
-    }
-    
-    // Fallback for title if not found in structured data
-    if (!goalData.title) {
-      if (conversationalText) {
-        // Try to find goal title in conversational text using multiple patterns
-        // Pattern 1: "I've created the goal [title]" or "the goal [title]"
-        const goalPattern1 = conversationalText.match(/(?:I['']ve\s+created\s+)?(?:the\s+)?goal\s+['"]([^'"]+)['"]/i);
-        if (goalPattern1 && goalPattern1[1]) {
-          goalData.title = goalPattern1[1].trim();
+      // Look for step patterns (bullet points with step content)
+      const stepPattern = /^[•\-\*]\s*(.+)$/;
+      const stepMatch = trimmedLine.match(stepPattern);
+
+      if (stepMatch) {
+        const stepText = stepMatch[1].replace(/\*\*/g, '').trim();
+        if (
+          stepText &&
+          !/^steps\s*:/i.test(stepText) &&
+          !/^(milestone\s*\d+\b)/i.test(stepText)
+        ) {
+          currentMilestone.steps.push({ text: stepText });
         }
-        
-        // Pattern 2: "goal '[title]'" (without "the" or "created")
-        if (!goalData.title) {
-          const goalPattern2 = conversationalText.match(/goal\s+['"]([^'"]+)['"]/i);
-          if (goalPattern2 && goalPattern2[1]) {
-            goalData.title = goalPattern2[1].trim();
+      }
+    }
+  }
+
+  // Add the last milestone
+  if (currentMilestone) {
+    goalData.milestones.push(currentMilestone);
+  }
+
+  // Fallback for title if not found in structured data
+  if (!goalData.title) {
+    if (conversationalText) {
+      // Try to find goal title in conversational text using multiple patterns
+      // Pattern 1: "I've created the goal [title]" or "the goal [title]"
+      const goalPattern1 = conversationalText.match(/(?:I['']ve\s+created\s+)?(?:the\s+)?goal\s+['"]([^'"]+)['"]/i);
+      if (goalPattern1 && goalPattern1[1]) {
+        goalData.title = goalPattern1[1].trim();
+      }
+
+      // Pattern 2: "goal '[title]'" (without "the" or "created")
+      if (!goalData.title) {
+        const goalPattern2 = conversationalText.match(/goal\s+['"]([^'"]+)['"]/i);
+        if (goalPattern2 && goalPattern2[1]) {
+          goalData.title = goalPattern2[1].trim();
+        }
+      }
+
+      // Pattern 3: Look for quoted text near goal-related keywords
+      if (!goalData.title) {
+        const goalContextPattern = conversationalText.match(/(?:goal|created|planning)[^'"]*['"]([^'"]{1,100})['"]/i);
+        if (goalContextPattern && goalContextPattern[1]) {
+          const candidate = goalContextPattern[1].trim();
+          // Only use if it's a reasonable length (not too long, likely a title)
+          if (candidate.length > 0 && candidate.length < 100 && !candidate.includes('awesome') && !candidate.includes('incredible')) {
+            goalData.title = candidate;
           }
         }
-        
-        // Pattern 3: Look for quoted text near goal-related keywords
-        if (!goalData.title) {
-          const goalContextPattern = conversationalText.match(/(?:goal|created|planning)[^'"]*['"]([^'"]{1,100})['"]/i);
-          if (goalContextPattern && goalContextPattern[1]) {
-            const candidate = goalContextPattern[1].trim();
-            // Only use if it's a reasonable length (not too long, likely a title)
-            if (candidate.length > 0 && candidate.length < 100 && !candidate.includes('awesome') && !candidate.includes('incredible')) {
-              goalData.title = candidate;
+      }
+
+      // Pattern 4: Last resort - find any quoted text, but prefer shorter ones (likely titles)
+      if (!goalData.title) {
+        const allQuotes = conversationalText.matchAll(/['"]([^'"]+)['"]/g);
+        let bestMatch: string | null = null;
+        let bestLength = Infinity;
+
+        // Words/phrases that indicate this is NOT a title (description or conversational text)
+        const notTitleIndicators = [
+          'awesome', 'incredible', 'experience', 'sounds like', 'adventurous',
+          'learning to', 'just for fun', 'months', 'ready to', 'explore',
+          'underwater', 'world', 'how about', 'let\'s', 'we start'
+        ];
+
+        for (const match of allQuotes) {
+          const candidate = match[1].trim();
+          // Prefer shorter quoted strings (likely titles) over longer ones (likely descriptions)
+          if (candidate.length > 0 && candidate.length < 80 && candidate.length < bestLength) {
+            // Skip if it contains common conversational words that aren't titles
+            const lowerCandidate = candidate.toLowerCase();
+            const isNotTitle = notTitleIndicators.some(indicator => lowerCandidate.includes(indicator));
+
+            if (!isNotTitle) {
+              bestMatch = candidate;
+              bestLength = candidate.length;
             }
           }
         }
-        
-        // Pattern 4: Last resort - find any quoted text, but prefer shorter ones (likely titles)
-        if (!goalData.title) {
-          const allQuotes = conversationalText.matchAll(/['"]([^'"]+)['"]/g);
-          let bestMatch: string | null = null;
-          let bestLength = Infinity;
-          
-          // Words/phrases that indicate this is NOT a title (description or conversational text)
-          const notTitleIndicators = [
-            'awesome', 'incredible', 'experience', 'sounds like', 'adventurous',
-            'learning to', 'just for fun', 'months', 'ready to', 'explore',
-            'underwater', 'world', 'how about', 'let\'s', 'we start'
-          ];
-          
-          for (const match of allQuotes) {
-            const candidate = match[1].trim();
-            // Prefer shorter quoted strings (likely titles) over longer ones (likely descriptions)
-            if (candidate.length > 0 && candidate.length < 80 && candidate.length < bestLength) {
-              // Skip if it contains common conversational words that aren't titles
-              const lowerCandidate = candidate.toLowerCase();
-              const isNotTitle = notTitleIndicators.some(indicator => lowerCandidate.includes(indicator));
-              
-              if (!isNotTitle) {
-                bestMatch = candidate;
-                bestLength = candidate.length;
-              }
-            }
-          }
-          
-          if (bestMatch) {
-            goalData.title = bestMatch;
-          }
-        }
-      }
-      if (!goalData.title && conversationTitle && conversationTitle !== 'New Conversation' && conversationTitle !== 'Conversation' && conversationTitle !== 'Goal Planning' ) {
-          goalData.title = conversationTitle;
-      }
-    }
-    
-    // Final validation: ensure title doesn't contain description-like text
-    if (goalData.title) {
-      const titleLower = goalData.title.toLowerCase();
-      // If title looks like a description (contains conversational phrases), clear it
-      if (titleLower.includes('awesome') && titleLower.includes('adventurous') ||
-          titleLower.includes('sounds like') ||
-          titleLower.includes('incredible experience') ||
-          (titleLower.includes('learning to') && titleLower.includes('months'))) {
-        goalData.title = '';
-        // Try to extract a better title from the description if available
-        if (goalData.description) {
-          // Look for quoted text in description that might be the actual title
-          const descQuoteMatch = goalData.description.match(/['"]([^'"]{1,60})['"]/);
-          if (descQuoteMatch && descQuoteMatch[1]) {
-            goalData.title = descQuoteMatch[1].trim();
-          }
+
+        if (bestMatch) {
+          goalData.title = bestMatch;
         }
       }
     }
-    
-    return goalData;
+    if (!goalData.title && conversationTitle && conversationTitle !== 'New Conversation' && conversationTitle !== 'Conversation' && conversationTitle !== 'Goal Planning') {
+      goalData.title = conversationTitle;
+    }
+  }
+
+  // Final validation: ensure title doesn't contain description-like text
+  if (goalData.title) {
+    const titleLower = goalData.title.toLowerCase();
+    // If title looks like a description (contains conversational phrases), clear it
+    if (titleLower.includes('awesome') && titleLower.includes('adventurous') ||
+      titleLower.includes('sounds like') ||
+      titleLower.includes('incredible experience') ||
+      (titleLower.includes('learning to') && titleLower.includes('months'))) {
+      goalData.title = '';
+      // Try to extract a better title from the description if available
+      if (goalData.description) {
+        // Look for quoted text in description that might be the actual title
+        const descQuoteMatch = goalData.description.match(/['"]([^'"]{1,60})['"]/);
+        if (descQuoteMatch && descQuoteMatch[1]) {
+          goalData.title = descQuoteMatch[1].trim();
+        }
+      }
+    }
+  }
+
+  return goalData;
 };
 
 export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalText, conversationTitle }: GoalBreakdownDisplayProps) {
@@ -382,13 +383,13 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
             <View style={styles.metaRow}>
               {goalData.dueDate && (
                 <View style={styles.metaItem}>
-                  <Icon name="calendar" size={14} color={colors.text.secondary} style={styles.metaIcon} />
+                  <Icon icon={Calendar01Icon} size={14} color={colors.text.secondary} style={styles.metaIcon} />
                   <Text style={styles.metaText}>{formatDate(goalData.dueDate)}</Text>
                 </View>
               )}
               {goalData.category && (
                 <View style={styles.metaItem}>
-                  <Icon name="tag" size={14} color={colors.text.secondary} style={styles.metaIcon} />
+                  <Icon icon={Tag01Icon} size={14} color={colors.text.secondary} style={styles.metaIcon} />
                   <Text style={styles.metaText}>Category: {goalData.category}</Text>
                 </View>
               )}
@@ -404,7 +405,7 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
           <View key={milestoneIndex} style={styles.milestoneCard}>
             <View style={styles.leftAccent} />
             <View style={styles.milestoneHeader}>
-              <Icon name="milestone" size={16} color={colors.primary} style={styles.milestoneIcon} />
+              <Icon icon={Target01Icon} size={16} color={colors.primary} style={styles.milestoneIcon} />
               <Text style={styles.milestoneTitle}>
                 {milestone.title}
               </Text>
@@ -413,7 +414,7 @@ export default function GoalBreakdownDisplay({ text, onSaveGoal, conversationalT
               {milestone.steps.map((step, stepIndex) => (
                 <View key={stepIndex} style={styles.stepRow}>
                   <View style={styles.stepNumber}>
-                  <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
+                    <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
                   </View>
                   <Text style={styles.stepText}>
                     {step.text}
@@ -451,7 +452,7 @@ const SM_LINE_HEIGHT = Math.round(typography.fontSize.sm * 1.6);
 
 // Local date formatting helper
 function formatDate(input?: string) {
-  if (!input) {return '';}
+  if (!input) { return ''; }
   try {
     const d = new Date(input);
     if (!isNaN(d.getTime())) {

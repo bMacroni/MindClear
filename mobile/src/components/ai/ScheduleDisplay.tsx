@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Calendar01Icon, ArrowLeft01Icon, ArrowRight01Icon, PlusSignIcon } from '@hugeicons/core-free-icons';
 import type { CalendarEvent } from '../../types/calendar';
 import { extractCalendarEvents } from '../../screens/tasks/utils/calendarEventUtils';
 
@@ -61,21 +62,21 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
           return jsonData.title;
         }
       }
-    } catch {}
+    } catch { }
     // Look for patterns like "Here's your schedule for [date]:"
     const datePatterns = [
       /schedule for (.*?):/i,
       /schedule for (.*?)$/im,
       /for (.*?):/i,
     ];
-    
+
     for (const pattern of datePatterns) {
       const match = scheduleText.match(pattern);
       if (match && match[1]) {
         return match[1].trim();
       }
     }
-    
+
     // Fallback to "Today's Schedule" if no date found
     return "Today's Schedule";
   };
@@ -97,7 +98,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
           }));
         }
       }
-      
+
       // Also try to parse if the text is just JSON
       const directJsonMatch = scheduleText.match(/\{[\s\S]*\}/);
       if (directJsonMatch) {
@@ -114,14 +115,14 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
     } catch (_error) {
       // ignore parse errors; fallback below
     }
-    
+
     // Fallback to old parsing method for backward compatibility
     const events: ScheduleEvent[] = [];
     let lastDate: string | undefined;
-    
+
     // Split by lines and look for schedule patterns
     const lines = scheduleText.split('\n');
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // Look for patterns like "Activity from time to time" with various bullet styles
@@ -130,7 +131,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
         /^\*\s*(.+?)\s+from\s+(\d{1,2}:\d{2}\s*(?:AM|PM))\s+to\s+(\d{1,2}:\d{2}\s*(?:AM|PM))(?:\s+on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}))?/i,
         /^•\s*(.+?)\s+from\s+(\d{1,2}:\d{2}\s*(?:AM|PM))\s+to\s+(\d{1,2}:\d{2}\s*(?:AM|PM))(?:\s+on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}))?/i,
       ];
-      
+
       let matched = false;
       for (const pattern of schedulePatterns) {
         const match = line.trim().match(pattern);
@@ -147,7 +148,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
           break; // Found a match, move to next line
         }
       }
-      if (matched) {continue;}
+      if (matched) { continue; }
 
       // Capture a standalone date line and associate it with subsequent items
       const dateLine = line.match(/^(?:on\s+)?([A-Za-z]+\s+\d{1,2},\s+\d{4})\b/i);
@@ -156,7 +157,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
         continue;
       }
     }
-    
+
     return events;
   };
 
@@ -180,9 +181,9 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
 
   // Format time for display
   const formatTime = (time: string) => {
-    if (!time) {return '';}
+    if (!time) { return ''; }
     // If time already looks like 12:34 PM keep it
-    if (/(AM|PM)$/i.test(time)) {return time.toUpperCase();}
+    if (/(AM|PM)$/i.test(time)) { return time.toUpperCase(); }
     // Otherwise try to parse ISO
     const date = new Date(time);
     if (!isNaN(date.getTime())) {
@@ -192,14 +193,14 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   };
 
   const parseDate = (dateStr?: string): Date | undefined => {
-    if (!dateStr) {return undefined;}
+    if (!dateStr) { return undefined; }
     const cleaned = String(dateStr)
       .replace(/^on\s+/i, '')
       .replace(/[,\.]\s*$/g, '')
       .trim();
     // Try native first
     const native = new Date(cleaned);
-    if (!isNaN(native.getTime())) {return native;}
+    if (!isNaN(native.getTime())) { return native; }
     // Manual parse: Month Day, Year (with optional comma or ordinal)
     const m = cleaned.match(/^(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/i);
     if (m) {
@@ -221,7 +222,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
         december: 11, dec: 11,
       };
       const month = monthMap[monthName];
-      if (month !== undefined) {return new Date(year, month, day);}
+      if (month !== undefined) { return new Date(year, month, day); }
     }
     return undefined;
   };
@@ -229,17 +230,17 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   const combineDateTime = (dateLabel: string | undefined, timeStr: unknown): Date | undefined => {
     // If time is ISO, just return parsed date
     const iso = new Date(timeStr as any);
-    if (!isNaN(iso.getTime())) {return iso;}
+    if (!isNaN(iso.getTime())) { return iso; }
     const d = parseDate(dateLabel);
-    if (!d) {return undefined;}
+    if (!d) { return undefined; }
     // Guard against non-string inputs (e.g., all-day events objects)
-    if (typeof timeStr !== 'string') {return undefined;}
+    if (typeof timeStr !== 'string') { return undefined; }
     const [_, hrStr, minStr, ampm] = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i) || [];
-    if (!hrStr) {return undefined;}
+    if (!hrStr) { return undefined; }
     let hour = parseInt(hrStr, 10);
     const minute = parseInt(minStr, 10);
     const isPM = /PM/i.test(ampm);
-    if (hour === 12) {hour = isPM ? 12 : 0;} else if (isPM) {hour += 12;}
+    if (hour === 12) { hour = isPM ? 12 : 0; } else if (isPM) { hour += 12; }
     const combined = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0);
     return combined;
   };
@@ -247,7 +248,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   const buildEventPayload = (event: ScheduleEvent): CalendarEventPayload | null => {
     const start = combineDateTime(event.date, event.startTime);
     const end = combineDateTime(event.date, event.endTime);
-    if (!start || !end) {return null;}
+    if (!start || !end) { return null; }
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     return {
       summary: truncate(event.activity, 60),
@@ -309,20 +310,20 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
 
   const getCalendarEventStart = (event: CalendarEvent): Date | undefined => {
     const startRaw = event.start_time || event.start?.dateTime;
-    if (!startRaw) {return undefined;}
+    if (!startRaw) { return undefined; }
     const d = new Date(startRaw);
     return isNaN(d.getTime()) ? undefined : d;
   };
 
   const getCalendarEventEnd = (event: CalendarEvent): Date | undefined => {
     const endRaw = event.end_time || event.end?.dateTime;
-    if (!endRaw) {return undefined;}
+    if (!endRaw) { return undefined; }
     const d = new Date(endRaw);
     return isNaN(d.getTime()) ? undefined : d;
   };
 
   const isSameDay = (d1?: Date, d2?: Date) => {
-    if (!d1 || !d2) {return false;}
+    if (!d1 || !d2) { return false; }
     return d1.getFullYear() === d2.getFullYear()
       && d1.getMonth() === d2.getMonth()
       && d1.getDate() === d2.getDate();
@@ -344,7 +345,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
     let after: CalendarEvent | undefined;
 
     for (const { evt, start: evtStart, end: evtEnd } of sameDayEvents) {
-      if (!evtStart) {continue;}
+      if (!evtStart) { continue; }
       if (evtEnd && evtEnd.getTime() <= start.getTime()) {
         before = evt;
       } else if (evtStart.getTime() >= end.getTime() && !after) {
@@ -357,17 +358,17 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   };
 
   const getCalendarTimeRange = (event?: CalendarEvent): string | null => {
-    if (!event) {return null;}
+    if (!event) { return null; }
     const startRaw = event.start_time || event.start?.dateTime || '';
     const endRaw = event.end_time || event.end?.dateTime || '';
     const startLabel = formatTime(startRaw);
     const endLabel = formatTime(endRaw);
-    if (!startLabel && !endLabel) {return null;}
+    if (!startLabel && !endLabel) { return null; }
     return `${startLabel}${endLabel ? ` - ${endLabel}` : ''}`;
   };
 
   const formatCalendarTitle = (event?: CalendarEvent): string => {
-    if (!event) {return '';}
+    if (!event) { return ''; }
     return event.title || event.summary || 'Calendar event';
   };
 
@@ -376,16 +377,16 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
 
   const extractDateFromEvent = (event: ScheduleEvent): Date | undefined => {
     const byLabel = parseDate(event.date);
-    if (byLabel) {return byLabel;}
+    if (byLabel) { return byLabel; }
     const startAsISO = new Date(event.startTime);
-    if (!isNaN(startAsISO.getTime())) {return startAsISO;}
+    if (!isNaN(startAsISO.getTime())) { return startAsISO; }
     const endAsISO = new Date(event.endTime);
-    if (!isNaN(endAsISO.getTime())) {return endAsISO;}
+    if (!isNaN(endAsISO.getTime())) { return endAsISO; }
     return undefined;
   };
 
   const formatDayLabel = (d: Date | undefined, fallback?: string): string => {
-    if (!d) {return fallback || 'Unspecified Date';}
+    if (!d) { return fallback || 'Unspecified Date'; }
     const opts: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
     const label = d.toLocaleDateString('en-US', opts);
     const includeYear = d.getFullYear() !== new Date().getFullYear();
@@ -393,7 +394,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   };
 
   const toDateKey = (d: Date | undefined, fallback?: string): string => {
-    if (!d) {return `unknown:${fallback || ''}`.toLowerCase();}
+    if (!d) { return `unknown:${fallback || ''}`.toLowerCase(); }
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
@@ -417,9 +418,9 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
   const groups: DayGroup[] = Array.from(groupsMap.values()).sort((a, b) => {
     const isUnknownA = a.key.startsWith('unknown');
     const isUnknownB = b.key.startsWith('unknown');
-    if (isUnknownA && isUnknownB) {return 0;}
-    if (isUnknownA) {return 1;}
-    if (isUnknownB) {return -1;}
+    if (isUnknownA && isUnknownB) { return 0; }
+    if (isUnknownA) { return 1; }
+    if (isUnknownB) { return -1; }
     return a.key.localeCompare(b.key);
   });
 
@@ -451,7 +452,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
         accessibilityHint="Adds every event with a valid date and time"
       >
         <Icon
-          name="plus"
+          icon={PlusSignIcon}
           size={16}
           color={colors.secondary}
           style={styles.bulkScheduleIcon}
@@ -476,7 +477,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
                     return (
                       <View style={styles.adjacentContainer}>
                         <View style={styles.adjacentRow}>
-                          <Icon name="chevron-left" size={14} color={colors.text.secondary} />
+                          <Icon icon={ArrowLeft01Icon} size={14} color={colors.text.secondary} />
                           <Text style={styles.adjacentLabel}>Before</Text>
                           <Text style={styles.adjacentText}>
                             {before ? `${formatCalendarTitle(before)}${beforeTime ? ` • ${beforeTime}` : ''}` : 'No other events'}
@@ -492,12 +493,12 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
                     accessibilityLabel={`Schedule ${event.activity} from ${formatTime(event.startTime)} to ${formatTime(event.endTime)}`}
                     accessibilityHint="Double tap to add this event to your calendar"
                   >
-                  <View style={styles.timeRow}>
-                    <Icon name="calendar" size={16} color={colors.primary} />
-                    <Text style={styles.timeText}>
-                      {formatTime(event.startTime)} - {formatTime(event.endTime)}
-                    </Text>
-                  </View>
+                    <View style={styles.timeRow}>
+                      <Icon icon={Calendar01Icon} size={16} color={colors.primary} />
+                      <Text style={styles.timeText}>
+                        {formatTime(event.startTime)} - {formatTime(event.endTime)}
+                      </Text>
+                    </View>
                     <Text
                       selectable
                       style={styles.activityText}
@@ -512,7 +513,7 @@ export default function ScheduleDisplay({ text, taskTitle }: ScheduleDisplayProp
                     return (
                       <View style={styles.adjacentContainer}>
                         <View style={styles.adjacentRow}>
-                          <Icon name="chevron-right" size={14} color={colors.text.secondary} />
+                          <Icon icon={ArrowRight01Icon} size={14} color={colors.text.secondary} />
                           <Text style={styles.adjacentLabel}>After</Text>
                           <Text style={styles.adjacentText}>
                             {after ? `${formatCalendarTitle(after)}${afterTime ? ` • ${afterTime}` : ''}` : 'No other events'}

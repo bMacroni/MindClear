@@ -2,7 +2,8 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Target01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -21,36 +22,36 @@ export default function FocusTaskGuidanceScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.content}>
           <View style={styles.iconContainer}>
             <View style={styles.iconCircle}>
-              <Icon name="goal" size={32} color={colors.primary} />
+              <Icon icon={Target01Icon} size={32} color={colors.primary} />
             </View>
           </View>
 
           <Text style={styles.title}>Today's Focus</Text>
-          
+
           <Text style={styles.subtitle}>
             One task at a time keeps you clear
           </Text>
 
           <View style={styles.keyPoints}>
             <View style={styles.point}>
-              <Icon name="check" size={20} color={colors.primary} style={styles.pointIcon} />
+              <Icon icon={Tick01Icon} size={20} color={colors.primary} style={styles.pointIcon} />
               <Text style={styles.pointText}>Swipe right or tap to set your focus</Text>
             </View>
             <View style={styles.point}>
-              <Icon name="check" size={20} color={colors.primary} style={styles.pointIcon} />
+              <Icon icon={Tick01Icon} size={20} color={colors.primary} style={styles.pointIcon} />
               <Text style={styles.pointText}>Complete it to feel the win</Text>
             </View>
           </View>
 
-          <TouchableOpacity 
-            style={styles.primaryBtn} 
+          <TouchableOpacity
+            style={styles.primaryBtn}
             onPress={handleGotIt}
             accessibilityRole="button"
             accessibilityLabel="Got it, go to tasks"

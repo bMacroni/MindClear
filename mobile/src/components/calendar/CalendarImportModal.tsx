@@ -12,7 +12,8 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
 import { Button } from '../common/Button';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { CheckmarkCircle01Icon, Alert01Icon, Calendar01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { googleAuthService } from '../../services/googleAuth';
 
@@ -22,10 +23,10 @@ interface CalendarImportModalProps {
   onImportComplete?: () => void;
 }
 
-export function CalendarImportModal({ 
-  visible, 
-  onClose, 
-  onImportComplete 
+export function CalendarImportModal({
+  visible,
+  onClose,
+  onImportComplete
 }: CalendarImportModalProps) {
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<'idle' | 'checking' | 'importing' | 'success' | 'error'>('idle');
@@ -37,19 +38,19 @@ export function CalendarImportModal({
     try {
       setImportStatus('checking');
       setStatusMessage('Checking Google Calendar connection...');
-      
+
       // Checking calendar status...
       const status = await enhancedAPI.getCalendarStatus();
-              // Calendar status response received
-      
+      // Calendar status response received
+
       if (!status.connected) {
-                  // Calendar not connected
+        // Calendar not connected
         setImportStatus('error');
         setStatusMessage(`Calendar not connected: ${status.details || status.error || 'Unknown error'}`);
         return false;
       }
-      
-                // Calendar is connected successfully
+
+      // Calendar is connected successfully
       setStatusMessage('Google Calendar is connected and ready for import.');
       return true;
     } catch (error) {
@@ -77,21 +78,21 @@ export function CalendarImportModal({
 
       // Trigger the calendar import
       const result = await enhancedAPI.importCalendarFirstRun();
-      
+
       setImportedCount(result.count || 0);
       setImportStatus('success');
       setStatusMessage(`Successfully imported ${result.count || 0} events from Google Calendar!`);
-      
+
       // Call the completion callback after a short delay
       setTimeout(() => {
         onImportComplete?.();
         onClose();
       }, 2000);
-      
+
     } catch (error: any) {
       console.error('Calendar import error:', error);
       setImportStatus('error');
-      
+
       if (error?.message?.includes('not connected')) {
         setStatusMessage('Google Calendar is not connected. Please sign in with Google first.');
       } else if (error?.message?.includes('permission')) {
@@ -108,13 +109,13 @@ export function CalendarImportModal({
     try {
       setSigningOut(true);
       setStatusMessage('Signing out to get fresh calendar permissions...');
-      
+
       // Sign out from Google
       await googleAuthService.signOut();
-              // Signed out from Google
-      
+      // Signed out from Google
+
       setStatusMessage('Please sign back in with Google to get calendar permissions...');
-      
+
       Alert.alert(
         'Sign In Required',
         'Please sign back in with Google to get calendar permissions. After signing in, try the import again.',
@@ -144,8 +145,8 @@ export function CalendarImportModal({
         'An operation is still running. Are you sure you want to cancel?',
         [
           { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Close', 
+          {
+            text: 'Close',
             style: 'destructive',
             onPress: () => {
               setImporting(false);
@@ -173,11 +174,11 @@ export function CalendarImportModal({
       case 'importing':
         return <ActivityIndicator size="small" color={colors.primary} />;
       case 'success':
-        return <Icon name="check-circle" size={24} color={colors.success} />;
+        return <Icon icon={CheckmarkCircle01Icon} size={24} color={colors.success} />;
       case 'error':
-        return <Icon name="alert-circle" size={24} color={colors.error} />;
+        return <Icon icon={Alert01Icon} size={24} color={colors.error} />;
       default:
-        return <Icon name="calendar" size={24} color={colors.primary} />;
+        return <Icon icon={Calendar01Icon} size={24} color={colors.primary} />;
     }
   };
 
@@ -204,7 +205,7 @@ export function CalendarImportModal({
           <View style={styles.header}>
             <Text style={styles.title}>Import Google Calendar</Text>
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-              <Icon name="x" size={20} color={colors.text.secondary} />
+              <Icon icon={Cancel01Icon} size={20} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
 
@@ -248,7 +249,7 @@ export function CalendarImportModal({
                 disabled={importing}
               />
             )}
-            
+
             {importStatus === 'error' && (
               <View style={styles.errorActions}>
                 <Button

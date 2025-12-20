@@ -1,0 +1,138 @@
+---
+globs: frontend/**/*.jsx,frontend/**/*.js,frontend/**/*.ts,frontend/**/*.tsx
+---
+
+# Frontend Development Rules (React + Vite)
+
+## Technology Stack
+- **React 18** with functional components and hooks
+- **Vite** for build tooling and development server
+- **Tailwind CSS** for styling
+- **React Router v6** for navigation
+- **Zustand** for state management
+- **Axios** for API calls
+- **React DnD** for drag-and-drop functionality
+
+## Component Guidelines
+
+### Component Structure
+```jsx
+// Import order: React, third-party, local
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion';
+import { TaskList } from '../components/TaskList';
+import { useTaskStore } from '../stores/taskStore';
+
+// Component definition
+const TaskManager = () => {
+  // Hooks at the top
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { tasks, fetchTasks } = useTaskStore();
+
+  // Event handlers
+  const handleTaskCreate = async (taskData) => {
+    // Implementation
+  };
+
+  // Effects
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // Render
+  return (
+    <div className="container mx-auto p-4">
+      {/* Component JSX */}
+    </div>
+  );
+};
+
+export default TaskManager;
+```
+
+### Styling Guidelines
+- Use **Tailwind CSS** classes for all styling
+- Follow mobile-first responsive design
+- Use consistent spacing: `p-4`, `m-2`, `space-y-4`
+- Use semantic color classes: `bg-primary`, `text-secondary`, `border-gray-200`
+- Use motion for animations: `<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>`
+
+### State Management
+- Use **Zustand** for global state
+- Keep component state local when possible
+- Use proper TypeScript interfaces for state
+
+```jsx
+// Store example
+import { create } from 'zustand';
+
+interface TaskStore {
+  tasks: Task[];
+  loading: boolean;
+  fetchTasks: () => Promise<void>;
+  addTask: (task: Task) => void;
+}
+
+export const useTaskStore = create<TaskStore>((set, get) => ({
+  tasks: [],
+  loading: false,
+  fetchTasks: async () => {
+    set({ loading: true });
+    // API call
+    set({ loading: false });
+  },
+  addTask: (task) => set((state) => ({ tasks: [...state.tasks, task] })),
+}));
+```
+
+## API Integration
+- Use **Axios** for all API calls
+- Create service files for API endpoints: `api/taskService.js`
+- Handle loading and error states consistently
+- Use proper TypeScript types for API responses
+
+```jsx
+// API service example
+import axios from 'axios';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+export const taskService = {
+  async getTasks() {
+    const response = await axios.get(`${API_BASE_URL}/tasks`);
+    return response.data;
+  },
+  
+  async createTask(taskData) {
+    const response = await axios.post(`${API_BASE_URL}/tasks`, taskData);
+    return response.data;
+  }
+};
+```
+
+## File Organization
+- Components in `src/components/`
+- Pages in `src/pages/`
+- Services in `src/services/`
+- Stores in `src/stores/`
+- Utils in `src/utils/`
+- Types in `src/types/`
+
+## Testing
+- Use **Vitest** for unit tests
+- Test components with **@testing-library/react**
+- Write tests for critical user flows
+- Mock API calls in tests
+
+## Environment Variables
+- Use `VITE_` prefix for environment variables
+- Access via `import.meta.env.VITE_VARIABLE_NAME`
+- Never commit `.env` files
+
+## Performance
+- Use React.memo for expensive components
+- Implement proper loading states
+- Use lazy loading for route components
+- Optimize bundle size with Vite's built-in optimizations

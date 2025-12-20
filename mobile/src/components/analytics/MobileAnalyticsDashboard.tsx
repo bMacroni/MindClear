@@ -10,7 +10,8 @@ import {
   Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ChartAverageIcon, UserMultiple02Icon, Target01Icon, Task01Icon, Comment01Icon, Alert01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -114,7 +115,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
     title: string;
     value: string;
     subtitle: string;
-    icon: 'graph' | 'people' | 'goal' | 'checklist' | 'comment-discussion';
+    icon: any;
     color?: string;
   }) => (
     <View style={[styles.metricCard, { borderLeftColor: color, borderLeftWidth: 4 }]}>
@@ -124,7 +125,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
         <Text style={styles.metricSubtitle}>{subtitle}</Text>
       </View>
       <Icon
-        name={icon}
+        icon={icon}
         size={24}
         color={color}
         style={styles.metricIcon}
@@ -151,7 +152,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
         <ScreenHeader title="Analytics" />
         <View style={styles.errorContainer}>
           <Icon
-            name="alert"
+            icon={Alert01Icon}
             size={24}
             color={colors.error}
             accessibilityRole="image"
@@ -211,28 +212,28 @@ const MobileAnalyticsDashboard: React.FC = () => {
               title="Total Events"
               value={formatNumber(analyticsData.totalEvents)}
               subtitle={getTimeframeLabel(selectedTimeframe)}
-              icon="graph"
+              icon={ChartAverageIcon}
               color={colors.primary}
             />
             <MetricCard
               title="Active Users"
               value={formatNumber(analyticsData.activeUsers)}
               subtitle="Unique users"
-              icon="people"
+              icon={UserMultiple02Icon}
               color={colors.success}
             />
             <MetricCard
               title="Goal Creations"
               value={formatNumber(analyticsData.goalCreations)}
               subtitle="Manual + AI"
-              icon="goal"
+              icon={Target01Icon}
               color={colors.warning}
             />
             <MetricCard
               title="Task Completions"
               value={formatNumber(analyticsData.taskCompletions)}
               subtitle="Completed tasks"
-              icon="checklist"
+              icon={Task01Icon}
               color={colors.info}
             />
           </View>
@@ -245,21 +246,21 @@ const MobileAnalyticsDashboard: React.FC = () => {
               title="AI Tokens Used"
               value={formatNumber(analyticsData.aiTokenUsage.totalTokensUsed)}
               subtitle="Total tokens"
-              icon="graph"
+              icon={ChartAverageIcon}
               color="#8B5CF6"
             />
             <MetricCard
               title="Avg Tokens/User"
               value={formatNumber(analyticsData.aiTokenUsage.avgTokensPerUser)}
               subtitle="Per user"
-              icon="people"
+              icon={UserMultiple02Icon}
               color="#06B6D4"
             />
             <MetricCard
               title="AI Users"
               value={formatNumber(analyticsData.aiTokenUsage.usersWithTokens)}
               subtitle="Using AI"
-              icon="checklist"
+              icon={Task01Icon}
               color="#10B981"
             />
           </View>
@@ -272,21 +273,21 @@ const MobileAnalyticsDashboard: React.FC = () => {
               title="AI Messages"
               value={formatNumber(analyticsData.aiMessageStats.totalAiMessages)}
               subtitle="Total interactions"
-              icon="comment-discussion"
+              icon={Comment01Icon}
               color="#8B5CF6"
             />
             <MetricCard
               title="AI Users"
               value={formatNumber(analyticsData.aiMessageStats.usersWithAiMessages)}
               subtitle="Active users"
-              icon="people"
+              icon={UserMultiple02Icon}
               color="#06B6D4"
             />
             <MetricCard
               title="Avg Messages/User"
               value={analyticsData.perUserStats?.avgAiMessagesPerUser?.toFixed(1) || '0'}
               subtitle="Per user"
-              icon="graph"
+              icon={ChartAverageIcon}
               color="#10B981"
             />
           </View>
@@ -299,21 +300,21 @@ const MobileAnalyticsDashboard: React.FC = () => {
               title="Avg Goals/User"
               value={analyticsData.perUserStats.avgGoalsPerUser.toFixed(1)}
               subtitle="Goals created"
-              icon="goal"
+              icon={Target01Icon}
               color="#F59E0B"
             />
             <MetricCard
               title="Avg Tasks/User"
               value={analyticsData.perUserStats.avgTasksPerUser.toFixed(1)}
               subtitle="Tasks created"
-              icon="checklist"
+              icon={Task01Icon}
               color="#3B82F6"
             />
             <MetricCard
               title="AI Messages/User"
               value={analyticsData.perUserStats.avgAiMessagesPerUser.toFixed(1)}
               subtitle="AI interactions"
-              icon="comment-discussion"
+              icon={Comment01Icon}
               color="#8B5CF6"
             />
           </View>
