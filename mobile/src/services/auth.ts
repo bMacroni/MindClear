@@ -6,6 +6,13 @@ import logger from '../utils/logger';
 import getSupabaseClient from './supabaseClient';
 import { configService } from './config';
 
+// Token refresh configuration
+const REFRESH_BUFFER_MINUTES = 15; // Refresh this many minutes before expiry
+const REFRESH_THRESHOLD_MINUTES = 15; // Refresh if expiring within this time
+const TOKEN_EXPIRY_LEEWAY_SECONDS = 30; // Treat as expired this many seconds before actual expiry
+const MAX_REFRESH_RETRIES = 3; // Maximum retry attempts for network errors
+const RETRY_BACKOFF_BASE_MS = 1000; // Base delay for exponential backoff (1s, 2s, 4s)
+
 // Helper function to decode JWT token
 function decodeJWT(token: string): any {
   try {
@@ -14,6 +21,25 @@ function decodeJWT(token: string): any {
     logger.error('Error decoding JWT', error);
     return null;
   }
+}
+
+// Helper function to get time until token expiry in milliseconds
+function getTimeUntilExpiry(token: string): number | null {
+  const decoded = decodeJWT(token);
+  const exp = Number(decoded?.exp);
+  if (!decoded || !Number.isFinite(exp)) {
+    return null;
+  }
+  return (exp * 1000) - Date.now();
+}
+
+// Helper function to check if token is expiring soon
+function isTokenExpiringSoon(token: string, thresholdMinutes: number): boolean {
+  const timeUntilExpiry = getTimeUntilExpiry(token);
+  if (timeUntilExpiry === null) {
+    return true;
+  }
+  return timeUntilExpiry <= (thresholdMinutes * 60 * 1000);
 }
 
 // Helper function to check if JWT token is expired
@@ -26,7 +52,7 @@ function isTokenExpired(token: string): boolean {
   if (!Number.isFinite(exp)) {
     return true; // no/invalid exp ⇒ treat as expired
   }
-  const leeway = 30; // seconds - configurable via environment if needed
+  const leeway = TOKEN_EXPIRY_LEEWAY_SECONDS;
   const now = Math.floor(Date.now() / 1000);
   // Expire if exp is at or before now + leeway
   return exp <= (now + leeway);
@@ -73,11 +99,12 @@ class AuthService {
   };
   private listeners: ((_state: AuthState) => void)[] = [];
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshPromise: Promise<RefreshTokenResult> | null = null;
 
   private constructor() {
-    this.initializeAuth();
+    this.initPromise = this.initializeAuth();
   }
 
   public static getInstance(): AuthService {
@@ -88,7 +115,8 @@ class AuthService {
   }
 
   // Initialize auth state from storage
-  private async initializeAuth() {
+  private async initializeAuth(): Promise<void> {
+    logger.info('Initializing authentication service...');
     try {
       // Check if migration is needed and perform it
       const needsMigration = await AndroidStorageMigrationService.checkMigrationNeeded();
@@ -101,8 +129,10 @@ class AuthService {
       }
 
       // Get authentication data from secure storage
+      logger.info('Loading authentication data from secure storage...');
       let token = await secureStorage.get('auth_token');
       let userData = await secureStorage.get('auth_user');
+      logger.info(`Token found: ${!!token}, User data found: ${!!userData}`);
       
       // Fallback: migrate legacy keys
       if (!token) {
@@ -126,6 +156,19 @@ class AuthService {
           // Handle expired token on initialization
           await this.handleExpiredTokenOnInit();
         } else {
+          // Check if token is expiring soon and refresh proactively
+          if (isTokenExpiringSoon(token, REFRESH_THRESHOLD_MINUTES)) {
+            logger.info('Token expiring soon, refreshing proactively on initialization...');
+            const refreshResult = await this.refreshToken();
+            if (!refreshResult.success && refreshResult.error === 'auth') {
+              // Auth failure during proactive refresh - clear auth data
+              logger.warn('Proactive refresh failed due to auth error, clearing auth data.');
+              await this.clearAuthData();
+              this.setUnauthenticatedState();
+            }
+            // If refresh succeeded or was a network error, continue with current token
+            // Network errors will be retried on next API call
+          }
           // Try to get user data from storage first
           let user: User | null = null;
           
@@ -170,12 +213,20 @@ class AuthService {
           }
           
           if (user) {
+            logger.info('User data loaded successfully from storage');
             this.authState = {
               user,
               token,
               isLoading: false,
               isAuthenticated: true,
             };
+            // Store token expiry timestamp for recovery after app kill
+            const timeUntilExpiry = getTimeUntilExpiry(token);
+            if (timeUntilExpiry !== null) {
+              const expiryTimestamp = Date.now() + timeUntilExpiry;
+              await secureStorage.set('auth_token_expiry', expiryTimestamp.toString());
+              logger.info(`Token expires in ${Math.round(timeUntilExpiry / 1000 / 60)} minutes`);
+            }
             // Start background token refresh timer
             this.startBackgroundRefresh();
           } else {
@@ -192,6 +243,12 @@ class AuthService {
                 isLoading: false,
                 isAuthenticated: true,
               };
+              // Store token expiry timestamp for recovery after app kill
+              const timeUntilExpiry = getTimeUntilExpiry(token);
+              if (timeUntilExpiry !== null) {
+                const expiryTimestamp = Date.now() + timeUntilExpiry;
+                await secureStorage.set('auth_token_expiry', expiryTimestamp.toString());
+              }
               // Start background token refresh timer
               this.startBackgroundRefresh();
               // Save the user data to storage for future use
@@ -205,10 +262,18 @@ class AuthService {
           }
         }
       } else {
+        logger.info('No authentication token found, setting unauthenticated state');
         this.setUnauthenticatedState();
       }
       
+      // Try to recover background refresh timer if token exists but timer wasn't set
+      if (this.authState.isAuthenticated && !this.refreshTimer) {
+        logger.info('Attempting to recover background refresh timer from storage');
+        this.recoverBackgroundRefreshFromStorage();
+      }
+      
       this.initialized = true;
+      logger.info(`Authentication service initialized. Authenticated: ${this.authState.isAuthenticated}`);
       this.notifyListeners();
     } catch (error) {
       logger.error('Error initializing auth', error);
@@ -220,18 +285,33 @@ class AuthService {
 
   // Handle expired token during initialization
   private async handleExpiredTokenOnInit(): Promise<void> {
+    logger.info('Token expired on initialization, attempting refresh...');
     // Attempt to refresh the token before logging out
     const refreshResult = await this.refreshToken();
     if (!refreshResult.success) {
-      // If refresh fails, then clear auth data
-      const errorType = refreshResult.error || 'unknown';
-      logger.warn(`Token refresh failed (${errorType}), clearing auth data.`);
-      await this.clearAuthData();
-      this.setUnauthenticatedState();
+      // Only logout on definitive auth failures
+      if (refreshResult.error === 'auth') {
+        logger.warn('Token refresh failed due to authentication error during initialization. Logging out.');
+        await this.clearAuthData();
+        this.setUnauthenticatedState();
+      } else {
+        // Network or unknown error - check if we have a refresh token
+        const refreshTokenValidation = await this.validateRefreshToken();
+        if (!refreshTokenValidation.valid) {
+          logger.warn('Token refresh failed and no refresh token available during initialization. Logging out.');
+          await this.clearAuthData();
+          this.setUnauthenticatedState();
+        } else {
+          // Have refresh token but network error - keep state, will retry on next API call
+          logger.info('Token refresh failed due to network error during initialization, but refresh token exists. Will retry on next request.');
+          this.setUnauthenticatedState(); // Set unauthenticated but don't clear data
+        }
+      }
     } else {
       // Refresh succeeded - refreshToken() has already updated authState via setAuthData()
       // Verify that state contains token and user (should always be true if refresh succeeded)
       if (this.authState.token && this.authState.user) {
+        logger.info('Token refresh succeeded during initialization');
         // State is already updated by refreshToken() -> setAuthData()
         // Ensure isLoading is false and start background refresh
         this.authState.isLoading = false;
@@ -257,16 +337,26 @@ class AuthService {
 
   private async clearAuthData() {
     try {
-      await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'authToken', 'authUser']);
+      await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'auth_token_expiry', 'authToken', 'authUser']);
     } catch (error) {
       logger.error('Error clearing auth data', error);
     }
   }
 
-  // Handle logout when refresh token is missing
+  // Validate refresh token existence and format
+  private async validateRefreshToken(): Promise<{ valid: boolean; error?: string }> {
+    const refreshToken = await secureStorage.get('auth_refresh_token');
+    if (!refreshToken) {
+      return { valid: false, error: 'missing' };
+    }
+    // Additional validation could be added here (format checks, etc.)
+    return { valid: true };
+  }
+
+  // Handle logout when refresh token is missing or invalid (definitive auth failure)
   private async handleMissingRefreshTokenLogout(): Promise<void> {
-    logger.warn('Token expired and no refresh token available. Logging out.');
-    await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'authToken', 'authUser']);
+    logger.warn('Definitive authentication failure detected. Logging out user.');
+    await secureStorage.multiRemove(['auth_token', 'auth_user', 'auth_refresh_token', 'auth_token_expiry', 'authToken', 'authUser']);
     this.stopBackgroundRefresh();
     this.setUnauthenticatedState();
     this.notifyListeners();
@@ -468,6 +558,13 @@ class AuthService {
 
   // Get authentication token
   public async getAuthToken(): Promise<string | null> {
+    logger.debug('getAuthToken() called');
+    // Wait for initialization to complete before proceeding
+    if (!this.initialized) {
+      logger.debug('Waiting for initialization to complete...');
+    }
+    await this.waitForInitialization();
+
     // If initialization is in progress and we're refreshing, wait for it to complete
     if (!this.initialized && this.refreshPromise) {
       const refreshResult = await this.refreshPromise;
@@ -480,30 +577,35 @@ class AuthService {
     if (this.authState.token) {
       // Check if the current token is expired
       if (isTokenExpired(this.authState.token)) {
+        logger.info('Current token is expired, attempting refresh...');
         // Token is expired, attempt to refresh before giving up
-        // But don't refresh if initialization is still in progress (to avoid race conditions)
-        if (!this.initialized) {
-          return null;
-        }
         const refreshResult = await this.refreshToken();
         if (refreshResult.success) {
+          logger.info('Token refresh succeeded in getAuthToken()');
           return this.authState.token; // Return the new token
         }
         // Refresh failed - check error type and handle accordingly
         if (refreshResult.error === 'auth') {
-          // Auth failure - clear auth and logout
+          // Auth failure - clear auth and logout (definitive failure)
           logger.warn('Token refresh failed due to authentication error. Logging out.');
           await this.handleMissingRefreshTokenLogout();
         } else {
           // Network or unknown error - check if we have a refresh token
-          // If no refresh token, clear auth and logout
-          const refreshTokenValue = await secureStorage.get('auth_refresh_token');
-          if (!refreshTokenValue) {
+          // If refresh token exists, keep auth state intact and return null
+          // This allows retry on next token request
+          const refreshTokenValidation = await this.validateRefreshToken();
+          if (!refreshTokenValidation.valid) {
+            // No refresh token means we can't recover - logout
+            logger.warn('Token refresh failed and no refresh token available. Logging out.');
             await this.handleMissingRefreshTokenLogout();
+          } else {
+            // Have refresh token but network error - keep state, will retry next time
+            logger.info('Token refresh failed due to network error, but refresh token exists. Will retry on next request.');
           }
         }
         return null;
       }
+      logger.debug('Current token is valid, returning it');
       return this.authState.token;
     }
     
@@ -512,30 +614,34 @@ class AuthService {
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
-          // Token is expired, attempt to refresh before giving up
-          // But don't refresh if initialization is still in progress (to avoid race conditions)
-          if (!this.initialized) {
-            return null;
-          }
+          logger.info('Token from storage is expired, attempting refresh...');
+          // Token is expired, attempt to refresh
           const refreshResult = await this.refreshToken();
           if (refreshResult.success) {
+            logger.info('Token refresh succeeded for token from storage');
             return this.authState.token; // Return the new token
           }
           // Refresh failed - check error type and handle accordingly
           if (refreshResult.error === 'auth') {
-            // Auth failure - clear auth and logout
+            // Auth failure - clear auth and logout (definitive failure)
             logger.warn('Token refresh failed due to authentication error. Logging out.');
             await this.handleMissingRefreshTokenLogout();
           } else {
             // Network or unknown error - check if we have a refresh token
-            // If no refresh token, clear auth and logout
-            const refreshTokenValue = await secureStorage.get('auth_refresh_token');
-            if (!refreshTokenValue) {
+            // If refresh token exists, keep auth state intact and return null
+            const refreshTokenValidation = await this.validateRefreshToken();
+            if (!refreshTokenValidation.valid) {
+              // No refresh token means we can't recover - logout
+              logger.warn('Token refresh failed and no refresh token available. Logging out.');
               await this.handleMissingRefreshTokenLogout();
+            } else {
+              // Have refresh token but network error - keep state, will retry next time
+              logger.info('Token refresh failed due to network error, but refresh token exists. Will retry on next request.');
             }
           }
           return null;
         }
+        logger.debug('Token from storage is valid, loading into auth state');
         this.authState.token = token;
       }
       return token;
@@ -547,18 +653,29 @@ class AuthService {
 
   // Set authentication data
   private async setAuthData(token: string, user: User, refreshToken?: string): Promise<void> {
+    logger.info('Setting authentication data...');
     // Validate token before storing
     if (!token || token === 'undefined' || token === 'null') {
+      logger.error('Invalid authentication token provided');
       throw new Error('Invalid authentication token');
     }
 
     // Check if token is expired before storing
     if (isTokenExpired(token)) {
+      logger.error('Attempted to store expired authentication token');
       throw new Error('Authentication token is expired');
     }
 
     await secureStorage.set('auth_token', token);
     await secureStorage.set('auth_user', JSON.stringify(user));
+    
+    // Store token expiry timestamp for recovery after app kill
+    const timeUntilExpiry = getTimeUntilExpiry(token);
+    if (timeUntilExpiry !== null) {
+      const expiryTimestamp = Date.now() + timeUntilExpiry;
+      await secureStorage.set('auth_token_expiry', expiryTimestamp.toString());
+      logger.info(`Stored token expiry timestamp: ${new Date(expiryTimestamp).toISOString()}`);
+    }
     
     // Store refresh token if provided and verify it was stored
     if (refreshToken) {
@@ -569,9 +686,7 @@ class AuthService {
         logger.error('Failed to store refresh token securely. Authentication may not persist.');
         // Don't throw - allow login to proceed, but log the issue
       } else {
-        if (__DEV__) {
-          logger.info('Refresh token stored successfully');
-        }
+        logger.info('Refresh token stored successfully');
       }
     } else {
       logger.warn('No refresh token provided during authentication. Session may not persist across app restarts.');
@@ -583,6 +698,8 @@ class AuthService {
       isLoading: false,
       isAuthenticated: true,
     };
+    
+    logger.info(`Authentication data set successfully for user: ${user.email}`);
     
     // Start background token refresh timer
     this.startBackgroundRefresh();
@@ -605,6 +722,32 @@ class AuthService {
     return this.initialized;
   }
 
+  // Wait for initialization to complete
+  public async waitForInitialization(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+    if (this.initPromise) {
+      await this.initPromise;
+      return;
+    }
+    // If no promise exists but not initialized, wait a bit and check again
+    // This handles edge cases where initialization hasn't started yet
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        if (this.initialized) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 50);
+      // Safety timeout - resolve after 5 seconds even if not initialized
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        resolve();
+      }, 5000);
+    });
+  }
+
   // Get current user
   public getCurrentUser(): User | null {
     return this.authState.user;
@@ -621,17 +764,26 @@ class AuthService {
   public async refreshToken(): Promise<RefreshTokenResult> {
     // If there's already a refresh in progress, return that promise
     if (this.refreshPromise) {
+      logger.debug('Token refresh already in progress, returning existing promise');
       return this.refreshPromise;
     }
     
+    logger.info('Starting token refresh...');
     this.refreshPromise = this.performRefresh();
     const result = await this.refreshPromise;
     this.refreshPromise = null;
+    
+    if (result.success) {
+      logger.info('Token refresh completed successfully');
+    } else {
+      logger.warn(`Token refresh failed: ${result.error || 'unknown'}`);
+    }
+    
     return result;
   }
 
-  // Internal method to perform the actual refresh
-  private async performRefresh(): Promise<RefreshTokenResult> {
+  // Internal method to perform a single refresh attempt
+  private async performSingleRefresh(): Promise<RefreshTokenResult> {
     try {
       const refreshTokenValue = await secureStorage.get('auth_refresh_token');
       if (!refreshTokenValue) {
@@ -641,6 +793,7 @@ class AuthService {
         return { success: false, error: 'auth' };
       }
 
+      logger.info('Attempting token refresh...');
       const { ok, status, data } = await apiFetch('/auth/refresh', {
         method: 'POST',
         headers: {
@@ -656,9 +809,7 @@ class AuthService {
           data.user, 
           data.refresh_token
         );
-        if (__DEV__) {
-          logger.info('Token refreshed successfully');
-        }
+        logger.info('Token refreshed successfully');
         return { success: true };
       } else {
         // Classify error based on HTTP status and response payload
@@ -683,8 +834,9 @@ class AuthService {
           return { success: false, error: 'auth' };
         } else {
           // Network or other errors
-          logger.warn(`Token refresh failed (network/unknown): ${errorMessage}`);
-          return { success: false, error: status === 0 || status >= 500 ? 'network' : 'unknown' };
+          const errorType = status === 0 || status >= 500 ? 'network' : 'unknown';
+          logger.warn(`Token refresh failed (${errorType}): ${errorMessage}`);
+          return { success: false, error: errorType };
         }
       }
     } catch (_error) {
@@ -692,6 +844,46 @@ class AuthService {
       logger.error('Token refresh error (network)', _error);
       return { success: false, error: 'network' };
     }
+  }
+
+  // Retry refresh with exponential backoff for network errors
+  private async retryRefresh(maxAttempts: number = MAX_REFRESH_RETRIES): Promise<RefreshTokenResult> {
+    let lastResult: RefreshTokenResult | null = null;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      lastResult = await this.performSingleRefresh();
+      
+      // If successful, return immediately
+      if (lastResult.success) {
+        if (attempt > 1) {
+          logger.info(`Token refresh succeeded on attempt ${attempt} after retries`);
+        }
+        return lastResult;
+      }
+      
+      // If auth error, don't retry - return immediately
+      if (lastResult.error === 'auth') {
+        logger.warn(`Token refresh failed with auth error on attempt ${attempt}, not retrying`);
+        return lastResult;
+      }
+      
+      // If network/unknown error and not last attempt, wait and retry
+      if (attempt < maxAttempts) {
+        const backoffDelay = RETRY_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
+        logger.info(`Token refresh attempt ${attempt} failed (${lastResult.error}), retrying in ${backoffDelay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      } else {
+        logger.warn(`Token refresh failed after ${maxAttempts} attempts (${lastResult.error})`);
+      }
+    }
+    
+    // Return last result (failure after all retries)
+    return lastResult || { success: false, error: 'network' };
+  }
+
+  // Internal method to perform the actual refresh (with retry logic)
+  private async performRefresh(): Promise<RefreshTokenResult> {
+    return this.retryRefresh();
   }
 
   // Check and refresh token if needed (for app state recovery)
@@ -704,28 +896,23 @@ class AuthService {
       return false;
     }
 
-    // Check if token is expired or will expire soon (within 10 minutes)
+    // Check if token is expired or will expire soon (within threshold)
     const token = this.authState.token;
     if (!token) {
       return false;
     }
 
-    const decoded = decodeJWT(token);
-    const exp = Number(decoded?.exp);
-    if (!decoded || !Number.isFinite(exp)) {
+    // Use helper function for consistent expiry calculation
+    const timeUntilExpiry = getTimeUntilExpiry(token);
+    if (timeUntilExpiry === null) {
       return false;
     }
 
-    const expMs = exp * 1000;
-    const now = Date.now();
-    const timeUntilExpiry = expMs - now;
-    const refreshThreshold = 10 * 60 * 1000; // 10 minutes
+    const refreshThreshold = REFRESH_THRESHOLD_MINUTES * 60 * 1000;
 
-    // Refresh if expired or will expire within 10 minutes
-    if (timeUntilExpiry <= refreshThreshold) {
-      if (__DEV__) {
-        logger.info('Token expired or expiring soon, refreshing proactively...');
-      }
+    // Refresh if expired or will expire within threshold
+    if (isTokenExpired(token) || timeUntilExpiry <= refreshThreshold) {
+      logger.info('Token expired or expiring soon, refreshing proactively...');
       const refreshResult = await this.refreshToken();
       return refreshResult.success;
     }
@@ -745,29 +932,71 @@ class AuthService {
     // Calculate refresh time from token expiry
     const token = this.authState.token;
     if (!token) {
+      // Try to recover from stored expiry timestamp if app was killed
+      this.recoverBackgroundRefreshFromStorage();
       return;
     }
     
-    const decoded = decodeJWT(token);
-    const exp = Number(decoded?.exp);
-    if (!decoded || !Number.isFinite(exp)) {
-      logger.warn('Cannot start background refresh: invalid token expiry');
+    // Use helper function for consistent expiry calculation
+    const timeUntilExpiry = getTimeUntilExpiry(token);
+    if (timeUntilExpiry === null) {
+      // Try to recover from stored expiry timestamp
+      this.recoverBackgroundRefreshFromStorage();
       return;
     }
     
-    const expMs = exp * 1000; // Convert to milliseconds
-    const now = Date.now();
-    const timeUntilExpiry = expMs - now;
-    
-    // Refresh 5 minutes before expiry, or immediately if less than 5 min left
-    const refreshBuffer = 5 * 60 * 1000; // 5 minutes
+    // Refresh REFRESH_BUFFER_MINUTES before expiry, or immediately if less time left
+    const refreshBuffer = REFRESH_BUFFER_MINUTES * 60 * 1000;
     const refreshInterval = Math.max(timeUntilExpiry - refreshBuffer, 0);
+    
+    logger.info(`Scheduling background token refresh in ${Math.round(refreshInterval / 1000 / 60)} minutes`);
     
     this.refreshTimer = setTimeout(async () => {
       if (this.authState.isAuthenticated) {
+        logger.info('Background token refresh timer triggered');
         await this.refreshToken();
       }
     }, refreshInterval);
+  }
+
+  // Recover background refresh timer from stored expiry timestamp (for app kill recovery)
+  private async recoverBackgroundRefreshFromStorage(): Promise<void> {
+    try {
+      const storedExpiry = await secureStorage.get('auth_token_expiry');
+      if (!storedExpiry) {
+        return;
+      }
+      
+      const expiryTimestamp = parseInt(storedExpiry, 10);
+      if (!Number.isFinite(expiryTimestamp)) {
+        return;
+      }
+      
+      const now = Date.now();
+      const timeUntilExpiry = expiryTimestamp - now;
+      
+      // If already expired or expiring soon, refresh immediately
+      if (timeUntilExpiry <= 0) {
+        logger.info('Recovered token expiry shows token is expired, refreshing immediately');
+        await this.refreshToken();
+        return;
+      }
+      
+      // Schedule refresh based on stored expiry
+      const refreshBuffer = REFRESH_BUFFER_MINUTES * 60 * 1000;
+      const refreshInterval = Math.max(timeUntilExpiry - refreshBuffer, 0);
+      
+      logger.info(`Recovered background refresh schedule from storage, refreshing in ${Math.round(refreshInterval / 1000 / 60)} minutes`);
+      
+      this.refreshTimer = setTimeout(async () => {
+        if (this.authState.isAuthenticated) {
+          logger.info('Background token refresh timer triggered (recovered from storage)');
+          await this.refreshToken();
+        }
+      }, refreshInterval);
+    } catch (error) {
+      logger.error('Error recovering background refresh from storage', error);
+    }
   }
 
   // Stop background token refresh timer
