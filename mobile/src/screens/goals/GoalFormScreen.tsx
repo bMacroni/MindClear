@@ -27,6 +27,8 @@ interface Milestone {
   }>;
 }
 
+const isTemporaryId = (id: string) => id.startsWith('temp_') || /^\d+$/.test(id);
+
 export default function GoalFormScreen({ navigation, route }: any) {
   const goalId = route.params?.goalId;
   const initialCategory = route.params?.category || '';
@@ -115,47 +117,79 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
         // Handle milestone updates
         for (const milestone of milestones) {
-          if (milestone.id) {
-            try {
-              // Only attempt update if ID looks like a server ID or we know it exists
-              // For simplicity, we wrap in try/catch as repository throws if not found
-              await goalRepository.updateMilestone(milestone.id, {
-                title: milestone.title,
-                description: milestone.description,
-                completed: milestone.completed
-              });
-            } catch (e) {
-              // If not found (e.g. new local milestone), create it
-              // Note: Ideally we should separate new vs existing in UI state
-              await goalRepository.createMilestone(goalId, {
-                title: milestone.title,
-                description: milestone.description,
-                order: milestones.indexOf(milestone)
-              });
+          if (milestone.id && !isTemporaryId(milestone.id)) {
+            // Existing milestone - update details
+            await goalRepository.updateMilestone(milestone.id, {
+              title: milestone.title,
+              description: milestone.description,
+              completed: milestone.completed,
+              order: milestones.indexOf(milestone)
+            });
+
+            // Update steps for existing milestone
+            if (milestone.steps) {
+              for (const step of milestone.steps) {
+                if (isTemporaryId(step.id)) {
+                  // New step on existing milestone
+                  const createdStep = await goalRepository.createMilestoneStep(milestone.id, {
+                    text: step.text,
+                    order: step.order
+                  });
+                  if (step.completed) {
+                    await goalRepository.updateMilestoneStep(createdStep.id, { completed: true });
+                  }
+                } else {
+                  // Existing step update
+                  await goalRepository.updateMilestoneStep(step.id, {
+                    text: step.text,
+                    completed: step.completed,
+                    order: step.order
+                  });
+                }
+              }
+            }
+          } else {
+            // New milestone - create it
+            const newMs = await goalRepository.createMilestone(goalId, {
+              title: milestone.title,
+              description: milestone.description,
+              order: milestones.indexOf(milestone)
+            });
+
+            // If the user marked the new milestone as completed before saving
+            if (milestone.completed) {
+              await goalRepository.updateMilestone(newMs.id, { completed: true });
+            }
+
+            // Create steps for the new milestone
+            if (milestone.steps) {
+              for (const step of milestone.steps) {
+                const createdStep = await goalRepository.createMilestoneStep(newMs.id, {
+                  text: step.text,
+                  order: step.order
+                });
+                if (step.completed) {
+                  await goalRepository.updateMilestoneStep(createdStep.id, { completed: true });
+                }
+              }
             }
           }
         }
       } else {
-        // Create goal first
-        const newGoal = await goalRepository.createGoal(goalData);
-
-        // Then create milestones
-        for (const m of milestones) {
-          const createdMilestone = await goalRepository.createMilestone(newGoal.id, {
+        // Use transactional create for new goals to ensure data integrity
+        await goalRepository.createGoalWithMilestones(
+          {
+            title: title.trim(),
+            description: description.trim(),
+            targetCompletionDate: targetDate,
+            category: category.trim() || undefined,
+          },
+          milestones.map(m => ({
             title: m.title,
             description: m.description,
-            order: milestones.indexOf(m)
-          });
-
-          if (m.steps) {
-            for (const s of m.steps) {
-              await goalRepository.createMilestoneStep(createdMilestone.id, {
-                text: s.text,
-                order: s.order
-              });
-            }
-          }
-        }
+            steps: m.steps?.map(s => ({ text: s.text }))
+          }))
+        );
       }
 
       syncService.silentSync();
@@ -199,7 +233,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
   }, [navigation, isEditing, goalId, loading, handleSave]);
   const addMilestone = () => {
     const newMilestone: Milestone = {
-      id: Date.now().toString(),
+      id: `temp_${Date.now()}`,
       title: '',
       description: '',
       completed: false,
@@ -232,7 +266,12 @@ export default function GoalFormScreen({ navigation, route }: any) {
     setMilestones((prev) => prev.map(m => {
       if (m.id !== milestoneId) { return m; }
       const steps = m.steps || [];
-      const newStep = { id: `${Date.now()}_${steps.length + 1}`, text: '', completed: false, order: steps.length + 1 };
+      const newStep = {
+        id: `temp_${Date.now()}_${steps.length + 1}`,
+        text: '',
+        completed: false,
+        order: steps.length + 1
+      };
       return { ...m, steps: [...steps, newStep] };
     }));
   };

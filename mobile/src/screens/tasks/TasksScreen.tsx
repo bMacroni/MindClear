@@ -133,7 +133,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [optimisticTaskData, setOptimisticTaskData] = useState<any | null>(null);
 
   useEffect(() => {
-    if (route?.params?.fromBrainDump && route?.params?.preloadedFocusTask) {
+    if (route?.params?.preloadedFocusTask) {
       const preload = route.params.preloadedFocusTask;
       setOptimisticFocusId(preload.id);
       setOptimisticTaskData(preload);
@@ -141,7 +141,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       showToastMessage('success', 'Brain dump complete! Your tasks are ready.');
 
       // Clear navigation params immediately to prevent sticky state on re-navigation
-      navigation.setParams({ fromBrainDump: undefined, preloadedFocusTask: undefined });
+      navigation.setParams({ preloadedFocusTask: undefined });
 
       // Safety timeout: clear optimistic state after 5s if DB hasn't caught up
       const tm = setTimeout(() => {
@@ -151,8 +151,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
       return () => clearTimeout(tm);
     }
-  }, [route?.params?.fromBrainDump, route?.params?.preloadedFocusTask, navigation]);
-
+  }, [route?.params?.preloadedFocusTask, navigation]);
   const tasks = React.useMemo(() => {
     let result = [...tasksFromObservable];
 
