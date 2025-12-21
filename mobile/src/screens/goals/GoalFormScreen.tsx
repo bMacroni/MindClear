@@ -119,14 +119,18 @@ export default function GoalFormScreen({ navigation, route }: any) {
   }, [title, description, targetDate, category, isEditing, goalId, milestones, navigation]);
 
   // Track screen view & configure header options
-  React.useLayoutEffect(() => {
+  // Track screen view once on mount
+  React.useEffect(() => {
     analyticsService.trackScreenView('goal_form', {
       isEditing,
       goalId: goalId || null
     }).catch(error => {
       console.warn('Failed to track screen view analytics:', error);
     });
+  }, []);
 
+  // Configure header options
+  React.useLayoutEffect(() => {
     navigation.setOptions({
       title: isEditing ? 'Edit Goal' : 'New Goal',
       headerLeft: () => (
@@ -143,7 +147,6 @@ export default function GoalFormScreen({ navigation, route }: any) {
       ),
     });
   }, [navigation, isEditing, goalId, loading, handleSave]);
-
   const addMilestone = () => {
     const newMilestone: Milestone = {
       id: Date.now().toString(),

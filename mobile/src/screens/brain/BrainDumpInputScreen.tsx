@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useLayoutEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
@@ -145,6 +145,22 @@ export default function BrainDumpInputScreen({ navigation }: any) {
     }
   };
 
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          accessibilityLabel="Help"
+          onPress={() => navigation.navigate('BrainDumpOnboarding')}
+          activeOpacity={0.7}
+          style={{ padding: spacing.xs }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Icon icon={HelpCircleIcon} size={24} color={colors.primary} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
   const handleBackToRefinement = async () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -197,18 +213,6 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Help button to reopen onboarding */}
-      <View style={{ position: 'absolute', top: spacing.sm, right: spacing.sm }}>
-        <TouchableOpacity
-          accessibilityLabel="Help"
-          onPress={() => navigation.navigate('BrainDumpOnboarding')}
-          activeOpacity={0.7}
-          style={styles.helpBtn}
-        >
-          <Icon icon={HelpCircleIcon} size={18} color={colors.text.secondary} />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -241,7 +245,6 @@ const styles = StyleSheet.create({
   privacyBox: { flexDirection: 'row', alignItems: 'flex-start', padding: spacing.md, marginTop: spacing.md },
   privacyText: { color: colors.text.secondary, fontSize: typography.fontSize.xs, flex: 1 },
   error: { color: colors.error, marginBottom: spacing.sm },
-  helpBtn: { padding: 8, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.sm, backgroundColor: colors.background.surface },
 });
 
 

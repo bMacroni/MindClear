@@ -129,9 +129,54 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const goalsFromObservable = Array.isArray(observableGoals) ? observableGoals : [];
 
   const tasks = React.useMemo(() => {
-    // Force a new array reference when tasksVersion changes
-    return tasksFromObservable.map(t => t);
-  }, [tasksFromObservable, tasksVersion]);
+    let result = tasksFromObservable.map(t => t);
+
+    // Optimistic update for focus task from BrainDump
+    const preloadedFocusTask = route?.params?.preloadedFocusTask;
+    if (preloadedFocusTask) {
+      const exists = result.find(t => t.id === preloadedFocusTask.id);
+      if (exists) {
+        // If it exists but isn't marked as focus yet (WatermelonDB delay), force it
+        if (!exists.isTodayFocus && preloadedFocusTask.isTodayFocus) {
+          // We can't mutate the WatermelonDB object directly for the view, 
+          // but we can try to rely on the observable updating soon.
+          // However, for instant feedback, we might need to replace it in our mapped array
+          // The safest way is to let the observable handle it, BUT if the user complains about sluggishness,
+          // we need to inject the state.
+          // Let's create a proxy or just rely on the fact that if it exists, the DB write happened.
+          // If 'exists' is found, it means WatermelonDB has the record. 
+          // If the record from DB doesn't have isTodayFocus=true yet? 
+          // The 'createTasksFromServer' writes EVERYTHING including isTodayFocus.
+          // So if it exists in DB, it should be correct.
+          // The case we are solving is when it DOES NOT exist in 'tasksFromObservable' yet.
+        }
+      } else {
+        // Not in observable yet - inject optimistic task
+        // We need to shape it like a Task model to avoid crashes
+        const optimisticTask = {
+          id: preloadedFocusTask.id,
+          title: preloadedFocusTask.title,
+          priority: preloadedFocusTask.priority || 'medium',
+          status: preloadedFocusTask.status || 'not_started',
+          isTodayFocus: true,
+          category: preloadedFocusTask.category,
+          // Mock methods/properties that might be accessed
+          description: '',
+          estimatedDurationMinutes: 30,
+          dueDate: undefined,
+          goalId: undefined,
+          autoScheduleEnabled: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          _raw: {} as any, // Internal WatermelonDB
+          // Add other fields as needed by Task interface
+        } as unknown as Task;
+
+        result.push(optimisticTask);
+      }
+    }
+    return result;
+  }, [tasksFromObservable, tasksVersion, route?.params?.preloadedFocusTask]);
 
   const goals = React.useMemo(() => {
     return goalsFromObservable.map(g => g);

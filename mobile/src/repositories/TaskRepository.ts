@@ -1,7 +1,7 @@
-import {getDatabase} from '../db';
-import {Q} from '@nozbe/watermelondb';
+import { getDatabase } from '../db';
+import { Q } from '@nozbe/watermelondb';
 import Task from '../db/models/Task';
-import {authService} from '../services/auth';
+import { authService } from '../services/auth';
 import logger from '../utils/logger';
 import { safeParseDate } from '../utils/dateUtils';
 
@@ -116,7 +116,7 @@ export class TaskRepository {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
     const lifecycleStatus = data.status || 'not_started';
-    
+
     return await database.write(async () => {
       return await database.get<Task>('tasks').create(task => {
         task.title = data.title;
@@ -160,10 +160,10 @@ export class TaskRepository {
     const database = getDatabase();
     const task = await this.getTaskById(id);
     if (!task) throw new Error('Task not found');
-    
+
     const currentLifecycleStatus = this.extractLifecycleStatus(task.status as string);
     const newLifecycleStatus = data.status || currentLifecycleStatus;
-    
+
     return await database.write(async () => {
       const updatedTask = await task.update(t => {
         if (data.title !== undefined) t.title = data.title;
@@ -183,7 +183,7 @@ export class TaskRepository {
         }
         t.updatedAt = new Date();
       });
-      
+
       return updatedTask;
     });
   }
@@ -198,10 +198,10 @@ export class TaskRepository {
     const database = getDatabase();
     const task = await this.getTaskById(id);
     if (!task) return; // No-op for non-existent tasks (idempotent)
-    
+
     const maxAttempts = 3;
     const baseDelay = 300; // ms
-    
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         // If sync is running and this isn't our last attempt, wait a bit first
@@ -210,19 +210,19 @@ export class TaskRepository {
           logger.info(`deleteTask: Sync in progress, waiting before attempt ${attempt}`);
           await new Promise(resolve => setTimeout(resolve, baseDelay * attempt));
         }
-        
+
         await database.write(async () => {
           await task.update(t => {
             t.status = 'pending_delete';
             t.updatedAt = new Date();
           });
         });
-        
+
         // Success - exit the retry loop
         return;
       } catch (error: any) {
         const isLastAttempt = attempt === maxAttempts;
-        
+
         if (isLastAttempt) {
           logger.error(`deleteTask: Failed after ${maxAttempts} attempts`, {
             taskId: id,
@@ -230,13 +230,13 @@ export class TaskRepository {
           });
           throw error;
         }
-        
+
         // Log and retry
         logger.warn(`deleteTask: Attempt ${attempt} failed, retrying...`, {
           taskId: id,
           error: error?.message || 'Unknown error'
         });
-        
+
         // Exponential backoff
         await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt - 1)));
       }
@@ -257,7 +257,7 @@ export class TaskRepository {
     const database = getDatabase();
     const task = await this.getTaskById(id);
     if (!task) throw new Error('Task not found');
-    
+
     return await this.updateTask(id, { status });
   }
 
@@ -451,7 +451,7 @@ export class TaskRepository {
   async unsetFocusTasks(): Promise<void> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     try {
       const focusTasks = await database.get<Task>('tasks')
         .query(
@@ -614,10 +614,10 @@ export class TaskRepository {
         try {
           // Validate required fields before processing
           if (!serverTask || !serverTask.id || !serverTask.title) {
-            logger.warn('Skipping task creation: missing required fields', { 
-              hasTask: !!serverTask, 
-              hasId: !!serverTask?.id, 
-              hasTitle: !!serverTask?.title 
+            logger.warn('Skipping task creation: missing required fields', {
+              hasTask: !!serverTask,
+              hasId: !!serverTask?.id,
+              hasTitle: !!serverTask?.title
             });
             continue;
           }
@@ -633,7 +633,7 @@ export class TaskRepository {
           }
 
           // Parse due date if present
-          const parsedDueDate = serverTask.due_date 
+          const parsedDueDate = serverTask.due_date
             ? safeParseDate(serverTask.due_date)
             : undefined;
 

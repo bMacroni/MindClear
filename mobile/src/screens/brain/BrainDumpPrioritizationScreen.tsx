@@ -85,6 +85,7 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDrag
               <TouchableOpacity
                 onPress={() => onToggleFocus(item.id)}
                 style={styles.focusActionBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Icon
                   icon={FlashIcon}
@@ -342,19 +343,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const onSave = async () => {
     if (saving || tasks.length === 0) { return; }
 
-    // Clear any existing timers before starting a new save operation
-    if (outerTimeoutRef.current !== null) {
-      clearTimeout(outerTimeoutRef.current);
-      outerTimeoutRef.current = null;
-    }
-    if (innerTimeoutRef.current !== null) {
-      clearTimeout(innerTimeoutRef.current);
-      innerTimeoutRef.current = null;
-    }
-
     setSaving(true);
-
-    // Show loading screen immediately for smooth transition
     setShowLoadingScreen(true);
     const startTime = Date.now();
 
@@ -366,20 +355,17 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       const remainder = tasks.filter(i => i.id !== focusItem?.id);
 
       // Prepare tasks to create
-      const tasksToCreate = remainder.length > 0
-        ? remainder.map(it => ({
-          title: it.text,
-          description: '',
-          priority: it.priority,
-          category: it.category || undefined,
-          is_today_focus: false
-        }))
-        : [];
+      const tasksToCreate = remainder.map(it => ({
+        title: it.text,
+        description: '',
+        priority: it.priority,
+        category: it.category || undefined,
+        is_today_focus: false
+      }));
 
-      // Create focus task and bulk create remainder tasks in parallel for better performance
+      // Create focus task and bulk create remainder tasks in parallel
       const createFocusTask = async () => {
         if (!focusItem) return null;
-
         try {
           return await tasksAPI.createTask({
             title: focusItem.text,
@@ -389,11 +375,8 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
             is_today_focus: true
           } as any);
         } catch (error: any) {
-          // If we get a focus constraint violation, handle it without fetching all tasks
           if (error?.code === 'FOCUS_CONSTRAINT_VIOLATION' ||
             String(error?.message || '').includes('already have a task set as today\'s focus')) {
-
-            console.warn('Focus constraint violation, creating task without focus flag');
             return await tasksAPI.createTask({
               title: focusItem.text,
               description: '',
@@ -401,110 +384,78 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
               category: focusItem.category || undefined,
               is_today_focus: false
             } as any);
-          } else {
-            throw error;
           }
+          throw error;
         }
       };
 
-      const createRemainderTasks = async () => {
-        if (tasksToCreate.length === 0) return [];
-        return await tasksAPI.bulkCreateTasks(tasksToCreate as any);
-      };
-
-      // Execute both operations in parallel
       const [focusTaskResult, remainderTasksResult] = await Promise.all([
         createFocusTask(),
-        createRemainderTasks()
+        tasksToCreate.length > 0 ? tasksAPI.bulkCreateTasks(tasksToCreate as any) : Promise.resolve([])
       ]);
 
-      // Write all created tasks to local database immediately so they appear in UI
       const allCreatedTasks = [
         ...(focusTaskResult ? [focusTaskResult] : []),
         ...(Array.isArray(remainderTasksResult) ? remainderTasksResult : [])
       ];
 
+      let preloadedFocusTask = null;
+
+      // WRITE TO LOCAL DB IMMEDIATELY
       if (allCreatedTasks.length > 0) {
-        try {
-          await taskRepository.createTasksFromServer(allCreatedTasks);
+        const createdLocalTasks = await taskRepository.createTasksFromServer(allCreatedTasks);
+        const localFocus = createdLocalTasks.find(t => t.isTodayFocus);
+        if (localFocus) {
+          preloadedFocusTask = {
+            id: localFocus.id,
+            title: localFocus.title,
+            priority: localFocus.priority,
+            category: localFocus.category,
+            isTodayFocus: true,
+            status: localFocus.status
+          };
+        }
 
-          // If auto-scheduling is enabled, trigger it now
-          if (autoScheduleOnFinish) {
-            try {
-              await autoSchedulingAPI.autoScheduleTasks();
-            } catch (scheduleError) {
-              console.warn('Auto-scheduling failed after brain dump:', scheduleError);
-            }
-          }
-        } catch (localWriteError) {
-          console.warn('Failed to write tasks to local DB immediately, sync will handle:', localWriteError);
+        // TRIGGER AUTO-SCHEDULING IN BACKGROUND
+        if (autoScheduleOnFinish) {
+          autoSchedulingAPI.autoScheduleTasks().catch(err => {
+            console.warn('Background auto-scheduling failed:', err);
+          });
         }
       }
 
-      try { await AsyncStorage.multiRemove(['lastBrainDumpThreadId', 'lastBrainDumpItems', 'brainDumpPrioritizedTasks']); } catch { }
-      try { await clearSession(); } catch { }
+      // Cleanup session
+      await AsyncStorage.multiRemove(['lastBrainDumpThreadId', 'lastBrainDumpItems', 'brainDumpPrioritizedTasks']).catch(() => { });
+      await clearSession().catch(() => { });
 
-      // Clear the UI on successful save
+      // Clear local UI state
       setTasks([]);
+      setShowLoadingScreen(false);
 
-      // Wait for minimum duration to ensure smooth transition, then navigate
-      const minDuration = 1500;
-      const elapsed = Date.now() - startTime;
-      const remainingTime = Math.max(0, minDuration - elapsed);
+      // Navigate
+      const isFirstSession = await OnboardingService.isFirstSession().catch(() => false);
+      const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown').catch(() => null);
 
-      outerTimeoutRef.current = setTimeout(() => {
-        if (!isMountedRef.current) return;
-        setShowLoadingScreen(false);
-        innerTimeoutRef.current = setTimeout(async () => {
-          if (!isMountedRef.current) return;
-          try {
-            const isFirstSession = await OnboardingService.isFirstSession();
-            const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown');
-
-            if (isFirstSession && !guidanceShown) {
-              navigation.navigate('FocusTaskGuidance');
-              await OnboardingService.markFirstSessionComplete();
-            } else {
-              navigation.navigate('Tasks', { fromBrainDump: true });
-            }
-          } catch (error) {
-            console.warn('Error checking first session for navigation:', error);
-            navigation.navigate('Tasks');
-          }
-          innerTimeoutRef.current = null;
-        }, 200);
-        outerTimeoutRef.current = null;
-      }, remainingTime);
-    } catch (error: any) {
-      if (outerTimeoutRef.current !== null) {
-        clearTimeout(outerTimeoutRef.current);
-        outerTimeoutRef.current = null;
-      }
-      if (innerTimeoutRef.current !== null) {
-        clearTimeout(innerTimeoutRef.current);
-        innerTimeoutRef.current = null;
-      }
-
-      if (isMountedRef.current) {
-        setShowLoadingScreen(false);
-      }
-
-      if (String(error?.message || '').includes('already have a task set as today\'s focus') ||
-        error?.code === 'FOCUS_CONSTRAINT_VIOLATION') {
-        if (isMountedRef.current) {
-          setToastMessage('Updated your existing focus task with the new priority.');
-          setToastVisible(true);
-        }
+      if (isFirstSession && !guidanceShown) {
+        navigation.navigate('FocusTaskGuidance');
+        await OnboardingService.markFirstSessionComplete().catch(() => { });
       } else {
-        if (isMountedRef.current) {
-          setToastMessage('Failed to save tasks. Please try again.');
-          setToastVisible(true);
-        }
+        navigation.navigate('Tasks', { fromBrainDump: true, preloadedFocusTask });
       }
+
+    } catch (error: any) {
+      console.error('Save failed:', error);
+      setShowLoadingScreen(false);
+
+      const errorMsg = String(error?.message || '');
+      if (errorMsg.includes('already have a task set as today\'s focus')) {
+        setToastMessage('Updated your existing focus task with the new priority.');
+      } else {
+        setToastMessage('Failed to save tasks. Please try again.');
+      }
+      setToastVisible(true);
     } finally {
-      if (isMountedRef.current) {
-        setSaving(false);
-      }
+      setSaving(false);
     }
   };
 
@@ -644,6 +595,9 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
             onValueChange={setAutoScheduleOnFinish}
             trackColor={{ false: colors.border.light, true: colors.primary }}
             thumbColor={colors.secondary}
+            accessibilityLabel="Auto-schedule onto calendar toggle"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: autoScheduleOnFinish }}
           />
         </View>
 
@@ -761,7 +715,10 @@ const styles = StyleSheet.create({
   },
 
   focusActionBtn: {
-    padding: 6,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 99,
   },
 
