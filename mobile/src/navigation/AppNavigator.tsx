@@ -18,6 +18,7 @@ import ResetPasswordScreen from '@src/screens/auth/ResetPasswordScreen';
 import EmailConfirmationScreen from '@src/screens/auth/EmailConfirmationScreen';
 import BetaThankYouScreen from '@src/screens/beta/BetaThankYouScreen';
 import TabNavigator from './TabNavigator';
+import { MainHeader } from './MainHeader';
 import GoalFormScreen from '../screens/goals/GoalFormScreen';
 import GoalDetailScreen from '../screens/goals/GoalDetailScreen';
 import TaskFormScreen from '../screens/tasks/TaskFormScreen';
@@ -328,35 +329,45 @@ export default function AppNavigator() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.secondary} animated />
       <Stack.Navigator
         initialRouteName={isAuthenticated ? "Main" : "Login"}
-        screenOptions={{ headerShown: false }}
+        screenOptions={{
+          headerShown: true,
+          header: (props) => <MainHeader {...props} />
+        }}
       >
         <Stack.Screen
           name="Login"
           component={LoginScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="Signup"
           component={SignupScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ForgotPassword"
           component={ForgotPasswordScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ResetPassword"
           component={ResetPasswordScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="EmailConfirmation"
           component={EmailConfirmationScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="BetaThankYou"
           component={BetaThankYouScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="Main"
           component={TabNavigator}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="GoalForm"

@@ -233,10 +233,9 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Let’s pick one small step</Text>
-      </View>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>      <View style={styles.headerRow}>
+      <Text style={styles.title}>Let’s pick one small step</Text>
+    </View>
       <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
       <View style={styles.tabs}>
         <TouchableOpacity style={[styles.tabBtn, tab === 'task' && styles.tabBtnActive]} onPress={() => setTab('task')}>

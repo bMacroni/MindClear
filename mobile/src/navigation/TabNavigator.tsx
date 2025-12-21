@@ -68,9 +68,9 @@ export default function TabNavigator() {
                 header: (props) => <MainHeader {...props} />
               }}
             >
-              <BrainStack.Screen name="BrainDumpEntry" component={BrainDumpEntryScreen} options={{ title: 'Brain Dump' }} />
-              <BrainStack.Screen name="BrainDumpOnboarding" component={BrainDumpOnboardingScreen} options={{ title: 'Brain Dump' }} />
-              <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpEntry" component={BrainDumpEntryScreen} options={{ title: 'Start Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpOnboarding" component={BrainDumpOnboardingScreen} options={{ title: 'Brain Dump Guide' }} />
+              <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} options={{ title: 'Add Thoughts' }} />
               <BrainStack.Screen name="BrainDumpRefinement" component={BrainDumpRefinementScreen} options={{ title: 'Refine Information' }} />
               <BrainStack.Screen name="BrainDumpPrioritization" component={BrainDumpPrioritizationScreen} options={{ title: 'Prioritize Tasks' }} />
               <BrainStack.Screen name="FocusTaskGuidance" component={FocusTaskGuidanceScreen} options={{ title: 'Focus Guidance' }} />

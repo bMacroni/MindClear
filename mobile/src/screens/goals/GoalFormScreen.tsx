@@ -74,15 +74,31 @@ export default function GoalFormScreen({ navigation, route }: any) {
     }
   }, [goalId, isEditing, loadExistingGoal]);
 
-  // Track screen view
-  useEffect(() => {
+  // Track screen view & configure header options
+  React.useLayoutEffect(() => {
     analyticsService.trackScreenView('goal_form', {
       isEditing,
       goalId: goalId || null
     }).catch(error => {
       console.warn('Failed to track screen view analytics:', error);
     });
-  }, [isEditing, goalId]);
+
+    navigation.setOptions({
+      title: isEditing ? 'Edit Goal' : 'New Goal',
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backButton}>Cancel</Text>
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <TouchableOpacity onPress={handleSave} disabled={loading}>
+          <Text style={[styles.saveButton, loading && styles.saveButtonDisabled]}>
+            {loading ? 'Saving...' : 'Save'}
+          </Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, isEditing, goalId, loading, handleSave]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -202,20 +218,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
   if (initialLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backButton}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {isEditing ? 'Edit Goal' : 'New Goal'}
-          </Text>
-          <TouchableOpacity disabled={true}>
-            <Text style={[styles.saveButton, styles.saveButtonDisabled]}>
-              Loading...
-            </Text>
-          </TouchableOpacity>
-        </View>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading goal data...</Text>
         </View>
@@ -224,20 +227,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>Cancel</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isEditing ? 'Edit Goal' : 'New Goal'}
-        </Text>
-        <TouchableOpacity onPress={handleSave} disabled={loading}>
-          <Text style={[styles.saveButton, loading && styles.saveButtonDisabled]}>
-            {loading ? 'Saving...' : 'Save'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
 
       <ScrollView
         style={styles.content}

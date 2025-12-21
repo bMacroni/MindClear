@@ -2,19 +2,19 @@
 
 ## Icon Usage Guidelines
 
-### Octicon Icons
-- **Use Octicons for UI icons**: The project uses `react-native-vector-icons/Octicons` for consistent UI icons
-- **Import pattern**: `import Icon from 'react-native-vector-icons/Octicons';`
-- **Usage pattern**: `<Icon name="icon-name" size={size} color={color} />`
+### Hugeicons
+- **Use Hugeicons for UI icons**: The project uses `@hugeicons/react-native` for consistent UI icons.
+- **Import pattern**: `import { IconName } from '@hugeicons/react-native';`
+- **Usage pattern**: `<IconName size={size} color={color} variant="stroke" />`
 - **Common icons used**:
-  - `calendar` - For calendar/scheduling functionality
-  - `comment-discussion` - For AI chat
-  - `goal` - For goals
-  - `checklist` - For tasks
-  - `plus` - For add/create actions
-  - `trash` - For delete actions
-  - `edit` - For edit actions
-  - `check` - For completion/success states
+  - `Calendar01Icon` - For calendar/scheduling functionality
+  - `AiChat01Icon` / `Comment01Icon` - For AI chat
+  - `Target01Icon` - For goals
+  - `Task01Icon` - For tasks
+  - `PlusSignIcon` - For add/create actions
+  - `Delete02Icon` - For delete actions
+  - `Edit02Icon` - For edit actions
+  - `CheckmarkCircle01Icon` - For completion/success states
 
 ### Icon Sizing Guidelines
 - **Small icons**: 16px (for tab bars, small buttons)

@@ -1,6 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { getHeaderTitle } from '@react-navigation/elements';
+import { View, Text, StyleSheet } from 'react-native'; import { getHeaderTitle } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../themes/colors';
 import { spacing, borderRadius } from '../themes/spacing';
@@ -17,7 +16,12 @@ export const MainHeader = (props: SetupHeaderProps) => {
     const title = getHeaderTitle(options, route.name);
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View
+            style={[styles.container, { paddingTop: insets.top }]}
+            accessible={true}
+            accessibilityRole="header"
+            accessibilityLabel={`${title} header`}
+        >
             <View style={styles.content}>
                 <View style={styles.leftGroup}>
                     {options.headerLeft ? (
@@ -25,7 +29,14 @@ export const MainHeader = (props: SetupHeaderProps) => {
                             {options.headerLeft({ canGoBack: navigation.canGoBack() })}
                         </View>
                     ) : null}
-                    <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+                    <Text
+                        style={styles.title}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        accessibilityRole="header"
+                    >
+                        {title}
+                    </Text>
                 </View>
 
                 <View style={styles.rightGroup}>

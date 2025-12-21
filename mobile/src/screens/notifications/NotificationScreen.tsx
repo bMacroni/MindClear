@@ -28,6 +28,12 @@ const NotificationScreen = ({ navigation }: any) => {
   const [error, setError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
 
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: 'Notifications',
+    });
+  }, [navigation]);
+
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
@@ -106,17 +112,7 @@ const NotificationScreen = ({ navigation }: any) => {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Icon icon={ArrowLeft01Icon} size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Notifications</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
         <View style={styles.center}>
           <Icon icon={Alert01Icon} size={48} color={colors.error} style={{ marginBottom: spacing.md }} />
           <Text style={styles.errorText}>{error}</Text>
@@ -172,17 +168,7 @@ const NotificationScreen = ({ navigation }: any) => {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon icon={ArrowLeft01Icon} size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
       <FlatList
         data={notifications}
         renderItem={renderItem}

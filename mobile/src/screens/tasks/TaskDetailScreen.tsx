@@ -6,6 +6,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -16,6 +17,9 @@ import { syncService } from '../../services/SyncService';
 import withObservables from '@nozbe/watermelondb/react/withObservables';
 import { useDatabase } from '../../contexts/DatabaseContext';
 import Task from '../../db/models/Task';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { PencilEdit01Icon, Delete01Icon } from '@hugeicons/core-free-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface TaskDetailScreenProps {
   route: {
@@ -38,15 +42,61 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
 
   if (!task) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Loading task...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
+  const handleEdit = useCallback(() => {
+    navigation.navigate('TaskForm', { taskId: task.id });
+  }, [navigation, task.id]);
+
+  const handleDelete = useCallback(() => {
+    Alert.alert(
+      'Delete Task',
+      'Are you sure you want to delete this task?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await taskRepository.deleteTask(task.id);
+              syncService.silentSync();
+              navigation.goBack();
+            } catch (error) {
+              console.error('Error deleting task:', error);
+              Alert.alert('Error', 'Failed to delete task');
+            }
+          },
+        },
+      ]
+    );
+  }, [navigation, task.id]);
+
+  React.useLayoutEffect(() => {
+    if (task) {
+      navigation.setOptions({
+        title: task.title || 'Task Details',
+        headerRight: () => (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <TouchableOpacity onPress={handleEdit}>
+              <Icon icon={PencilEdit01Icon} size={20} color={colors.text.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDelete}>
+              <Icon icon={Delete01Icon} size={20} color={colors.error} />
+            </TouchableOpacity>
+          </View>
+        ),
+      });
+    }
+  }, [navigation, task, handleEdit, handleDelete]);
+
   const handleToggleStatus = async () => {
-    if (!task) {return;}
+    if (!task) { return; }
 
     try {
       setUpdating(true);
@@ -67,38 +117,6 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
     }
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Task',
-      'Are you sure you want to delete this task?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await taskRepository.deleteTask(taskId);
-              // Trigger silent sync to push changes to server
-              try {
-                await syncService.silentSync();
-              } catch (error) {
-                // Silent sync failure - don't show alerts to user
-                console.warn('Silent sync failed:', error);
-              }              navigation.goBack();
-            } catch (error) {
-              console.error('Error deleting task:', error);
-              Alert.alert('Error', 'Failed to delete task');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleEdit = () => {
-    navigation.navigate('TaskForm', { taskId });
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -138,13 +156,13 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
   };
 
   const formatDueDate = (dueDate?: string) => {
-    if (!dueDate) {return 'No due date';}
+    if (!dueDate) { return 'No due date'; }
     const date = new Date(dueDate);
     return date.toLocaleDateString();
   };
 
   const formatDuration = (minutes?: number) => {
-    if (!minutes) {return 'Not specified';}
+    if (!minutes) { return 'Not specified'; }
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     if (hours > 0) {
@@ -153,110 +171,95 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
     return `${mins}m`;
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading task...</Text>
-      </View>
-    );
-  }
-
-  if (!task) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Task not found</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.content}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{task.title}</Text>
-          <View style={styles.badges}>
-            <View
-              style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusColor(task.status) },
-              ]}
-            >
-              <Text style={styles.badgeText}>
-                {getStatusText(task.status)}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.priorityBadge,
-                { backgroundColor: getPriorityColor(task.priority) },
-              ]}
-            >
-              <Text style={styles.badgeText}>
-                {getPriorityText(task.priority)}
-              </Text>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>{task.title}</Text>
+            <View style={styles.badges}>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: getStatusColor(task.status) },
+                ]}
+              >
+                <Text style={styles.badgeText}>
+                  {getStatusText(task.status)}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.priorityBadge,
+                  { backgroundColor: getPriorityColor(task.priority) },
+                ]}
+              >
+                <Text style={styles.badgeText}>
+                  {getPriorityText(task.priority)}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
 
-        {/* Description */}
-        {task.description && (
+          {/* Description */}
+          {task.description && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Description</Text>
+              <Text style={styles.description}>{task.description}</Text>
+            </View>
+          )}
+
+          {/* Details */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Description</Text>
-            <Text style={styles.description}>{task.description}</Text>
-          </View>
-        )}
-
-        {/* Details */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Details</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Due Date:</Text>
-            <Text style={styles.detailValue}>{formatDueDate(task.dueDate?.toISOString())}</Text>
-          </View>
-          {task.category && (
+            <Text style={styles.sectionTitle}>Details</Text>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Category:</Text>
-              <Text style={styles.detailValue}>{task.category}</Text>
+              <Text style={styles.detailLabel}>Due Date:</Text>
+              <Text style={styles.detailValue}>{formatDueDate(task.dueDate?.toISOString())}</Text>
             </View>
-          )}
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Duration:</Text>
-            <Text style={styles.detailValue}>{formatDuration(task.estimatedDurationMinutes)}</Text>
-          </View>
-          {task.goal && (
+            {task.category && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Category:</Text>
+                <Text style={styles.detailValue}>{task.category}</Text>
+              </View>
+            )}
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Linked Goal:</Text>
-              <Text style={styles.detailValue}>{task.goal.title}</Text>
+              <Text style={styles.detailLabel}>Duration:</Text>
+              <Text style={styles.detailValue}>{formatDuration(task.estimatedDurationMinutes)}</Text>
             </View>
-          )}
-        </View>
+            {task.goal && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Linked Goal:</Text>
+                <Text style={styles.detailValue}>{task.goal.title}</Text>
+              </View>
+            )}
+          </View>
 
-        {/* Actions */}
-        <View style={styles.actions}>
-          <Button
-            title={task.status === 'completed' ? 'Mark Incomplete' : 'Mark Complete'}
-            onPress={handleToggleStatus}
-            loading={updating}
-            variant={task.status === 'completed' ? 'outline' : 'primary'}
-            style={styles.actionButton}
-          />
-          <Button
-            title="Edit Task"
-            onPress={handleEdit}
-            variant="outline"
-            style={styles.actionButton}
-          />
-          <Button
-            title="Delete Task"
-            onPress={handleDelete}
-            variant="secondary"
-            style={styles.actionButton}
-          />
+          {/* Actions */}
+          <View style={styles.actions}>
+            <Button
+              title={task.status === 'completed' ? 'Mark Incomplete' : 'Mark Complete'}
+              onPress={handleToggleStatus}
+              loading={updating}
+              variant={task.status === 'completed' ? 'outline' : 'primary'}
+              style={styles.actionButton}
+            />
+            <Button
+              title="Edit Task"
+              onPress={handleEdit}
+              variant="outline"
+              style={styles.actionButton}
+            />
+            <Button
+              title="Delete Task"
+              onPress={handleDelete}
+              variant="secondary"
+              style={styles.actionButton}
+            />
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
@@ -359,7 +362,7 @@ const styles = StyleSheet.create({
 });
 
 // Create the enhanced component with WatermelonDB observables
-const enhance = withObservables(['route'], ({route, database}) => ({
+const enhance = withObservables(['route'], ({ route, database }) => ({
   task: database.collections.get('tasks').findAndObserve(route.params.taskId),
 }));
 

@@ -112,6 +112,12 @@ export default function ProfileScreen({ navigation }: any) {
     load();
   }, [load]);
 
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: 'Profile',
+    });
+  }, [navigation]);
+
   // Cleanup delete timeout on unmount
   useEffect(() => {
     return () => {
@@ -307,7 +313,7 @@ export default function ProfileScreen({ navigation }: any) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
         <ScrollView contentContainerStyle={styles.container}>
           <LoadingSkeleton type="profile" count={1} />
         </ScrollView>
@@ -317,17 +323,17 @@ export default function ProfileScreen({ navigation }: any) {
 
   if (!profile) {
     return (
-      <View style={styles.centered}>
-        <Icon icon={Alert01Icon} size={20} color={colors.text.primary} />
-        <Text style={styles.loadingText}>Unable to load profile</Text>
-      </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+        <View style={styles.centered}>
+          <Icon icon={Alert01Icon} size={20} color={colors.text.primary} />
+          <Text style={styles.loadingText}>Unable to load profile</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // Avatar hidden for now
-
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.secondary} animated />
       <ScrollView contentContainerStyle={styles.container}>
         <SuccessToast visible={toastVisible} message={toastMessage} onClose={() => setToastVisible(false)} />

@@ -2215,7 +2215,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           },
         ]}
       >
-        <View style={styles.sidebarHeader}>
+        <View style={[styles.sidebarHeader, { paddingTop: insets.top + spacing.sm }]}>
           <Text style={styles.sidebarTitle}>Conversations</Text>
           <TouchableOpacity onPress={toggleSidebar} style={styles.closeButton}>
             <Icon icon={Cancel01Icon} size={18} color={colors.text.secondary} />
@@ -2457,10 +2457,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: spacing.md,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.light,
-    paddingTop: 60, // Account for status bar
   },
   sidebarTitle: {
     fontSize: typography.fontSize.lg,

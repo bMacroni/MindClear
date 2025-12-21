@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Dimensions
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { ChartAverageIcon, UserMultiple02Icon, Target01Icon, Task01Icon, Comment01Icon, Alert01Icon } from '@hugeicons/core-free-icons';
@@ -16,7 +17,6 @@ import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
 import { apiService, ApiResponse, ApiError } from '../../services/apiService';
-import ScreenHeader from '../common/ScreenHeader';
 
 const { width } = Dimensions.get('window');
 
@@ -51,6 +51,7 @@ interface AnalyticsData {
 }
 
 const MobileAnalyticsDashboard: React.FC = () => {
+  const navigation = useNavigation<any>();
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,6 +91,12 @@ const MobileAnalyticsDashboard: React.FC = () => {
   useEffect(() => {
     loadAnalyticsData();
   }, [selectedTimeframe]);
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: 'Analytics Dashboard',
+    });
+  }, [navigation]);
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000) {
@@ -136,8 +143,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.container}>
-        <ScreenHeader title="Analytics" />
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading analytics...</Text>
@@ -148,8 +154,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.container}>
-        <ScreenHeader title="Analytics" />
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.errorContainer}>
           <Icon
             icon={Alert01Icon}
@@ -169,8 +174,7 @@ const MobileAnalyticsDashboard: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScreenHeader title="Analytics Dashboard" />
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
 
       <ScrollView
         style={styles.scrollView}
