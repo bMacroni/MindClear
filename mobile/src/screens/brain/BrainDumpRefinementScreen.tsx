@@ -260,6 +260,9 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                   onPress={() => setType(item, 'task')}
                   activeOpacity={0.7}
                   style={[styles.segment, item.type === 'task' && styles.segmentActive]}
+                  accessibilityLabel="Mark as task"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: item.type === 'task' }}
                 >
                   <Icon icon={Task01Icon} size={14} color={item.type === 'task' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
                   <Text style={[styles.segmentLabel, item.type === 'task' && styles.segmentLabelActive]}>Task</Text>
@@ -268,11 +271,13 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                   onPress={() => setType(item, 'goal')}
                   activeOpacity={0.7}
                   style={[styles.segment, item.type === 'goal' && styles.segmentActive]}
+                  accessibilityLabel="Mark as goal"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: item.type === 'goal' }}
                 >
                   <Icon icon={Target01Icon} size={14} color={item.type === 'goal' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
                   <Text style={[styles.segmentLabel, item.type === 'goal' && styles.segmentLabelActive]}>Goal</Text>
-                </TouchableOpacity>
-              </View>
+                </TouchableOpacity>              </View>
               {!!item.category && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{item.category}</Text>
@@ -298,11 +303,12 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                 style={styles.goalBreakdownBtn}
                 onPress={() => startGoalBreakdown(item)}
                 activeOpacity={0.7}
+                accessibilityLabel="Break this goal into tiny steps"
+                accessibilityRole="button"
               >
                 <Text style={styles.goalBreakdownText}>Break this goal into tiny steps</Text>
-                <Icon icon={ArrowRight01Icon} size={14} color={colors.primary} />
-              </TouchableOpacity>
-            ) : (
+                <Icon icon={ArrowRight01Icon} size={16} color={colors.primary} />
+              </TouchableOpacity>) : (
               <Text style={styles.hint}>Tap text to edit. Use toggles to mark as Task or Goal.</Text>
             )}
           </View>
