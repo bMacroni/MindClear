@@ -128,55 +128,122 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const tasksFromObservable = Array.isArray(observableTasks) ? observableTasks : [];
   const goalsFromObservable = Array.isArray(observableGoals) ? observableGoals : [];
 
+  // Keep optimistic state local to avoid navigation param races
+  const [optimisticFocusId, setOptimisticFocusId] = useState<string | null>(null);
+  const [optimisticTaskData, setOptimisticTaskData] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (route?.params?.fromBrainDump && route?.params?.preloadedFocusTask) {
+      const preload = route.params.preloadedFocusTask;
+      setOptimisticFocusId(preload.id);
+      setOptimisticTaskData(preload);
+
+      showToastMessage('success', 'Brain dump complete! Your tasks are ready.');
+
+      // Clear navigation params immediately to prevent sticky state on re-navigation
+      navigation.setParams({ fromBrainDump: undefined, preloadedFocusTask: undefined });
+
+      // Safety timeout: clear optimistic state after 5s if DB hasn't caught up
+      const tm = setTimeout(() => {
+        setOptimisticFocusId(null);
+        setOptimisticTaskData(null);
+      }, 5000);
+
+      return () => clearTimeout(tm);
+    }
+  }, [route?.params?.fromBrainDump, route?.params?.preloadedFocusTask, navigation]);
+
   const tasks = React.useMemo(() => {
-    let result = tasksFromObservable.map(t => t);
+    let result = [...tasksFromObservable];
 
-    // Optimistic update for focus task from BrainDump
-    const preloadedFocusTask = route?.params?.preloadedFocusTask;
-    if (preloadedFocusTask) {
-      const exists = result.find(t => t.id === preloadedFocusTask.id);
-      if (exists) {
-        // If it exists but isn't marked as focus yet (WatermelonDB delay), force it
-        if (!exists.isTodayFocus && preloadedFocusTask.isTodayFocus) {
-          // We can't mutate the WatermelonDB object directly for the view, 
-          // but we can try to rely on the observable updating soon.
-          // However, for instant feedback, we might need to replace it in our mapped array
-          // The safest way is to let the observable handle it, BUT if the user complains about sluggishness,
-          // we need to inject the state.
-          // Let's create a proxy or just rely on the fact that if it exists, the DB write happened.
-          // If 'exists' is found, it means WatermelonDB has the record. 
-          // If the record from DB doesn't have isTodayFocus=true yet? 
-          // The 'createTasksFromServer' writes EVERYTHING including isTodayFocus.
-          // So if it exists in DB, it should be correct.
-          // The case we are solving is when it DOES NOT exist in 'tasksFromObservable' yet.
-        }
+    // If we have an optimistic focus set, verify if DB has caught up
+    if (optimisticFocusId) {
+      const dbTask = tasksFromObservable.find(t => t.id === optimisticFocusId);
+      const isDbCaughtUp = dbTask && dbTask.isTodayFocus;
+
+      // If DB is already correct, stop forcing optimistic state
+      if (isDbCaughtUp) {
+        // We can't clear state inside useMemo, but we can ignore the optimistic override
+        // A useEffect elsewhere could clear the state, but letting the timeout expire is also safe/fine
       } else {
-        // Not in observable yet - inject optimistic task
-        // We need to shape it like a Task model to avoid crashes
-        const optimisticTask = {
-          id: preloadedFocusTask.id,
-          title: preloadedFocusTask.title,
-          priority: preloadedFocusTask.priority || 'medium',
-          status: preloadedFocusTask.status || 'not_started',
-          isTodayFocus: true,
-          category: preloadedFocusTask.category,
-          // Mock methods/properties that might be accessed
-          description: '',
-          estimatedDurationMinutes: 30,
-          dueDate: undefined,
-          goalId: undefined,
-          autoScheduleEnabled: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          _raw: {} as any, // Internal WatermelonDB
-          // Add other fields as needed by Task interface
-        } as unknown as Task;
+        // Apply optimistic overrides
+        let found = false;
 
-        result.push(optimisticTask);
+        result = result.map(t => {
+          if (t.id === optimisticFocusId) {
+            found = true;
+            // Force focus
+            if (!t.isTodayFocus) {
+              return {
+                id: t.id,
+                title: t.title,
+                description: t.description,
+                priority: t.priority,
+                status: t.status,
+                isTodayFocus: true,
+                category: t.category,
+                estimatedDurationMinutes: t.estimatedDurationMinutes,
+                dueDate: t.dueDate,
+                goalId: t.goalId,
+                goal: t.goal,
+                autoScheduleEnabled: t.autoScheduleEnabled,
+                createdAt: t.createdAt,
+                updatedAt: t.updatedAt,
+                location: t.location,
+                _raw: t._raw,
+              } as unknown as Task;
+            }
+            return t;
+          } else if (t.isTodayFocus) {
+            // Force un-focus others
+            return {
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              priority: t.priority,
+              status: t.status,
+              isTodayFocus: false, // Override
+              category: t.category,
+              estimatedDurationMinutes: t.estimatedDurationMinutes,
+              dueDate: t.dueDate,
+              goalId: t.goalId,
+              goal: t.goal,
+              autoScheduleEnabled: t.autoScheduleEnabled,
+              createdAt: t.createdAt,
+              updatedAt: t.updatedAt,
+              location: t.location,
+              _raw: t._raw,
+            } as unknown as Task;
+          }
+          return t;
+        });
+
+        if (!found && optimisticTaskData) {
+          // Inject if missing (Task creation lag)
+          const optimisticTask = {
+            id: optimisticTaskData.id,
+            title: optimisticTaskData.title,
+            priority: optimisticTaskData.priority || 'medium',
+            status: optimisticTaskData.status || 'not_started',
+            isTodayFocus: true,
+            category: optimisticTaskData.category,
+            // Defaults for missing properties
+            description: '',
+            estimatedDurationMinutes: 30,
+            dueDate: undefined,
+            goalId: undefined,
+            autoScheduleEnabled: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            _raw: {} as any,
+          } as unknown as Task;
+
+          result.push(optimisticTask);
+        }
       }
     }
     return result;
-  }, [tasksFromObservable, tasksVersion, route?.params?.preloadedFocusTask]);
+  }, [tasksFromObservable, tasksVersion, optimisticFocusId, optimisticTaskData]);
 
   const goals = React.useMemo(() => {
     return goalsFromObservable.map(g => g);

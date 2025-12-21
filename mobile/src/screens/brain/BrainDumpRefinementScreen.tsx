@@ -277,7 +277,8 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                 >
                   <Icon icon={Target01Icon} size={14} color={item.type === 'goal' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
                   <Text style={[styles.segmentLabel, item.type === 'goal' && styles.segmentLabelActive]}>Goal</Text>
-                </TouchableOpacity>              </View>
+                </TouchableOpacity>
+              </View>
               {!!item.category && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{item.category}</Text>

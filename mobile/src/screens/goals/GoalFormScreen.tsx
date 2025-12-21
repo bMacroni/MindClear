@@ -48,12 +48,31 @@ export default function GoalFormScreen({ navigation, route }: any) {
       const goalData = await goalRepository.getGoalById(goalId);
 
       if (goalData) {
-        setTitle(goalData.title);
-        setDescription(goalData.description);
+        setTitle(goalData.title || '');
+        setDescription(goalData.description || '');
         setCategory(goalData.category || '');
         // Load milestones via database query
         const milestonesData = await goalRepository.getMilestonesForGoal(goalId);
-        setMilestones(milestonesData);
+
+        const mappedMilestones: Milestone[] = await Promise.all(
+          milestonesData.map(async (m) => {
+            const steps = await m.steps.fetch();
+            return {
+              id: m.id,
+              title: m.title,
+              description: m.description || '',
+              completed: m.completed,
+              steps: steps.map(s => ({
+                id: s.id,
+                text: s.text,
+                completed: s.completed,
+                order: s.order
+              })).sort((a, b) => a.order - b.order)
+            };
+          })
+        );
+
+        setMilestones(mappedMilestones);
 
         if (goalData.targetCompletionDate) {
           setTargetDate(goalData.targetCompletionDate);
@@ -97,15 +116,46 @@ export default function GoalFormScreen({ navigation, route }: any) {
         // Handle milestone updates
         for (const milestone of milestones) {
           if (milestone.id) {
-            await goalRepository.updateMilestone(milestone.id, milestone);
+            try {
+              // Only attempt update if ID looks like a server ID or we know it exists
+              // For simplicity, we wrap in try/catch as repository throws if not found
+              await goalRepository.updateMilestone(milestone.id, {
+                title: milestone.title,
+                description: milestone.description,
+                completed: milestone.completed
+              });
+            } catch (e) {
+              // If not found (e.g. new local milestone), create it
+              // Note: Ideally we should separate new vs existing in UI state
+              await goalRepository.createMilestone(goalId, {
+                title: milestone.title,
+                description: milestone.description,
+                order: milestones.indexOf(milestone)
+              });
+            }
           }
         }
       } else {
-        // Create goal with nested milestones
-        await goalRepository.createGoal({
-          ...goalData,
-          milestones: milestones,
-        });
+        // Create goal first
+        const newGoal = await goalRepository.createGoal(goalData);
+
+        // Then create milestones
+        for (const m of milestones) {
+          const createdMilestone = await goalRepository.createMilestone(newGoal.id, {
+            title: m.title,
+            description: m.description,
+            order: milestones.indexOf(m)
+          });
+
+          if (m.steps) {
+            for (const s of m.steps) {
+              await goalRepository.createMilestoneStep(createdMilestone.id, {
+                text: s.text,
+                order: s.order
+              });
+            }
+          }
+        }
       }
 
       syncService.silentSync();

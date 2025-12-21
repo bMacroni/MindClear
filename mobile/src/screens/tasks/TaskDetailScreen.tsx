@@ -192,11 +192,11 @@ const TaskDetailScreen: React.FC<TaskDetailScreenProps> = ({
               <View
                 style={[
                   styles.priorityBadge,
-                  { backgroundColor: getPriorityColor(task.priority) },
+                  { backgroundColor: getPriorityColor(task.priority || 'medium') },
                 ]}
               >
                 <Text style={styles.badgeText}>
-                  {getPriorityText(task.priority)}
+                  {getPriorityText(task.priority || 'medium')}
                 </Text>
               </View>
             </View>
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
 });
 
 // Create the enhanced component with WatermelonDB observables
-const enhance = withObservables(['route'], ({ route, database }) => ({
+const enhance = withObservables(['route'], ({ route, database }: any) => ({
   task: database.collections.get('tasks').findAndObserve(route.params.taskId),
 }));
 

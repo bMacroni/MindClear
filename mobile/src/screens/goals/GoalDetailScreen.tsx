@@ -136,7 +136,7 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
             <Text style={styles.goalTitle}>{goal.title}</Text>
             <View style={[
               styles.statusIndicator,
-              { backgroundColor: goal.completed ? colors.success : colors.warning }
+              { backgroundColor: (goal.progressPercentage || 0) >= 100 ? colors.success : colors.warning }
             ]} />
           </View>
 
