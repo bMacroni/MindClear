@@ -375,7 +375,7 @@ mindgarden/
 - **React Navigation** for navigation
 - **AsyncStorage** for local data persistence
 - **Axios** for API communication
-- **React Native Vector Icons** for icons
+- **Hugeicons** (@hugeicons/react-native) for icons
 - **React Native Gesture Handler** for touch interactions
 - **@react-native-google-signin/google-signin** for Google Sign-In
 - **@react-native-firebase/auth** for Firebase authentication
