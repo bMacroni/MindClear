@@ -74,33 +74,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
     }
   }, [goalId, isEditing, loadExistingGoal]);
 
-  // Track screen view & configure header options
-  React.useLayoutEffect(() => {
-    analyticsService.trackScreenView('goal_form', {
-      isEditing,
-      goalId: goalId || null
-    }).catch(error => {
-      console.warn('Failed to track screen view analytics:', error);
-    });
-
-    navigation.setOptions({
-      title: isEditing ? 'Edit Goal' : 'New Goal',
-      headerLeft: () => (
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>Cancel</Text>
-        </TouchableOpacity>
-      ),
-      headerRight: () => (
-        <TouchableOpacity onPress={handleSave} disabled={loading}>
-          <Text style={[styles.saveButton, loading && styles.saveButtonDisabled]}>
-            {loading ? 'Saving...' : 'Save'}
-          </Text>
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation, isEditing, goalId, loading, handleSave]);
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!title.trim()) {
       Alert.alert('Error', 'Please enter a goal title.');
       return;
@@ -142,7 +116,33 @@ export default function GoalFormScreen({ navigation, route }: any) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [title, description, targetDate, category, isEditing, goalId, milestones, navigation]);
+
+  // Track screen view & configure header options
+  React.useLayoutEffect(() => {
+    analyticsService.trackScreenView('goal_form', {
+      isEditing,
+      goalId: goalId || null
+    }).catch(error => {
+      console.warn('Failed to track screen view analytics:', error);
+    });
+
+    navigation.setOptions({
+      title: isEditing ? 'Edit Goal' : 'New Goal',
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backButton}>Cancel</Text>
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <TouchableOpacity onPress={handleSave} disabled={loading}>
+          <Text style={[styles.saveButton, loading && styles.saveButtonDisabled]}>
+            {loading ? 'Saving...' : 'Save'}
+          </Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, isEditing, goalId, loading, handleSave]);
 
   const addMilestone = () => {
     const newMilestone: Milestone = {

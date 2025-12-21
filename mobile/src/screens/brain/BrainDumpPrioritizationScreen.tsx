@@ -15,6 +15,9 @@ import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { taskRepository } from '../../repositories/TaskRepository';
 import { BrainDumpLoadingScreen } from '../../components/brain/BrainDumpLoadingScreen';
 import { OnboardingService } from '../../services/onboarding';
+import { Switch } from 'react-native';
+import { autoSchedulingAPI } from '../../services/api';
+import { FlashIcon } from '@hugeicons/core-free-icons';
 
 
 type Priority = 'low' | 'medium' | 'high';
@@ -24,9 +27,11 @@ type DraggableTaskProps = {
   item: TaskItem;
   onDragStart: (_taskId: string) => void;
   isDragging: boolean;
+  isFocus: boolean;
+  onToggleFocus: (_taskId: string) => void;
 };
 
-const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDragging }) => {
+const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDragging, isFocus, onToggleFocus }) => {
   // Removed unused pan animated value
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -57,15 +62,16 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDrag
         onLongPress={handleLongPress}
         delayLongPress={300}
         activeOpacity={0.8}
-        accessibilityLabel={`${item.text}. Long press to drag to a priority zone.`}
+        accessibilityLabel={`${item.text}. ${isFocus ? 'Is current focus.' : ''} Long press to drag to a priority zone.`}
         accessibilityRole="button"
-        accessibilityHint="Long press to drag this task to a different priority zone"
+        accessibilityHint="Long press to drag this task to a different priority zone, or tap the star to set as focus."
       >
         <View style={[
           styles.card,
           item.priority === 'high' && styles.cardHigh,
           item.priority === 'medium' && styles.cardMedium,
           item.priority === 'low' && styles.cardLow,
+          isFocus && styles.cardFocus
         ]}>
           <View style={styles.row}>
             <View style={[
@@ -75,12 +81,25 @@ const DraggableTask: React.FC<DraggableTaskProps> = ({ item, onDragStart, isDrag
               item.priority === 'low' && styles.stripeLow
             ]} />
             <Text style={styles.text} numberOfLines={3} selectable={false}>{item.text}</Text>
-            <Icon
-              icon={Menu01Icon}
-              size={16}
-              color={colors.text.secondary}
-              style={{ marginLeft: 8 }}
-            />
+            <View style={styles.cardActions}>
+              <TouchableOpacity
+                onPress={() => onToggleFocus(item.id)}
+                style={styles.focusActionBtn}
+              >
+                <Icon
+                  icon={FlashIcon}
+                  size={20}
+                  color={isFocus ? colors.primary : colors.text.secondary}
+                  variant={isFocus ? 'solid' : 'stroke'}
+                />
+              </TouchableOpacity>
+              <Icon
+                icon={Menu01Icon}
+                size={16}
+                color={colors.text.secondary}
+                style={{ marginLeft: 4 }}
+              />
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -106,6 +125,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   }, [incomingTasks, items]);
 
   const [tasks, setTasks] = useState<TaskItem[]>(seeded);
+  const [explicitFocusId, setExplicitFocusId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [highlightedZone, setHighlightedZone] = useState<Priority | null>(null);
   const [saving, setSaving] = useState(false);
@@ -113,6 +133,7 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
   const [toastMessage, setToastMessage] = useState('');
   const [showOverlay, setShowOverlay] = useState(false);
   const [showLoadingScreen, setShowLoadingScreen] = useState(false);
+  const [autoScheduleOnFinish, setAutoScheduleOnFinish] = useState(true);
   const [ghostPosition, setGhostPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [zoneBoundaries, setZoneBoundaries] = useState<{
@@ -341,8 +362,8 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       const high = tasks.filter(i => i.priority === 'high');
       const medium = tasks.filter(i => i.priority === 'medium');
       const low = tasks.filter(i => i.priority === 'low');
-      const focus = high[0] || medium[0] || low[0];
-      const remainder = tasks.filter(i => i !== focus);
+      const focusItem = tasks.find(t => t.id === explicitFocusId) || high[0] || medium[0] || low[0];
+      const remainder = tasks.filter(i => i.id !== focusItem?.id);
 
       // Prepare tasks to create
       const tasksToCreate = remainder.length > 0
@@ -357,14 +378,14 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
 
       // Create focus task and bulk create remainder tasks in parallel for better performance
       const createFocusTask = async () => {
-        if (!focus) return null;
+        if (!focusItem) return null;
 
         try {
           return await tasksAPI.createTask({
-            title: focus.text,
+            title: focusItem.text,
             description: '',
-            priority: focus.priority,
-            category: focus.category || undefined,
+            priority: focusItem.priority,
+            category: focusItem.category || undefined,
             is_today_focus: true
           } as any);
         } catch (error: any) {
@@ -372,19 +393,16 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
           if (error?.code === 'FOCUS_CONSTRAINT_VIOLATION' ||
             String(error?.message || '').includes('already have a task set as today\'s focus')) {
 
-            // Instead of fetching all tasks, use the error response which may contain the existing focus task ID
-            // If not available, we'll handle it gracefully by just creating the task without focus
-            // The sync will handle updating the focus correctly
             console.warn('Focus constraint violation, creating task without focus flag');
             return await tasksAPI.createTask({
-              title: focus.text,
+              title: focusItem.text,
               description: '',
-              priority: focus.priority,
-              category: focus.category || undefined,
+              priority: focusItem.priority,
+              category: focusItem.category || undefined,
               is_today_focus: false
             } as any);
           } else {
-            throw error; // Re-throw if it's not a focus constraint issue
+            throw error;
           }
         }
       };
@@ -409,8 +427,16 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       if (allCreatedTasks.length > 0) {
         try {
           await taskRepository.createTasksFromServer(allCreatedTasks);
+
+          // If auto-scheduling is enabled, trigger it now
+          if (autoScheduleOnFinish) {
+            try {
+              await autoSchedulingAPI.autoScheduleTasks();
+            } catch (scheduleError) {
+              console.warn('Auto-scheduling failed after brain dump:', scheduleError);
+            }
+          }
         } catch (localWriteError) {
-          // Log but don't fail - sync will handle it
           console.warn('Failed to write tasks to local DB immediately, sync will handle:', localWriteError);
         }
       }
@@ -422,50 +448,34 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       setTasks([]);
 
       // Wait for minimum duration to ensure smooth transition, then navigate
-      const minDuration = 1500; // 1.5 seconds minimum
-
-      // Calculate how long the save operations took
+      const minDuration = 1500;
       const elapsed = Date.now() - startTime;
       const remainingTime = Math.max(0, minDuration - elapsed);
 
-      // Wait for remaining time (if any) plus a small fade-out delay, then navigate
-      // Store timeout ID and check mounted flag to prevent memory leaks
       outerTimeoutRef.current = setTimeout(() => {
-        // Check if component is still mounted before updating state
         if (!isMountedRef.current) return;
-
         setShowLoadingScreen(false);
-        // Small delay before navigation to allow loading screen to fade out smoothly
         innerTimeoutRef.current = setTimeout(async () => {
-          // Check if component is still mounted before navigating
           if (!isMountedRef.current) return;
-
-          // Check if first session and guidance not shown yet
           try {
             const isFirstSession = await OnboardingService.isFirstSession();
             const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown');
 
             if (isFirstSession && !guidanceShown) {
-              // Navigate to Focus Task Guidance screen for first-time users
               navigation.navigate('FocusTaskGuidance');
-              // Mark first session as complete (but not full onboarding)
               await OnboardingService.markFirstSessionComplete();
             } else {
-              // Navigate to Tasks tab for returning users
-              navigation.navigate('Tasks');
+              navigation.navigate('Tasks', { fromBrainDump: true });
             }
           } catch (error) {
             console.warn('Error checking first session for navigation:', error);
-            // Fallback to Tasks tab on error
             navigation.navigate('Tasks');
           }
-
           innerTimeoutRef.current = null;
         }, 200);
         outerTimeoutRef.current = null;
       }, remainingTime);
     } catch (error: any) {
-      // Clear any pending timers on error
       if (outerTimeoutRef.current !== null) {
         clearTimeout(outerTimeoutRef.current);
         outerTimeoutRef.current = null;
@@ -475,12 +485,10 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
         innerTimeoutRef.current = null;
       }
 
-      // Hide loading screen on error
       if (isMountedRef.current) {
         setShowLoadingScreen(false);
       }
 
-      // Handle specific focus constraint violation
       if (String(error?.message || '').includes('already have a task set as today\'s focus') ||
         error?.code === 'FOCUS_CONSTRAINT_VIOLATION') {
         if (isMountedRef.current) {
@@ -502,10 +510,9 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']} {...screenPanResponder.panHandlers}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Prioritize your tasks</Text>
+      <View style={{ marginTop: spacing.md }}>
+        <BrainDumpSubNav active="prioritize" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
       </View>
-      <BrainDumpSubNav active="prioritize" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
 
       <View style={styles.infoBanner}>
         <Icon icon={Menu01Icon} size={14} color={colors.text.secondary} style={{ marginRight: 6 }} />
@@ -533,14 +540,29 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
         showsVerticalScrollIndicator={false}
         scrollEnabled={scrollEnabled}
       >
-        {sortedTasks.map(task => (
-          <DraggableTask
-            key={task.id}
-            item={task}
-            onDragStart={handleDragStart}
-            isDragging={draggingId === task.id}
-          />
-        ))}
+        {sortedTasks.map((task, index) => {
+          const isFocusCandidate = explicitFocusId
+            ? task.id === explicitFocusId
+            : (index === 0 && (task.priority === 'high' || !sortedTasks.some(t => t.priority === 'high')));
+
+          return (
+            <View key={task.id}>
+              {isFocusCandidate && (
+                <View style={styles.focusIndicator}>
+                  <Icon icon={FlashIcon} size={12} color={colors.secondary} />
+                  <Text style={styles.focusIndicatorText}>TODAY'S FOCUS</Text>
+                </View>
+              )}
+              <DraggableTask
+                item={task}
+                onDragStart={handleDragStart}
+                isDragging={draggingId === task.id}
+                isFocus={isFocusCandidate}
+                onToggleFocus={(id) => setExplicitFocusId(id === explicitFocusId ? null : id)}
+              />
+            </View>
+          );
+        })}
       </ScrollView>
 
       {/* Overlay zones for drag and drop */}
@@ -612,6 +634,19 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
       )}
 
       <View style={styles.footer}>
+        <View style={styles.autoScheduleRow}>
+          <View style={styles.autoScheduleInfo}>
+            <Text style={styles.autoScheduleLabel}>Auto-schedule onto calendar</Text>
+            <Text style={styles.autoScheduleSubtext}>Find best time slots automatically</Text>
+          </View>
+          <Switch
+            value={autoScheduleOnFinish}
+            onValueChange={setAutoScheduleOnFinish}
+            trackColor={{ false: colors.border.light, true: colors.primary }}
+            thumbColor={colors.secondary}
+          />
+        </View>
+
         <TouchableOpacity
           testID="saveAndFinishButton"
           style={[styles.primaryBtn, tasks.length === 0 && { opacity: 0.6 }]}
@@ -639,8 +674,6 @@ export default function BrainDumpPrioritizationScreen({ navigation, route }: any
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.surface },
-  headerRow: { padding: spacing.md },
-  title: { fontSize: typography.fontSize.lg, fontWeight: typography.fontWeight.bold, color: colors.text.primary },
 
   zonesContainer: {
     flex: 1,
@@ -695,10 +728,20 @@ const styles = StyleSheet.create({
   cardHigh: { borderLeftColor: '#F44336', borderLeftWidth: 4 },
   cardMedium: { borderLeftColor: '#FF9800', borderLeftWidth: 4 },
   cardLow: { borderLeftColor: '#4CAF50', borderLeftWidth: 4 },
+  cardFocus: {
+    borderColor: colors.accent.gold,
+    borderWidth: 1.5,
+    backgroundColor: '#FFFDF5',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
 
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     minHeight: 24,
   },
 
@@ -709,6 +752,17 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
     lineHeight: 20,
     fontWeight: '400',
+  },
+
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+
+  focusActionBtn: {
+    padding: 6,
+    borderRadius: 99,
   },
 
   sectionStripe: {
@@ -788,6 +842,44 @@ const styles = StyleSheet.create({
     color: colors.secondary,
     fontWeight: typography.fontWeight.bold,
     fontSize: typography.fontSize.base
+  },
+  autoScheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.xs,
+  },
+  autoScheduleInfo: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  autoScheduleLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
+  },
+  autoScheduleSubtext: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
+    marginTop: 2,
+  },
+  focusIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 4,
+    gap: 4,
+  },
+  focusIndicatorText: {
+    color: colors.secondary,
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
 
   overlayContainer: {

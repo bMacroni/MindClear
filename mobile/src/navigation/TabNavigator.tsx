@@ -65,15 +65,17 @@ export default function TabNavigator() {
             <BrainStack.Navigator
               screenOptions={{
                 headerShown: true,
-                header: (props) => <MainHeader {...props} />
+                header: (props) => <MainHeader {...props} />,
+                animation: 'fade',
+                animationDuration: 200,
               }}
             >
-              <BrainStack.Screen name="BrainDumpEntry" component={BrainDumpEntryScreen} options={{ title: 'Start Brain Dump' }} />
-              <BrainStack.Screen name="BrainDumpOnboarding" component={BrainDumpOnboardingScreen} options={{ title: 'Brain Dump Guide' }} />
-              <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} options={{ title: 'Add Thoughts' }} />
-              <BrainStack.Screen name="BrainDumpRefinement" component={BrainDumpRefinementScreen} options={{ title: 'Refine Information' }} />
-              <BrainStack.Screen name="BrainDumpPrioritization" component={BrainDumpPrioritizationScreen} options={{ title: 'Prioritize Tasks' }} />
-              <BrainStack.Screen name="FocusTaskGuidance" component={FocusTaskGuidanceScreen} options={{ title: 'Focus Guidance' }} />
+              <BrainStack.Screen name="BrainDumpEntry" component={BrainDumpEntryScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpOnboarding" component={BrainDumpOnboardingScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpRefinement" component={BrainDumpRefinementScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpPrioritization" component={BrainDumpPrioritizationScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="FocusTaskGuidance" component={FocusTaskGuidanceScreen} options={{ title: 'Brain Dump' }} />
             </BrainStack.Navigator>
           </BrainDumpProvider>
         )}

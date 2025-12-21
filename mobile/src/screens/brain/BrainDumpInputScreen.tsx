@@ -166,15 +166,14 @@ export default function BrainDumpInputScreen({ navigation }: any) {
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.headerRow}>
-            <Text style={styles.title}>Guided Brain Dump</Text>
+          <View style={{ marginTop: spacing.md, marginBottom: spacing.sm }}>
+            <BrainDumpSubNav
+              active="dump"
+              navigation={navigation}
+              canRefine={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task' || (it?.type || '').toLowerCase() === 'goal')) || hasSavedRefinement}
+              canPrioritize={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task')) || hasSavedRefinement}
+            />
           </View>
-          <BrainDumpSubNav
-            active="dump"
-            navigation={navigation}
-            canRefine={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task' || (it?.type || '').toLowerCase() === 'goal')) || hasSavedRefinement}
-            canPrioritize={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task')) || hasSavedRefinement}
-          />
           <Text style={styles.subtitle}>Type anything that’s on your mind. We’ll gently help you turn it into one small, doable step.</Text>
           <TextInput
             style={styles.textarea}
@@ -216,9 +215,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.surface },
-  content: { padding: spacing.lg },
-  title: { fontSize: typography.fontSize.xl, fontWeight: typography.fontWeight.bold, color: colors.text.primary, marginBottom: spacing.xs },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  content: { paddingHorizontal: spacing.md, paddingBottom: spacing.lg },
   backRefineBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.sm, backgroundColor: colors.background.surface },
   backRefineText: { color: colors.text.primary, fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium },
   subtitle: { fontSize: typography.fontSize.sm, color: colors.text.secondary, marginBottom: spacing.md },

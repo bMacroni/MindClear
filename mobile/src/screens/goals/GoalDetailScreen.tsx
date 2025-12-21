@@ -106,15 +106,6 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
     );
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading goal...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   if (!goal) {
     return (

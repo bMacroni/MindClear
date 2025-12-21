@@ -69,9 +69,10 @@ import { useSoundEffect } from '../../hooks/useSoundEffect';
 interface InternalTasksScreenProps {
   tasks: Task[];
   goals: Goal[];
+  route?: any;
 }
 
-const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
+const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals, route }) => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const _insets = useSafeAreaInsets();
@@ -124,12 +125,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   // Use observable tasks directly but also maintain local state for forcing updates
   // This is a workaround for WatermelonDB observable not emitting on field changes
   const [tasksVersion, setTasksVersion] = React.useState(0);
-  const tasksFromObservable = observableTasks || [];
+  const tasksFromObservable = Array.isArray(observableTasks) ? observableTasks : [];
+  const goalsFromObservable = Array.isArray(observableGoals) ? observableGoals : [];
+
   const tasks = React.useMemo(() => {
     // Force a new array reference when tasksVersion changes
     return tasksFromObservable.map(t => t);
   }, [tasksFromObservable, tasksVersion]);
-  const goals = observableGoals || [];
+
+  const goals = React.useMemo(() => {
+    return goalsFromObservable.map(g => g);
+  }, [goalsFromObservable]);
 
   const [loading, setLoading] = useState(false); // Start with false since we have observable data
   const [refreshing, setRefreshing] = useState(false);
@@ -361,6 +367,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       } catch { }
     })();
   }, []);
+
+  useEffect(() => {
+    if (route?.params?.fromBrainDump) {
+      showToastMessage('success', 'Brain dump complete! Your tasks are ready.');
+      // Clear the param so it doesn't show again on re-render
+      navigation.setParams({ fromBrainDump: undefined });
+    }
+  }, [route?.params?.fromBrainDump, navigation]);
 
   const handleTaskPress = useCallback((task: Task) => {
     setEditingTask(task);
@@ -1414,7 +1428,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const handleEodRollover = useCallback(async () => {
     if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
-    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
+    const focus = (tasks || []).find(t => t.id === eodFocusIdRef.current) || getFocusTask();
     if (!focus) {
       // even if focus vanished, mark prompted so the modal doesn't re-open
       await markEodPrompted();

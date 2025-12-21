@@ -233,10 +233,10 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>      <View style={styles.headerRow}>
-      <Text style={styles.title}>Let’s pick one small step</Text>
-    </View>
-      <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <View style={{ marginTop: spacing.md }}>
+        <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
+      </View>
       <View style={styles.tabs}>
         <TouchableOpacity style={[styles.tabBtn, tab === 'task' && styles.tabBtnActive]} onPress={() => setTab('task')}>
           <Text style={[styles.tabText, tab === 'task' && styles.tabTextActive]}>Tasks ({tasks.length})</Text>
@@ -276,9 +276,13 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
                 </TouchableOpacity>
               </View>
               {!!item.category && (
-                <View style={styles.badge}><Text style={styles.badgeText}>{item.category}</Text></View>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.category}</Text>
+                </View>
               )}
-              <View style={[styles.badge, styles[item.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{item.priority}</Text></View>
+              <View style={[styles.badge, (styles as any)[item.priority]]}>
+                <Text style={[styles.badgeText, styles.badgeTextDark]}>{item.priority}</Text>
+              </View>
             </View>
             {editingKey === item.id ? (
               <TextInput
@@ -327,11 +331,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.surface },
-  title: { fontSize: typography.fontSize.lg, fontWeight: typography.fontWeight.bold, color: colors.text.primary, padding: spacing.md },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  newDumpBtn: { flexDirection: 'row', alignItems: 'center', marginRight: spacing.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.sm, backgroundColor: colors.background.surface },
-  newDumpText: { color: colors.text.primary, fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium },
-  tabs: { flexDirection: 'row', marginHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.md, overflow: 'hidden' },
+  tabs: { flexDirection: 'row', marginHorizontal: spacing.md, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.md, overflow: 'hidden' },
   tabBtn: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', backgroundColor: colors.secondary },
   tabBtnActive: { backgroundColor: colors.primary },
   tabText: { color: colors.text.primary },
