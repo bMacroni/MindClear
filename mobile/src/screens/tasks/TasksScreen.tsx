@@ -26,14 +26,30 @@ import { taskRepository } from '../../repositories/TaskRepository';
 import { goalRepository } from '../../repositories/GoalRepository';
 import { syncService } from '../../services/SyncService';
 import analyticsService from '../../services/analyticsService';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import {
+  Settings01Icon,
+  VolumeMute01Icon,
+  VolumeHighIcon,
+  Task01Icon,
+  FlashIcon,
+  Home01Icon,
+  Globe02Icon,
+  InboxIcon,
+  ArrowUp01Icon,
+  ArrowDown01Icon,
+  Tick01Icon,
+  ArrowRight01Icon,
+  ArrowLeftRightIcon,
+  Clock01Icon,
+  HelpCircleIcon
+} from '@hugeicons/core-free-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HelpIcon } from '../../components/help/HelpIcon';
 import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
-import ScreenHeader from '../../components/common/ScreenHeader';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingService } from '../../services/onboarding';
 import { hapticFeedback } from '../../utils/hapticFeedback';
@@ -53,15 +69,22 @@ import { useSoundEffect } from '../../hooks/useSoundEffect';
 interface InternalTasksScreenProps {
   tasks: Task[];
   goals: Goal[];
+  route?: any;
 }
 
-const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals }) => {
+const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTasks, goals: observableGoals, route }) => {
   const navigation = useNavigation<any>();
   const { setHelpContent, setIsHelpOverlayActive, setHelpScope } = useHelp();
   const _insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 1000; // Icon-only on phones; show labels only on very wide/tablet screens
-  
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => <HelpIcon />,
+    });
+  }, [navigation]);
+
   // Audio cues
   const exitSound = useSoundEffect('taskcard_exit.wav', { volume: 1 });
   const bounceSound = useSoundEffect('cardpop.wav', { volume: 1 });
@@ -98,17 +121,133 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // Ignore persistence errors; preference will reset on next launch
     }
   }, [soundMuted]);
-  
+
   // Use observable tasks directly but also maintain local state for forcing updates
   // This is a workaround for WatermelonDB observable not emitting on field changes
   const [tasksVersion, setTasksVersion] = React.useState(0);
-  const tasksFromObservable = observableTasks || [];
+  const tasksFromObservable = Array.isArray(observableTasks) ? observableTasks : [];
+  const goalsFromObservable = Array.isArray(observableGoals) ? observableGoals : [];
+
+  // Keep optimistic state local to avoid navigation param races
+  const [optimisticFocusId, setOptimisticFocusId] = useState<string | null>(null);
+  const [optimisticTaskData, setOptimisticTaskData] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (route?.params?.preloadedFocusTask) {
+      const preload = route.params.preloadedFocusTask;
+      setOptimisticFocusId(preload.id);
+      setOptimisticTaskData(preload);
+
+      showToastMessage('success', 'Brain dump complete! Your tasks are ready.');
+
+      // Clear navigation params immediately to prevent sticky state on re-navigation
+      navigation.setParams({ preloadedFocusTask: undefined });
+
+      // Safety timeout: clear optimistic state after 5s if DB hasn't caught up
+      const tm = setTimeout(() => {
+        setOptimisticFocusId(null);
+        setOptimisticTaskData(null);
+      }, 5000);
+
+      return () => clearTimeout(tm);
+    }
+  }, [route?.params?.preloadedFocusTask, navigation]);
   const tasks = React.useMemo(() => {
-    // Force a new array reference when tasksVersion changes
-    return tasksFromObservable.map(t => t);
-  }, [tasksFromObservable, tasksVersion]);
-  const goals = observableGoals || [];
-  
+    let result = [...tasksFromObservable];
+
+    // If we have an optimistic focus set, verify if DB has caught up
+    if (optimisticFocusId) {
+      const dbTask = tasksFromObservable.find(t => t.id === optimisticFocusId);
+      const isDbCaughtUp = dbTask && dbTask.isTodayFocus;
+
+      // If DB is already correct, stop forcing optimistic state
+      if (isDbCaughtUp) {
+        // We can't clear state inside useMemo, but we can ignore the optimistic override
+        // A useEffect elsewhere could clear the state, but letting the timeout expire is also safe/fine
+      } else {
+        // Apply optimistic overrides
+        let found = false;
+
+        result = result.map(t => {
+          if (t.id === optimisticFocusId) {
+            found = true;
+            // Force focus
+            if (!t.isTodayFocus) {
+              return {
+                id: t.id,
+                title: t.title,
+                description: t.description,
+                priority: t.priority,
+                status: t.status,
+                isTodayFocus: true,
+                category: t.category,
+                estimatedDurationMinutes: t.estimatedDurationMinutes,
+                dueDate: t.dueDate,
+                goalId: t.goalId,
+                goal: t.goal,
+                autoScheduleEnabled: t.autoScheduleEnabled,
+                createdAt: t.createdAt,
+                updatedAt: t.updatedAt,
+                location: t.location,
+                _raw: t._raw,
+              } as unknown as Task;
+            }
+            return t;
+          } else if (t.isTodayFocus) {
+            // Force un-focus others
+            return {
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              priority: t.priority,
+              status: t.status,
+              isTodayFocus: false, // Override
+              category: t.category,
+              estimatedDurationMinutes: t.estimatedDurationMinutes,
+              dueDate: t.dueDate,
+              goalId: t.goalId,
+              goal: t.goal,
+              autoScheduleEnabled: t.autoScheduleEnabled,
+              createdAt: t.createdAt,
+              updatedAt: t.updatedAt,
+              location: t.location,
+              _raw: t._raw,
+            } as unknown as Task;
+          }
+          return t;
+        });
+
+        if (!found && optimisticTaskData) {
+          // Inject if missing (Task creation lag)
+          const optimisticTask = {
+            id: optimisticTaskData.id,
+            title: optimisticTaskData.title,
+            priority: optimisticTaskData.priority || 'medium',
+            status: optimisticTaskData.status || 'not_started',
+            isTodayFocus: true,
+            category: optimisticTaskData.category,
+            // Defaults for missing properties
+            description: '',
+            estimatedDurationMinutes: 30,
+            dueDate: undefined,
+            goalId: undefined,
+            autoScheduleEnabled: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            _raw: {} as any,
+          } as unknown as Task;
+
+          result.push(optimisticTask);
+        }
+      }
+    }
+    return result;
+  }, [tasksFromObservable, tasksVersion, optimisticFocusId, optimisticTaskData]);
+
+  const goals = React.useMemo(() => {
+    return goalsFromObservable.map(g => g);
+  }, [goalsFromObservable]);
+
   const [loading, setLoading] = useState(false); // Start with false since we have observable data
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -142,7 +281,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     () => ['Great job!', 'Nice!', 'Crushing it!', 'Done!', 'On fire!'],
     []
   );
-  
+
   const eodActionInFlightRef = React.useRef<boolean>(false);
   const eodFocusIdRef = React.useRef<string | undefined>(undefined);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
@@ -180,7 +319,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     loadSchedulingPreferences();
   }, []);
 
-      // Track screen view
+  // Track screen view
   useEffect(() => {
     analyticsService.trackScreenView('tasks', {
       taskCount: tasks.length,
@@ -200,14 +339,14 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       // If user navigated with overlay ON from a previous screen, ensure tooltips will populate
       // by briefly toggling it off (state stays off due to blur reset anyway)
       try { setIsHelpOverlayActive(false); } catch (e) { if (__DEV__) console.warn('setIsHelpOverlayActive failed:', e); }
-      
+
       // Check if we should show first focus help
       (async () => {
         try {
           const guidanceShown = await AsyncStorage.getItem('focusGuidanceShown');
           const helpDismissed = await AsyncStorage.getItem('firstFocusHelpDismissed');
           const focus = getFocusTask();
-          
+
           // Show help if: guidance was shown, help not dismissed, no focus set, and inbox has tasks
           if (guidanceShown === 'true' && !helpDismissed && !focus && inboxTasks.length > 0) {
             setShowFirstFocusHelp(true);
@@ -226,11 +365,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           console.warn('Error checking first focus help conditions:', error);
         }
       })();
-      
+
       // Avoid showing a spinner if we already have content; fetch fresh in background
       loadData({ silent: true });
       return () => {
-        try { setIsHelpOverlayActive(false); } catch {}
+        try { setIsHelpOverlayActive(false); } catch { }
       };
     }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent, getFocusTask, inboxTasks])
   );
@@ -253,7 +392,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
     const awaitSync = !!options?.awaitSync;
-    
+
     try {
       // Don't show loading spinner on initial mount since we have observable data
       // Only show loading for explicit user actions
@@ -318,7 +457,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         // Show toast notification for sync failures
         showToastMessage('error', 'Sync failed. Please try again.');
       });
-      
+
       // Show refresh indicator for a brief moment to give user feedback
       // Then hide it - the data will update automatically via observables
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -336,9 +475,17 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           await loadData({ silent: true });
           await AsyncStorage.removeItem('needsTasksRefresh');
         }
-      } catch {}
+      } catch { }
     })();
   }, []);
+
+  useEffect(() => {
+    if (route?.params?.fromBrainDump) {
+      showToastMessage('success', 'Brain dump complete! Your tasks are ready.');
+      // Clear the param so it doesn't show again on re-render
+      navigation.setParams({ fromBrainDump: undefined });
+    }
+  }, [route?.params?.fromBrainDump, navigation]);
 
   const handleTaskPress = useCallback((task: Task) => {
     setEditingTask(task);
@@ -415,11 +562,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     if (savingRef.current) {
       return;
     }
-    
+
     try {
       savingRef.current = true;
       setSaving(true);
-      
+
       // Convert TaskForm's snake_case format to repository's camelCase format
       const repositoryData: any = {
         title: taskData.title,
@@ -431,7 +578,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         isTodayFocus: taskData.is_today_focus,
         status: taskData.status || 'not_started', // Lifecycle status
       };
-      
+
       if (editingTask) {
         // Update existing task using repository (local-first)
         await taskRepository.updateTask(editingTask.id, repositoryData);
@@ -439,10 +586,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         // Create new task using repository (local-first)
         await taskRepository.createTask(repositoryData);
       }
-      
+
       // Background sync will happen automatically, no need for immediate sync
       // SyncService will pick up pending changes on next sync
-      
+
       setShowModal(false);
       setEditingTask(undefined);
     } catch (error) {
@@ -468,20 +615,20 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     try {
       // Update using repository (local-first)
       await taskRepository.updateTaskStatus(taskId, newStatus);
-      
+
       // Force a small delay to allow WatermelonDB to process the update
       await new Promise<void>(resolve => setTimeout(resolve, 100));
-      
+
       // Force a re-render by incrementing tasksVersion
       // This is a workaround for WatermelonDB observable not emitting on field changes
       // The observable should emit automatically, but it doesn't detect text field changes
       setTasksVersion(prev => prev + 1);
-      
+
       // Give React a moment to process the state update
       await new Promise<void>(resolve => setTimeout(resolve, 50));
-      
+
       // Background sync will happen automatically
-      
+
       // Track analytics for completed tasks (don't await to avoid blocking)
       if (newStatus === 'completed') {
         const task = tasks.find(t => t.id === taskId);
@@ -509,7 +656,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     try {
       // Update using repository (local-first)
       await taskRepository.updateTaskStatus(taskId, 'not_started');
-      
+
       // Handle calendar event - remove any associated calendar events since task is no longer completed
       try {
         const eventsResponse = await enhancedAPI.getEventsForTask(taskId);
@@ -524,7 +671,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       } catch (error) {
         console.warn('Failed to remove calendar event:', error);
       }
-      
+
       // Force a UI refresh since WatermelonDB may not emit on status change
       setTasksVersion(prev => prev + 1);
 
@@ -580,7 +727,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         startTime: new Date().toISOString(),
         endTime: new Date(Date.now() + ((task.estimatedDurationMinutes || 60) * 60 * 1000)).toISOString(),
       });
-      
+
       const startTimeStr = result?.data?.scheduled_time;
       const startTime = startTimeStr ? new Date(startTimeStr) : null;
       const now = new Date();
@@ -588,10 +735,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       tomorrow.setDate(tomorrow.getDate() + 1);
       const scheduledTime = startTime
         ? (startTime.toDateString() === now.toDateString()
-            ? `today at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-            : (startTime.toDateString() === tomorrow.toDateString()
-                ? `tomorrow at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : `${startTime.toLocaleDateString()} at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`))
+          ? `today at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : (startTime.toDateString() === tomorrow.toDateString()
+            ? `tomorrow at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            : `${startTime.toLocaleDateString()} at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`))
         : 'today';
 
       Alert.alert('Success', `Task scheduled for ${scheduledTime}!`);
@@ -885,7 +1032,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         startTime: new Date().toISOString(),
         endTime: new Date(Date.now() + ((task.estimatedDurationMinutes || 60) * 60 * 1000)).toISOString(),
       });
-      
+
       const startTimeStr = result?.data?.scheduled_time;
       let formatted = '';
       if (startTimeStr) {
@@ -906,7 +1053,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       setToastScheduledTime(startTimeStr);
       setToastCalendarEvent(true);
       setShowToast(true);
-      
+
       await loadData();
     } catch (error) {
       console.error('Error scheduling task:', error);
@@ -918,16 +1065,16 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     try {
       setBulkScheduling(true);
       const result = await autoSchedulingAPI.autoScheduleTasks();
-      
+
       // Show results in toast
       const successfulCount = result.successful;
-      
+
       // Show success toast
       setToastMessage(`Successfully scheduled ${successfulCount} tasks`);
       setToastScheduledTime(undefined);
       setToastCalendarEvent(false);
       setShowToast(true);
-      
+
       // Refresh tasks to get updated scheduling info
       await loadData();
     } catch (error) {
@@ -1128,7 +1275,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                 // Find the original WatermelonDB Task by ID
                 const originalTask = tasks.find(t => t.id === task.id);
                 if (!originalTask) return;
-                
+
                 if (selectingFocus) {
                   handleTaskSelect(originalTask);
                 } else {
@@ -1177,7 +1324,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           accessibilityRole="button"
           accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
         >
-          <Icon name={soundMuted ? 'mute' : 'unmute'} size={20} color={soundMuted ? colors.text.secondary : colors.text.secondary} />
+          <Icon icon={soundMuted ? VolumeMute01Icon : VolumeHighIcon} size={20} color={soundMuted ? colors.text.secondary : colors.text.secondary} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -1185,9 +1332,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           onPress={handleAutoScheduleSettings}
           activeOpacity={0.7}
         >
-          <Icon name="gear" size={20} color={colors.text.secondary} />
+          <Icon icon={Settings01Icon} size={20} color={colors.text.secondary} />
         </TouchableOpacity>
-        
+
         <HelpTarget helpId="tasks-bulk-auto-schedule">
           <TouchableOpacity
             style={[
@@ -1204,9 +1351,9 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             {bulkScheduling ? (
               <ActivityIndicator size="small" color={colors.secondary} />
             ) : (
-              <Icon name="checklist" size={16} color={colors.secondary} />
+              <Icon icon={Task01Icon} size={16} color={colors.secondary} />
             )}
-            <Text style={[styles.bulkScheduleText, compact && { fontSize: typography.fontSize.sm }]}> 
+            <Text style={[styles.bulkScheduleText, compact && { fontSize: typography.fontSize.sm }]}>
               {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
             </Text>
           </TouchableOpacity>
@@ -1218,20 +1365,20 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   // End-of-day prompt logic: once per day if focus exists and is not completed
   useEffect(() => {
     const maybePromptEndOfDay = async () => {
-      if (loading) {return;}
+      if (loading) { return; }
       const focus = getFocusTask();
-      if (!focus) {return;}
+      if (!focus) { return; }
       const todayStr = new Date().toISOString().slice(0, 10);
       try {
         const lastPrompt = await AsyncStorage.getItem('lastEODPromptDate');
-        if (lastPrompt === todayStr) {return;}
+        if (lastPrompt === todayStr) { return; }
         if (getLifecycleStatus(focus.status) !== 'completed') {
           // prevent re-open if already visible
           if (showEodPrompt) { return; }
           eodFocusIdRef.current = focus.id;
           setShowEodPrompt(true);
         }
-      } catch {}
+      } catch { }
     };
     maybePromptEndOfDay();
 
@@ -1251,10 +1398,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     try {
       // Update database
       await taskRepository.updateTaskStatus(task.id, 'completed');
-      
+
       // Force UI refresh to update task lists (inboxTasks, getFocusTask, etc.)
       setTasksVersion(prev => prev + 1);
-      
+
       // Small delay to ensure WatermelonDB processes the update
       await new Promise<void>(resolve => setTimeout(resolve, 100));
 
@@ -1270,11 +1417,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
           // Force a small delay to allow WatermelonDB to process the update
           await new Promise<void>(resolve => setTimeout(resolve, 100));
-          
+
           // Force UI update to reflect the new focus task
           // WatermelonDB observables may not emit immediately, so we increment tasksVersion
           setTasksVersion(prev => prev + 1);
-          
+
           // Give React a moment to process the state update
           await new Promise<void>(resolve => setTimeout(resolve, 50));
 
@@ -1371,11 +1518,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
     const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    if (!focus) { 
+    if (!focus) {
       setShowEodPrompt(false);
       await markEodPrompted();
-      eodActionInFlightRef.current = false; 
-      return; 
+      eodActionInFlightRef.current = false;
+      return;
     }
     try {
       await handleFocusDone(focus);
@@ -1392,13 +1539,13 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const handleEodRollover = useCallback(async () => {
     if (eodActionInFlightRef.current) { return; }
     eodActionInFlightRef.current = true;
-    const focus = tasks.find(t => t.id === eodFocusIdRef.current) || getFocusTask();
-    if (!focus) { 
+    const focus = (tasks || []).find(t => t.id === eodFocusIdRef.current) || getFocusTask();
+    if (!focus) {
       // even if focus vanished, mark prompted so the modal doesn't re-open
       await markEodPrompted();
-      setShowEodPrompt(false); 
-      eodActionInFlightRef.current = false; 
-      return; 
+      setShowEodPrompt(false);
+      eodActionInFlightRef.current = false;
+      return;
     }
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1461,10 +1608,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     setShowToast(true);
   };
 
-  const persistMomentumSettings = async (enabled: boolean, pref: 'allow_travel'|'home_only') => {
+  const persistMomentumSettings = async (enabled: boolean, pref: 'allow_travel' | 'home_only') => {
     try {
       await appPreferencesAPI.update({ momentum_mode_enabled: enabled, momentum_travel_preference: pref });
-    } catch {}
+    } catch { }
   };
 
   const handleToggleMomentum = async () => {
@@ -1493,11 +1640,11 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
       // Force a small delay to allow WatermelonDB to process the update
       await new Promise<void>(resolve => setTimeout(resolve, 100));
-      
+
       // Force UI update to reflect the new focus task
       // WatermelonDB observables may not emit immediately, so we increment tasksVersion
       setTasksVersion(prev => prev + 1);
-      
+
       // Give React a moment to process the state update
       await new Promise<void>(resolve => setTimeout(resolve, 50));
 
@@ -1591,311 +1738,311 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   return (
     <HelpScope scope="tasks">
-    <SafeAreaView style={styles.safeArea} edges={['top','left','right']}>
-    <View style={styles.container}>
-      <ScreenHeader title="Tasks" rightActions={(<HelpIcon />)} withDivider />
-      <View style={styles.dashboardContainer}>
-        <View style={styles.dashboardRow}>
-          <HelpTarget helpId="tasks-header-summary" style={{ flex: 1 }}>
-            <Text style={styles.dashboardText}>
-              {getAutoScheduledTasks().length} auto-scheduled • {getScheduledTasks().length} scheduled • {tasks.length} tasks
-            </Text>
-          </HelpTarget>
-          <View style={styles.dashboardActions}>
-          <TouchableOpacity
-            style={[
-              styles.settingsButton,
-              styles.headerCompactButton,
-              soundMuted && styles.mutedButton
-            ]}
-            onPress={toggleSoundMuted}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
-          >
-            <Icon name={soundMuted ? 'mute' : 'unmute'} size={20} color={colors.text.secondary} />
-          </TouchableOpacity>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+        <View style={styles.container}>
 
-            <TouchableOpacity
-              style={[styles.settingsButton, styles.headerCompactButton]}
-              onPress={handleAutoScheduleSettings}
-              activeOpacity={0.7}
-              accessibilityLabel="Auto-scheduling settings"
-            >
-              <Icon name="gear" size={20} color={colors.text.secondary} />
-            </TouchableOpacity>
-            <HelpTarget helpId="tasks-bulk-auto-schedule">
-              <TouchableOpacity
-                style={[
-                  styles.bulkScheduleButton,
-                  styles.bulkScheduleButtonCompact,
-                  bulkScheduling && styles.bulkScheduleButtonDisabled
-                ]}
-                onPress={handleBulkAutoSchedule}
-                disabled={bulkScheduling}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={bulkScheduling ? 'Scheduling all tasks' : 'Auto-schedule all tasks'}
-              >
-                {bulkScheduling ? (
-                  <ActivityIndicator size="small" color={colors.secondary} />
-                ) : (
-                  <Icon name="checklist" size={16} color={colors.secondary} />
-                )}
-                <Text style={[styles.bulkScheduleText, { fontSize: typography.fontSize.sm }]}>
-                  {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
+          <View style={styles.dashboardContainer}>
+            <View style={styles.dashboardRow}>
+              <HelpTarget helpId="tasks-header-summary" style={{ flex: 1 }}>
+                <Text style={styles.dashboardText}>
+                  {getAutoScheduledTasks().length} auto-scheduled • {getScheduledTasks().length} scheduled • {tasks.length} tasks
                 </Text>
-              </TouchableOpacity>
-            </HelpTarget>
-          </View>
-        </View>
-        {/* Today's Focus Card */}
-        {(() => {
-          const focus = getFocusTask();
-          const inboxCount = inboxTasks.length;
-          return (
-            <View>
-              <View style={styles.focusHeaderRow}>
-                <Text style={styles.focusTitle}>Today's Focus</Text>
-                <View style={styles.focusHeaderControls}>
-                  {/* Momentum toggle placed next to Inbox; icon-only on compact */}
-                  <HelpTarget helpId="tasks-momentum-toggle">
-                    <TouchableOpacity
-                      testID="momentumToggle"
-                      style={[styles.momentumToggle, momentumEnabled && styles.momentumToggleOn, isCompact && styles.compactBtn]}
-                      onPress={handleToggleMomentum}
-                      activeOpacity={0.7}
-                      accessibilityLabel={momentumEnabled ? 'Momentum On' : 'Momentum Off'}
-                    >
-                      <Icon name="zap" size={16} color={momentumEnabled ? colors.secondary : colors.text.secondary} />
-                    </TouchableOpacity>
-                  </HelpTarget>
-
-                  <HelpTarget helpId="tasks-travel-toggle">
-                    <TouchableOpacity
-                      testID="travelPrefButton"
-                      style={[styles.travelPrefButton, isCompact && styles.compactBtn]}
-                      onPress={handleToggleTravelPref}
-                      activeOpacity={0.7}
-                      accessibilityLabel={travelPreference === 'home_only' ? 'Home Only' : 'Allow Travel'}
-                    >
-                      <Icon name={travelPreference === 'home_only' ? 'home' : 'globe'} size={16} color={colors.text.secondary} />
-                    </TouchableOpacity>
-                  </HelpTarget>
-
-                  <HelpTarget helpId="tasks-inbox-toggle">
-                    <TouchableOpacity testID="inboxToggle" style={styles.inboxButton} onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}>
-                      <Icon name="inbox" size={14} color={colors.text.primary} />
-                      <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
-                      <Icon name={showInbox ? 'chevron-up' : 'chevron-down'} size={14} color={colors.text.primary} />
-                    </TouchableOpacity>
-                  </HelpTarget>
-                </View>
-              </View>
-              <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
-                {focus ? (
-                  <CelebratoryDismissal
-                    onComplete={() => {
-                      playBounceSound();
-                      handleFocusDone(focus, { skipAnimation: true });
-                    }}
-                    messages={celebrationMessages}
-                    testID="focus-celebration"
-                    onTriggerStart={playExitSound}
-                  >
-                    {({ trigger }) => (
-                      <Reanimated.View
-                        layout={ReanimatedLayout.springify()}
-                        style={styles.focusCard}
-                      >
-                        <Text style={styles.focusTaskTitle}>{focus.title}</Text>
-                        <View style={styles.focusBadges}>
-                          {!!focus.category && (
-                            <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
-                          )}
-                          <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
-                        </View>
-                        <View style={styles.focusActionsRow}>
-                          <HelpTarget helpId="tasks-focus-complete">
-                            <TouchableOpacity testID="completeFocusButton" style={styles.focusIconBtn} onPress={trigger}>
-                              <Icon name="check" size={22} color={colors.text.primary} />
-                            </TouchableOpacity>
-                          </HelpTarget>
-                          {momentumEnabled && (
-                            <HelpTarget helpId="tasks-focus-skip">
-                              <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
-                                <Icon name="arrow-right" size={22} color={colors.text.primary} />
-                              </TouchableOpacity>
-                            </HelpTarget>
-                          )}
-                          <HelpTarget helpId="tasks-focus-change">
-                            <TouchableOpacity style={styles.focusIconBtn} onPress={handleChangeFocus}>
-                              <Icon name="arrow-switch" size={22} color={colors.text.primary} />
-                            </TouchableOpacity>
-                          </HelpTarget>
-                        </View>
-                      </Reanimated.View>
-                    )}
-                  </CelebratoryDismissal>
-                ) : (
-                  <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
-                    <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
-                    <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
-                  </TouchableOpacity>
-                )}
-              </Reanimated.View>
-            </View>
-          );
-        })()}
-      </View>
-
-      <LazyList
-        data={showInbox ? inboxTasks : []}
-        renderItem={renderTaskItem}
-        keyExtractor={keyExtractor}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-        onRefresh={handleRefresh}
-        refreshing={refreshing}
-        emptyComponent={showInbox ? renderEmptyState : () => null}
-        initialLoadSize={20}
-        loadMoreSize={10}
-        extraFooterComponent={() => {
-          if (!showInbox) {return null;}
-          const completedTasks = getCompletedTasks();
-          if (completedTasks.length === 0) {return null;}
-          
-          return (
-            <View style={styles.completedSection}>
-              <Text style={styles.completedSectionTitle}>Completed</Text>
-              {completedTasks.slice(0, 10).map(task => (
-                <CompletedTaskCard
-                  key={task.id}
-                  task={convertTaskForTaskCard(task)}
-                  onResetStatus={handleResetCompletedTask}
-                />
-              ))}
-              {completedTasks.length > 10 && (
+              </HelpTarget>
+              <View style={styles.dashboardActions}>
                 <TouchableOpacity
-                  onPress={() => navigation.navigate('CompletedTasks')}
+                  style={[
+                    styles.settingsButton,
+                    styles.headerCompactButton,
+                    soundMuted && styles.mutedButton
+                  ]}
+                  onPress={toggleSoundMuted}
+                  activeOpacity={0.7}
                   accessibilityRole="button"
-                  accessibilityLabel="View all completed tasks"
-                  style={styles.showAllCompletedButton}
+                  accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
                 >
-                  <Text style={styles.showAllCompletedText}>Show all completed…</Text>
+                  <Icon icon={soundMuted ? VolumeMute01Icon : VolumeHighIcon} size={20} color={colors.text.secondary} />
                 </TouchableOpacity>
-              )}
+
+                <TouchableOpacity
+                  style={[styles.settingsButton, styles.headerCompactButton]}
+                  onPress={handleAutoScheduleSettings}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Auto-scheduling settings"
+                >
+                  <Icon icon={Settings01Icon} size={20} color={colors.text.secondary} />
+                </TouchableOpacity>
+                <HelpTarget helpId="tasks-bulk-auto-schedule">
+                  <TouchableOpacity
+                    style={[
+                      styles.bulkScheduleButton,
+                      styles.bulkScheduleButtonCompact,
+                      bulkScheduling && styles.bulkScheduleButtonDisabled
+                    ]}
+                    onPress={handleBulkAutoSchedule}
+                    disabled={bulkScheduling}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={bulkScheduling ? 'Scheduling all tasks' : 'Auto-schedule all tasks'}
+                  >
+                    {bulkScheduling ? (
+                      <ActivityIndicator size="small" color={colors.secondary} />
+                    ) : (
+                      <Icon icon={Task01Icon} size={16} color={colors.secondary} />
+                    )}
+                    <Text style={[styles.bulkScheduleText, { fontSize: typography.fontSize.sm }]}>
+                      {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
+                    </Text>
+                  </TouchableOpacity>
+                </HelpTarget>
+              </View>
             </View>
-          );
-        }}
-      />
-
-      {/* Floating Action Button */}
-      <HelpTarget helpId="tasks-fab-add">
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={handleCreateTask}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Create new task"
-        >
-          <Text style={styles.fabText}>+</Text>
-        </TouchableOpacity>
-      </HelpTarget>
-
-      
-      {/* Task Form Modal */}
-      <Modal
-        visible={showModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={handleCancelModal}
-      >
-        <TaskForm
-          task={convertTaskForTaskForm(editingTask)}
-          goals={goals}
-          onSave={handleSaveTask}
-          onCancel={handleCancelModal}
-          loading={saving}
-          stickyFooter
-        />
-      </Modal>
-
-      {/* Quick Schedule Radial overlay */}
-      <QuickScheduleRadial
-        visible={quickMenuVisible}
-        center={quickAnchor}
-        openTimestamp={quickOpenedAt}
-        onSelect={async (preset) => {
-          setQuickMenuVisible(false);
-          if (quickTaskId) {
-            await handleQuickSchedule(quickTaskId, preset);
-          }
-        }}
-        onClose={() => setQuickMenuVisible(false)}
-      />
-
-      {/* Auto-Scheduling Preferences Modal */}
-      <AutoSchedulingPreferencesModal
-        visible={showPreferencesModal}
-        onClose={() => setShowPreferencesModal(false)}
-        onSave={handlePreferencesSave}
-      />
-
-      {/* End-of-day prompt modal */}
-      <Modal
-        visible={showEodPrompt}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowEodPrompt(false)}
-      >
-        <View style={styles.eodOverlay}>
-          <View style={styles.eodCard}>
-            <Text style={styles.eodTitle}>How did today’s focus go?</Text>
-            <Text style={styles.eodSubtitle}>No pressure—want to mark it done, roll it over to tomorrow, or choose something new?</Text>
+            {/* Today's Focus Card */}
             {(() => {
               const focus = getFocusTask();
-              if (!focus) {return null;}
+              const inboxCount = inboxTasks.length;
               return (
-                <View style={[styles.focusCard, styles.focusCardGutter]}> 
-                  <Text style={styles.focusTaskTitle}>{focus.title}</Text>
-                  <View style={styles.focusBadges}>
-                    {!!focus.category && (
-                      <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
-                    )}
-                    <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                <View>
+                  <View style={styles.focusHeaderRow}>
+                    <Text style={styles.focusTitle}>Today's Focus</Text>
+                    <View style={styles.focusHeaderControls}>
+                      {/* Momentum toggle placed next to Inbox; icon-only on compact */}
+                      <HelpTarget helpId="tasks-momentum-toggle">
+                        <TouchableOpacity
+                          testID="momentumToggle"
+                          style={[styles.momentumToggle, momentumEnabled && styles.momentumToggleOn, isCompact && styles.compactBtn]}
+                          onPress={handleToggleMomentum}
+                          activeOpacity={0.7}
+                          accessibilityLabel={momentumEnabled ? 'Momentum On' : 'Momentum Off'}
+                        >
+                          <Icon icon={FlashIcon} size={16} color={momentumEnabled ? colors.secondary : colors.text.secondary} />
+                        </TouchableOpacity>
+                      </HelpTarget>
+
+                      <HelpTarget helpId="tasks-travel-toggle">
+                        <TouchableOpacity
+                          testID="travelPrefButton"
+                          style={[styles.travelPrefButton, isCompact && styles.compactBtn]}
+                          onPress={handleToggleTravelPref}
+                          activeOpacity={0.7}
+                          accessibilityLabel={travelPreference === 'home_only' ? 'Home Only' : 'Allow Travel'}
+                        >
+                          <Icon icon={travelPreference === 'home_only' ? Home01Icon : Globe02Icon} size={16} color={colors.text.secondary} />
+                        </TouchableOpacity>
+                      </HelpTarget>
+
+                      <HelpTarget helpId="tasks-inbox-toggle">
+                        <TouchableOpacity testID="inboxToggle" style={styles.inboxButton} onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}>
+                          <Icon icon={InboxIcon} size={14} color={colors.text.primary} />
+                          <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
+                          <Icon icon={showInbox ? ArrowUp01Icon : ArrowDown01Icon} size={14} color={colors.text.primary} />
+                        </TouchableOpacity>
+                      </HelpTarget>
+                    </View>
                   </View>
+                  <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
+                    {focus ? (
+                      <CelebratoryDismissal
+                        onComplete={() => {
+                          playBounceSound();
+                          handleFocusDone(focus, { skipAnimation: true });
+                        }}
+                        messages={celebrationMessages}
+                        testID="focus-celebration"
+                        onTriggerStart={playExitSound}
+                      >
+                        {({ trigger }) => (
+                          <Reanimated.View
+                            layout={ReanimatedLayout.springify()}
+                            style={styles.focusCard}
+                          >
+                            <Text style={styles.focusTaskTitle}>{focus.title}</Text>
+                            <View style={styles.focusBadges}>
+                              {!!focus.category && (
+                                <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                              )}
+                              <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                            </View>
+                            <View style={styles.focusActionsRow}>
+                              <HelpTarget helpId="tasks-focus-complete">
+                                <TouchableOpacity testID="completeFocusButton" style={styles.focusIconBtn} onPress={trigger}>
+                                  <Icon icon={Tick01Icon} size={22} color={colors.text.primary} />
+                                </TouchableOpacity>
+                              </HelpTarget>
+                              {momentumEnabled && (
+                                <HelpTarget helpId="tasks-focus-skip">
+                                  <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
+                                    <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
+                                  </TouchableOpacity>
+                                </HelpTarget>
+                              )}
+                              <HelpTarget helpId="tasks-focus-change">
+                                <TouchableOpacity style={styles.focusIconBtn} onPress={handleChangeFocus}>
+                                  <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
+                                </TouchableOpacity>
+                              </HelpTarget>
+                            </View>
+                          </Reanimated.View>
+                        )}
+                      </CelebratoryDismissal>
+                    ) : (
+                      <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
+                        <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
+                        <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
+                      </TouchableOpacity>
+                    )}
+                  </Reanimated.View>
                 </View>
               );
             })()}
-            <View style={styles.eodActionsRow}>
-              <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodMarkDone}>
-                <Icon name="check" size={16} color={colors.secondary} />
-                <Text style={styles.eodBtnText}>Mark done</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodRollover}>
-                <Icon name="clock" size={16} color={colors.secondary} />
-                <Text style={styles.eodBtnText}>Roll over</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={styles.eodSecondary} onPress={handleEodChooseNew}>
-              <Text style={styles.eodSecondaryText}>Choose a new focus</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
 
-      {/* Success Toast */}
-      <SuccessToast
-        visible={showToast}
-        message={toastMessage}
-        scheduledTime={toastScheduledTime}
-        calendarEventCreated={toastCalendarEvent}
-        onClose={() => setShowToast(false)}
-        duration={5000}
-      />
-    </View>
-    </SafeAreaView>
+          <LazyList
+            data={showInbox ? inboxTasks : []}
+            renderItem={renderTaskItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.listContainer}
+            showsVerticalScrollIndicator={false}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            emptyComponent={showInbox ? renderEmptyState : () => null}
+            initialLoadSize={20}
+            loadMoreSize={10}
+            extraFooterComponent={() => {
+              if (!showInbox) { return null; }
+              const completedTasks = getCompletedTasks();
+              if (completedTasks.length === 0) { return null; }
+
+              return (
+                <View style={styles.completedSection}>
+                  <Text style={styles.completedSectionTitle}>Completed</Text>
+                  {completedTasks.slice(0, 10).map(task => (
+                    <CompletedTaskCard
+                      key={task.id}
+                      task={convertTaskForTaskCard(task)}
+                      onResetStatus={handleResetCompletedTask}
+                    />
+                  ))}
+                  {completedTasks.length > 10 && (
+                    <TouchableOpacity
+                      onPress={() => navigation.navigate('CompletedTasks')}
+                      accessibilityRole="button"
+                      accessibilityLabel="View all completed tasks"
+                      style={styles.showAllCompletedButton}
+                    >
+                      <Text style={styles.showAllCompletedText}>Show all completed…</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            }}
+          />
+
+          {/* Floating Action Button */}
+          <HelpTarget helpId="tasks-fab-add">
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={handleCreateTask}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Create new task"
+            >
+              <Text style={styles.fabText}>+</Text>
+            </TouchableOpacity>
+          </HelpTarget>
+
+
+          {/* Task Form Modal */}
+          <Modal
+            visible={showModal}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={handleCancelModal}
+          >
+            <TaskForm
+              task={convertTaskForTaskForm(editingTask)}
+              goals={goals}
+              onSave={handleSaveTask}
+              onCancel={handleCancelModal}
+              loading={saving}
+              stickyFooter
+            />
+          </Modal>
+
+          {/* Quick Schedule Radial overlay */}
+          <QuickScheduleRadial
+            visible={quickMenuVisible}
+            center={quickAnchor}
+            openTimestamp={quickOpenedAt}
+            onSelect={async (preset) => {
+              setQuickMenuVisible(false);
+              if (quickTaskId) {
+                await handleQuickSchedule(quickTaskId, preset);
+              }
+            }}
+            onClose={() => setQuickMenuVisible(false)}
+          />
+
+          {/* Auto-Scheduling Preferences Modal */}
+          <AutoSchedulingPreferencesModal
+            visible={showPreferencesModal}
+            onClose={() => setShowPreferencesModal(false)}
+            onSave={handlePreferencesSave}
+          />
+
+          {/* End-of-day prompt modal */}
+          <Modal
+            visible={showEodPrompt}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setShowEodPrompt(false)}
+          >
+            <View style={styles.eodOverlay}>
+              <View style={styles.eodCard}>
+                <Text style={styles.eodTitle}>How did today’s focus go?</Text>
+                <Text style={styles.eodSubtitle}>No pressure—want to mark it done, roll it over to tomorrow, or choose something new?</Text>
+                {(() => {
+                  const focus = getFocusTask();
+                  if (!focus) { return null; }
+                  return (
+                    <View style={[styles.focusCard, styles.focusCardGutter]}>
+                      <Text style={styles.focusTaskTitle}>{focus.title}</Text>
+                      <View style={styles.focusBadges}>
+                        {!!focus.category && (
+                          <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                        )}
+                        <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                      </View>
+                    </View>
+                  );
+                })()}
+                <View style={styles.eodActionsRow}>
+                  <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodMarkDone}>
+                    <Icon icon={Tick01Icon} size={16} color={colors.secondary} />
+                    <Text style={styles.eodBtnText}>Mark done</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodRollover}>
+                    <Icon icon={Clock01Icon} size={16} color={colors.secondary} />
+                    <Text style={styles.eodBtnText}>Roll over</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity style={styles.eodSecondary} onPress={handleEodChooseNew}>
+                  <Text style={styles.eodSecondaryText}>Choose a new focus</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Success Toast */}
+          <SuccessToast
+            visible={showToast}
+            message={toastMessage}
+            scheduledTime={toastScheduledTime}
+            calendarEventCreated={toastCalendarEvent}
+            onClose={() => setShowToast(false)}
+            duration={5000}
+          />
+        </View>
+      </SafeAreaView>
     </HelpScope>
   );
 };
@@ -2027,7 +2174,7 @@ const styles = StyleSheet.create({
   focusBtn: {
     display: 'none',
   },
-  focusBtnText: { },
+  focusBtnText: {},
   focusIconBtn: {
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
@@ -2295,22 +2442,22 @@ const enhance = withObservables<{ database: Database }, "tasks" | "goals">(
   ['database'],
   // @ts-expect-error - WatermelonDB's withObservables type definition expects the factory to return the keys, but implementation requires observables object
   ({ database }) => {
-  const tasksQuery = database.collections.get<Task>('tasks').query(
-    Q.where('status', Q.notEq('pending_delete'))
-  );
-  // Observe the query - WatermelonDB automatically detects all field changes
-  const tasks: Observable<Task[]> = tasksQuery.observe();
+    const tasksQuery = database.collections.get<Task>('tasks').query(
+      Q.where('status', Q.notEq('pending_delete'))
+    );
+    // Observe the query - WatermelonDB automatically detects all field changes
+    const tasks: Observable<Task[]> = tasksQuery.observe();
 
-  const goalsQuery = database.collections.get<Goal>('goals').query(
-    Q.where('status', Q.notEq('pending_delete'))
-  );
-  const goals: Observable<Goal[]> = goalsQuery.observe();
+    const goalsQuery = database.collections.get<Goal>('goals').query(
+      Q.where('status', Q.notEq('pending_delete'))
+    );
+    const goals: Observable<Goal[]> = goalsQuery.observe();
 
-  return {
-    tasks,
-    goals,
-  };
-});
+    return {
+      tasks,
+      goals,
+    };
+  });
 
 const EnhancedTasksScreen = enhance(TasksScreen);
 

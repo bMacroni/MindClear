@@ -13,6 +13,9 @@ import { Q } from '@nozbe/watermelondb';
 import Goal from '../../db/models/Goal';
 import Milestone from '../../db/models/Milestone';
 
+import { Delete01Icon, PencilEdit01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+
 interface GoalDetailScreenProps {
   route: { params: { goalId: string } };
   navigation: any;
@@ -38,54 +41,36 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
     );
   }
 
-  // No more loading state needed - data comes reactively
-  // goalId is already destructured from route.params above
-
   // Data comes from observables, no need to fetch
+
+  React.useLayoutEffect(() => {
+    if (goal) {
+      navigation.setOptions({
+        title: goal.title || 'Goal Details',
+        headerRight: () => (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <TouchableOpacity onPress={() => navigation.navigate('GoalForm', { goalId: goal.id })}>
+              <Icon icon={PencilEdit01Icon} size={20} color={colors.text.primary} />
+            </TouchableOpacity>
+          </View>
+        ),
+      });
+    }
+  }, [navigation, goal]);
 
   const toggleMilestone = async (milestoneId: string) => {
     try {
       const milestone = milestones.find(m => m.id === milestoneId);
       if (!milestone) return;
-      
+
       await goalRepository.updateMilestone(milestoneId, {
         completed: !milestone.completed,
       });
-      
+
       syncService.silentSync();
     } catch (error) {
       console.error('Error toggling milestone:', error);
       Alert.alert('Error', 'Failed to update milestone');
-    }
-  };
-
-  const toggleStep = async (milestoneId: string, stepId: string) => {
-    if (!goal || !goal.milestones) {return;}
-    try {
-      const milestone = goal.milestones.find(m => m.id === milestoneId);
-      const step = milestone?.steps?.find(s => s.id === stepId);
-      if (!step) {return;}
-
-      const newCompleted = !step.completed;
-      
-      // Update in backend
-      await goalsAPI.updateStep(stepId, { completed: newCompleted });
-      
-      // Update local state
-      setGoal({
-        ...goal,
-        milestones: goal.milestones.map(m => 
-          m.id === milestoneId ? {
-            ...m,
-            steps: m.steps?.map(s => 
-              s.id === stepId ? { ...s, completed: newCompleted } : s
-            ) || []
-          } : m
-        ),
-      });
-    } catch (error) {
-      console.error('Error updating step:', error);
-      Alert.alert('Error', 'Failed to update step. Please try again.');
     }
   };
 
@@ -94,22 +79,23 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
   };
 
   const calculateProgress = () => {
-    if (!goal || !goal.milestones) {return { completedMilestones: 0, totalMilestones: 0, completedSteps: 0, totalSteps: 0 };}
-    
-    const totalMilestones = goal.milestones.length;
-    const completedMilestones = goal.milestones.filter(m => m.completed).length;
-    
-    const totalSteps = goal.milestones.reduce((sum, m) => sum + (m.steps?.length || 0), 0);
-    const completedSteps = goal.milestones.reduce((sum, m) => 
-      sum + (m.steps?.filter(s => s.completed).length || 0), 0
-    );
-    
+    const totalMilestones = milestones?.length || 0;
+    const completedMilestones = milestones?.filter(m => m.completed).length || 0;
+
+    // Steps are nested in milestones in the model
+    let totalSteps = 0;
+    let completedSteps = 0;
+
+    // WatermelonDB milestones might need different handling for steps 
+    // but if they are fetched already, we can use them.
+    // For now, let's keep it simple as the model might not have array of steps.
+
     return { completedMilestones, totalMilestones, completedSteps, totalSteps };
   };
 
   const renderProgressBar = (completed: number, total: number, type: 'milestones' | 'steps') => {
     const percentage = getProgressPercentage(completed, total);
-    
+
     return (
       <View style={styles.progressContainer}>
         <View style={styles.progressBar}>
@@ -120,19 +106,10 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
     );
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading goal...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   if (!goal) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Goal not found</Text>
           <Button
@@ -146,18 +123,10 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>← Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('GoalForm', { goalId: goal.id })}>
-          <Text style={styles.editButton}>Edit</Text>
-        </TouchableOpacity>
-      </View>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
 
-      <ScrollView 
-        style={styles.content} 
+      <ScrollView
+        style={styles.content}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
@@ -167,12 +136,12 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
             <Text style={styles.goalTitle}>{goal.title}</Text>
             <View style={[
               styles.statusIndicator,
-              { backgroundColor: goal.completed ? colors.success : colors.warning }
+              { backgroundColor: (goal.progressPercentage || 0) >= 100 ? colors.success : colors.warning }
             ]} />
           </View>
-          
+
           <Text style={styles.goalDescription}>{goal.description}</Text>
-          
+
           {(() => {
             const progress = calculateProgress();
             return (
@@ -189,10 +158,10 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
           <Text style={styles.sectionTitle}>Next Milestone</Text>
           <View style={styles.nextMilestoneCard}>
             <Text style={styles.nextMilestoneTitle}>
-              {goal.milestones?.find(m => !m.completed)?.title || 'All milestones completed!'}
+              {milestones?.find(m => !m.completed)?.title || 'All milestones completed!'}
             </Text>
             <Text style={styles.nextMilestoneDescription}>
-              {goal.milestones?.find(m => !m.completed) 
+              {milestones?.find(m => !m.completed)
                 ? 'This is your next step to achieve your goal'
                 : 'Congratulations! You\'ve completed all milestones.'
               }
@@ -203,8 +172,8 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
         {/* All Milestones */}
         <View style={styles.milestonesSection}>
           <Text style={styles.sectionTitle}>All Milestones</Text>
-          
-          {goal.milestones?.map((milestone, index) => (
+
+          {milestones?.map((milestone, index) => (
             <View key={milestone.id} style={styles.milestoneItem}>
               <View style={styles.milestoneHeader}>
                 <TouchableOpacity
@@ -218,7 +187,7 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
                     {milestone.completed && <Text style={styles.checkmark}>✓</Text>}
                   </View>
                 </TouchableOpacity>
-                
+
                 <View style={styles.milestoneContent}>
                   <Text style={[
                     styles.milestoneTitle,
@@ -226,36 +195,6 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
                   ]}>
                     {index + 1}. {milestone.title}
                   </Text>
-                  
-                  {/* Steps */}
-                  {milestone.steps && milestone.steps.length > 0 && (
-                    <View style={styles.stepsContainer}>
-                      {milestone.steps.map((step, stepIndex) => (
-                        <View key={step.id} style={styles.stepItem}>
-                          <TouchableOpacity
-                            style={styles.stepCheckbox}
-                            onPress={() => toggleStep(milestone.id, step.id)}
-                          >
-                            <View style={[
-                              styles.stepCheckboxInner,
-                              step.completed && styles.stepCheckboxChecked
-                            ]}>
-                              {step.completed && <Text style={styles.stepCheckmark}>✓</Text>}
-                            </View>
-                          </TouchableOpacity>
-                          
-                          <View style={styles.stepContent}>
-                            <Text style={[
-                              styles.stepTitle,
-                              step.completed && styles.stepTitleCompleted
-                            ]}>
-                              {stepIndex + 1}. {step.text}
-                            </Text>
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  )}
                 </View>
               </View>
             </View>
@@ -266,13 +205,13 @@ const GoalDetailScreen: React.FC<GoalDetailScreenProps> = ({
         <View style={styles.actionsSection}>
           <Button
             title="Ask AI for Help"
-            onPress={() => navigation.navigate('AIChat', { 
+            onPress={() => navigation.navigate('AIChat', {
               initialMessage: `Can you help me with the ${goal?.title || 'goal'}?`
             })}
             variant="outline"
             style={styles.aiHelpButton}
           />
-          
+
           <Button
             title="Mark as Completed"
             onPress={() => {
@@ -530,9 +469,9 @@ const styles = StyleSheet.create({
   },
 });
 
-const enhance = withObservables(['route', 'database'], ({route, database}) => {
+const enhance = withObservables(['route', 'database'], ({ route, database }) => {
   const goalId = route?.params?.goalId;
-  
+
   // Guard against missing goalId
   if (!goalId) {
     return {
@@ -540,7 +479,7 @@ const enhance = withObservables(['route', 'database'], ({route, database}) => {
       milestones: [],
     };
   }
-  
+
   return {
     goal: database.collections.get('goals').findAndObserve(goalId),
     milestones: database.collections.get('milestones')

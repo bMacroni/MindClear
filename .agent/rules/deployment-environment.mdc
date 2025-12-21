@@ -1,0 +1,329 @@
+---
+globs: **/.env*,**/vercel.json,**/railway.json,**/dockerfile,**/Dockerfile
+---
+
+# Deployment & Environment Rules
+
+## Environment Management
+
+### Environment Files
+- **Never commit `.env` files** to version control
+- Use `.env.example` files to document required variables
+- Use different environment files for different stages:
+  - `.env.development` - Local development
+  - `.env.production` - Production deployment
+  - `.env.staging` - Staging environment
+
+### Environment Variable Naming
+```bash
+# Backend environment variables
+NODE_ENV=production
+PORT=3000
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+GOOGLE_AI_API_KEY=your-google-ai-key
+JWT_SECRET=your-jwt-secret
+FIREBASE_PROJECT_ID=your-firebase-project
+FIREBASE_PRIVATE_KEY=your-firebase-private-key
+FIREBASE_CLIENT_EMAIL=your-firebase-client-email
+
+# Frontend environment variables (Vite)
+VITE_API_URL=https://your-api.railway.app
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_GOOGLE_CLIENT_ID=your-google-client-id
+
+# Mobile environment variables
+GOOGLE_SERVICES_JSON=path/to/google-services.json
+GOOGLE_SERVICE_INFO_PLIST=path/to/GoogleService-Info.plist
+```
+
+## Deployment Platforms
+
+### Backend Deployment (Railway)
+```json
+// railway.json
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 100,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+### Frontend Deployment (Vercel)
+```json
+// vercel.json
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Database Migrations
+
+### Migration Management
+- Store migrations in `SQL/migrations/` directory
+- Use timestamp-based naming: `YYYY-MM-DD_HHMMSS_description.sql`
+- Always create rollback scripts in `SQL/rollbacks/`
+- Test migrations on staging before production
+
+### Migration Example
+```sql
+-- 2025-01-27_143000_add_task_priority.sql
+-- Migration: Add priority field to tasks table
+-- Rollback: 2025-01-27_143000_add_task_priority.rollback.sql
+
+BEGIN;
+
+-- Add priority column
+ALTER TABLE tasks 
+ADD COLUMN priority INTEGER DEFAULT 3 CHECK (priority BETWEEN 1 AND 5);
+
+-- Create index for performance
+CREATE INDEX idx_tasks_priority ON tasks(priority);
+
+-- Update existing tasks with default priority
+UPDATE tasks SET priority = 3 WHERE priority IS NULL;
+
+COMMIT;
+```
+
+## Security Configuration
+
+### CORS Configuration
+```javascript
+// Backend CORS setup
+import cors from 'cors';
+
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://your-frontend.vercel.app']
+    : ['http://localhost:3000', 'http://localhost:5173'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+```
+
+### Security Headers
+```javascript
+// Backend security headers
+import helmet from 'helmet';
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://api.railway.app"]
+    }
+  }
+}));
+```
+
+## Build and Release Process
+
+### Frontend Build
+```bash
+# Development build
+npm run dev
+
+# Production build
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+### Mobile Build
+```bash
+# Android build
+npm run build:aab
+
+# iOS build (when needed)
+npm run ios
+```
+
+### Backend Build
+```bash
+# Development
+npm run dev
+
+# Production
+npm start
+
+# Testing
+npm test
+```
+
+## Monitoring and Logging
+
+### Health Checks
+```javascript
+// Backend health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version,
+    environment: process.env.NODE_ENV
+  });
+});
+```
+
+### Error Logging
+```javascript
+// Backend error logging
+import winston from 'winston';
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' })
+  ]
+});
+
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.simple()
+  }));
+}
+```
+
+## Environment-Specific Configurations
+
+### Development
+- Use local database instances
+- Enable debug logging
+- Use development API keys
+- Allow CORS from localhost
+
+### Staging
+- Use staging database
+- Enable error logging
+- Use staging API keys
+- Restrict CORS to staging domains
+
+### Production
+- Use production database
+- Enable full logging
+- Use production API keys
+- Strict CORS policies
+- Enable rate limiting
+- Use HTTPS only
+
+## CI/CD Pipeline
+
+### GitHub Actions Example
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - run: npm ci
+      - run: npm test
+
+  deploy-backend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy to Railway
+        run: railway deploy
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy to Vercel
+        run: vercel --prod
+```
+
+## Backup and Recovery
+
+### Database Backups
+- Enable automatic backups in Supabase
+- Test backup restoration procedures
+- Store backups in multiple locations
+- Document recovery procedures
+
+### Code Backups
+- Use Git for version control
+- Tag releases with semantic versioning
+- Maintain release notes
+- Keep deployment logs
+
+## Performance Optimization
+
+### Frontend Optimization
+- Enable Vite's build optimizations
+- Use code splitting
+- Optimize images and assets
+- Enable gzip compression
+
+### Backend Optimization
+- Use connection pooling
+- Implement caching strategies
+- Optimize database queries
+- Use compression middleware
+
+### Mobile Optimization
+- Optimize bundle size
+- Use lazy loading
+- Implement proper image optimization
+- Test on different devices

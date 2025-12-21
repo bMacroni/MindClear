@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ViewIcon, ViewOffIcon } from '@hugeicons/core-free-icons';
 import { Input } from './Input';
 import { colors } from '../../themes/colors';
 import { spacing } from '../../themes/spacing';
@@ -45,7 +46,7 @@ export const PasswordInput: React.FC<PasswordInputProps> = ({
         activeOpacity={0.7}
       >
         <Icon
-          name={showPassword ? 'eye-closed' : 'eye'}
+          icon={showPassword ? ViewOffIcon : ViewIcon}
           size={20}
           color={colors.text.secondary}
         />

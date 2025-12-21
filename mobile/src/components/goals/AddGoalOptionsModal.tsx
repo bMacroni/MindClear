@@ -1,7 +1,8 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Cancel01Icon, Comment01Icon, ArrowRight01Icon, Target01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -24,7 +25,7 @@ export default function AddGoalOptionsModal({ visible, onClose, onCreateManually
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close add goal options">
-            <Icon name="x" size={24} color={colors.text.primary} />
+            <Icon icon={Cancel01Icon} size={24} color={colors.text.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Add a Goal</Text>
           <View style={styles.headerSpacer} />
@@ -41,7 +42,7 @@ export default function AddGoalOptionsModal({ visible, onClose, onCreateManually
             accessibilityLabel="Ask AI to add a goal"
           >
             <View style={styles.optionIconWrap}>
-              <Icon name="comment-discussion" size={24} color={colors.text.primary} />
+              <Icon icon={Comment01Icon} size={24} color={colors.text.primary} />
             </View>
             <View style={styles.optionTextWrap}>
               <View style={styles.optionTitleRow}>
@@ -50,7 +51,7 @@ export default function AddGoalOptionsModal({ visible, onClose, onCreateManually
               </View>
               <Text style={styles.optionSubtitle}>Start a chat to create a goal conversationally.</Text>
             </View>
-            <Icon name="chevron-right" size={20} color={colors.text.secondary} />
+            <Icon icon={ArrowRight01Icon} size={20} color={colors.text.secondary} />
           </TouchableOpacity>
 
           {/* Manual second */}
@@ -61,13 +62,13 @@ export default function AddGoalOptionsModal({ visible, onClose, onCreateManually
             accessibilityLabel="Create goal manually"
           >
             <View style={styles.optionIconWrap}>
-              <Icon name="goal" size={24} color={colors.primary} />
+              <Icon icon={Target01Icon} size={24} color={colors.primary} />
             </View>
             <View style={styles.optionTextWrap}>
               <Text style={styles.optionTitle}>Create Manually</Text>
               <Text style={styles.optionSubtitle}>Use a simple form to set the goal details.</Text>
             </View>
-            <Icon name="chevron-right" size={20} color={colors.text.secondary} />
+            <Icon icon={ArrowRight01Icon} size={20} color={colors.text.secondary} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>

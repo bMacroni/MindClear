@@ -21,7 +21,7 @@ jest.mock('@react-native-community/netinfo', () => ({
 const createMockCollection = () => {
   const mockTasks: any[] = [];
   let taskIdCounter = 1;
-  
+
   // Helper to add update method to a task
   const addUpdateMethod = (task: any) => {
     task.update = jest.fn(async (callback: (t: any) => void) => {
@@ -31,45 +31,45 @@ const createMockCollection = () => {
     });
     return task;
   };
-  
+
   return {
     query: jest.fn((...queryArgs: any[]) => {
       // Simulate query filtering based on where clauses
       let filtered = [...mockTasks];
-      
+
       // Apply basic filtering (simplified - real WatermelonDB is more complex)
       if (queryArgs.length > 0) {
         // Check for status filtering
-        const statusFilter = queryArgs.find((arg: any) => 
+        const statusFilter = queryArgs.find((arg: any) =>
           arg && typeof arg === 'object' && arg.column === 'status'
         );
         if (statusFilter) {
           if (statusFilter.value === 'not_eq') {
-            filtered = filtered.filter((t: any) => 
+            filtered = filtered.filter((t: any) =>
               !t.status.startsWith(statusFilter.notEqValue)
             );
           }
         }
-        
+
         // Check for user_id filtering
-        const userIdFilter = queryArgs.find((arg: any) => 
+        const userIdFilter = queryArgs.find((arg: any) =>
           arg && typeof arg === 'object' && arg.column === 'user_id'
         );
         if (userIdFilter) {
-          filtered = filtered.filter((t: any) => 
+          filtered = filtered.filter((t: any) =>
             t.userId === userIdFilter.value
           );
         }
-        
+
         // Check for is_today_focus filtering
-        const focusFilter = queryArgs.find((arg: any) => 
+        const focusFilter = queryArgs.find((arg: any) =>
           arg && typeof arg === 'object' && arg.column === 'is_today_focus'
         );
         if (focusFilter && focusFilter.value === true) {
           filtered = filtered.filter((t: any) => t.isTodayFocus === true);
         }
       }
-      
+
       return {
         fetch: jest.fn(async () => filtered.map(addUpdateMethod)),
         observe: jest.fn(() => ({
@@ -251,7 +251,11 @@ jest.mock('react-native-paper', () => ({
 }));
 
 // Mock vector icons
-jest.mock('react-native-vector-icons/Octicons', () => 'Icon');
+jest.mock('@hugeicons/react-native', () => ({
+  HugeiconsIcon: 'Icon',
+}));
+jest.mock('@hugeicons/core-free-icons', () => ({}));
+
 
 // Mock date utilities
 jest.mock('../utils/dateUtils', () => ({
@@ -382,7 +386,7 @@ jest.mock('../services/SyncService', () => ({
         const { taskRepository } = require('../repositories/TaskRepository');
         const { goalRepository } = require('../repositories/GoalRepository');
         const { enhancedAPI } = require('../services/enhancedApi');
-        
+
         // Get all pending tasks and sync them
         const allTasks = await taskRepository.getAllTasks();
         for (const task of allTasks) {
@@ -424,7 +428,7 @@ jest.mock('../services/SyncService', () => ({
             // Continue with other tasks even if one fails
           }
         }
-        
+
         // Get all pending goals and sync them
         const allGoals = await goalRepository.getAllGoals();
         for (const goal of allGoals) {
@@ -459,7 +463,7 @@ jest.mock('../services/SyncService', () => ({
             // Continue with other goals even if one fails
           }
         }
-        
+
         return Promise.resolve();
       } catch (error) {
         console.error('Sync service failed:', error);
@@ -478,14 +482,14 @@ beforeEach(() => {
   // Reset all repository mocks before each test
   const { taskRepository } = require('../repositories/TaskRepository');
   const { goalRepository } = require('../repositories/GoalRepository');
-  
+
   if (taskRepository.__resetMocks) {
     taskRepository.__resetMocks();
   }
   if (goalRepository.__resetMocks) {
     goalRepository.__resetMocks();
   }
-  
+
   // Clear all jest mocks
   jest.clearAllMocks();
 });
@@ -529,17 +533,17 @@ jest.mock('../repositories/TaskRepository', () => {
 
         const task = mockTasks.get(id);
         if (task) {
-          const updatedTask = { 
-            ...task, 
-            ...updates, 
-            status: updates.status !== undefined ? updates.status : 'pending_update', 
-            updatedAt: new Date() 
+          const updatedTask = {
+            ...task,
+            ...updates,
+            status: updates.status !== undefined ? updates.status : 'pending_update',
+            updatedAt: new Date()
           };
           mockTasks.set(id, updatedTask);
           return updatedTask;
         }
         throw new Error('Task not found');
-      }),      deleteTask: jest.fn(async (id) => {
+      }), deleteTask: jest.fn(async (id) => {
         const task = mockTasks.get(id);
         if (task) {
           const deletedTask = { ...task, status: 'pending_delete', updatedAt: new Date() };
@@ -566,13 +570,13 @@ jest.mock('../repositories/TaskRepository', () => {
         return Array.from(mockTasks.values()).filter(task => task.goalId === goalId && task.status !== 'pending_delete');
       }),
       getTasksByDueDate: jest.fn(async (date) => {
-        return Array.from(mockTasks.values()).filter(task => 
+        return Array.from(mockTasks.values()).filter(task =>
           task.dueDate && task.dueDate.toDateString() === date.toDateString() && task.status !== 'pending_delete'
         );
       }),
       getOverdueTasks: jest.fn(async () => {
         const today = new Date();
-        return Array.from(mockTasks.values()).filter(task => 
+        return Array.from(mockTasks.values()).filter(task =>
           task.dueDate && task.dueDate < today && task.status !== 'pending_delete'
         );
       }),
@@ -649,17 +653,17 @@ jest.mock('../repositories/GoalRepository', () => {
       updateGoal: jest.fn(async (id, updates) => {
         const goal = mockGoals.get(id);
         if (goal) {
-          const updatedGoal = { 
-            ...goal, 
-            ...updates, 
-            status: updates.status !== undefined ? updates.status : 'pending_update', 
-            updatedAt: new Date() 
+          const updatedGoal = {
+            ...goal,
+            ...updates,
+            status: updates.status !== undefined ? updates.status : 'pending_update',
+            updatedAt: new Date()
           };
           mockGoals.set(id, updatedGoal);
           return updatedGoal;
         }
         return null;
-      }),      deleteGoal: jest.fn(async (id) => {
+      }), deleteGoal: jest.fn(async (id) => {
         const goal = mockGoals.get(id);
         if (goal) {
           const deletedGoal = { ...goal, status: 'pending_delete', updatedAt: new Date() };

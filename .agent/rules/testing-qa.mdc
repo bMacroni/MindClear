@@ -1,0 +1,322 @@
+---
+globs: **/*.test.js,**/*.test.jsx,**/*.test.ts,**/*.test.tsx,**/*.spec.js,**/*.spec.jsx,**/*.spec.ts,**/*.spec.tsx
+---
+
+# Testing & Quality Assurance Rules
+
+## Testing Philosophy
+- **Test-Driven Development (TDD)**: Write tests first, then implement features
+- **Comprehensive Coverage**: Test critical user flows and edge cases
+- **Maintainable Tests**: Keep tests simple, readable, and maintainable
+- **Fast Feedback**: Tests should run quickly and provide clear feedback
+
+## Frontend Testing (React + Vite)
+
+### Testing Stack
+- **Vitest** for test runner and assertions
+- **@testing-library/react** for component testing
+- **@testing-library/jest-dom** for DOM matchers
+- **jsdom** for DOM simulation
+
+### Component Testing
+```jsx
+// Example: TaskList.test.jsx
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TaskList } from '../TaskList';
+import { useTaskStore } from '../../stores/taskStore';
+
+// Mock the store
+vi.mock('../../stores/taskStore', () => ({
+  useTaskStore: vi.fn()
+}));
+
+describe('TaskList', () => {
+  const mockTasks = [
+    { id: '1', title: 'Test Task 1', completed: false },
+    { id: '2', title: 'Test Task 2', completed: true }
+  ];
+
+  beforeEach(() => {
+    useTaskStore.mockReturnValue({
+      tasks: mockTasks,
+      loading: false,
+      fetchTasks: vi.fn(),
+      toggleTask: vi.fn()
+    });
+  });
+
+  it('renders task list correctly', () => {
+    render(<TaskList />);
+    
+    expect(screen.getByText('Test Task 1')).toBeInTheDocument();
+    expect(screen.getByText('Test Task 2')).toBeInTheDocument();
+  });
+
+  it('handles task completion', async () => {
+    const mockToggleTask = vi.fn();
+    useTaskStore.mockReturnValue({
+      tasks: mockTasks,
+      loading: false,
+      fetchTasks: vi.fn(),
+      toggleTask: mockToggleTask
+    });
+
+    render(<TaskList />);
+    
+    const checkbox = screen.getByRole('checkbox', { name: /test task 1/i });
+    fireEvent.click(checkbox);
+    
+    expect(mockToggleTask).toHaveBeenCalledWith('1');
+  });
+});
+```
+
+### API Testing
+```jsx
+// Example: taskService.test.js
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import axios from 'axios';
+import { taskService } from '../taskService';
+
+// Mock axios
+vi.mock('axios');
+const mockedAxios = vi.mocked(axios);
+
+describe('taskService', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('fetches tasks successfully', async () => {
+    const mockTasks = [{ id: '1', title: 'Test Task' }];
+    mockedAxios.get.mockResolvedValue({ data: mockTasks });
+
+    const result = await taskService.getTasks();
+    
+    expect(mockedAxios.get).toHaveBeenCalledWith('/api/tasks');
+    expect(result).toEqual(mockTasks);
+  });
+
+  it('handles API errors', async () => {
+    mockedAxios.get.mockRejectedValue(new Error('Network error'));
+
+    await expect(taskService.getTasks()).rejects.toThrow('Network error');
+  });
+});
+```
+
+## Mobile Testing (React Native)
+
+### Testing Stack
+- **Jest** for test runner
+- **@testing-library/react-native** for component testing
+- **React Native Testing Library** for native component testing
+
+### Component Testing
+```tsx
+// Example: TaskList.test.tsx
+import React from 'react';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { TaskList } from '../TaskList';
+
+describe('TaskList', () => {
+  const mockTasks = [
+    { id: '1', title: 'Test Task 1', completed: false },
+    { id: '2', title: 'Test Task 2', completed: true }
+  ];
+
+  it('renders task list correctly', () => {
+    const { getByText } = render(<TaskList tasks={mockTasks} />);
+    
+    expect(getByText('Test Task 1')).toBeTruthy();
+    expect(getByText('Test Task 2')).toBeTruthy();
+  });
+
+  it('handles task completion', async () => {
+    const mockOnToggle = jest.fn();
+    const { getByTestId } = render(
+      <TaskList tasks={mockTasks} onToggle={mockOnToggle} />
+    );
+    
+    const checkbox = getByTestId('task-checkbox-1');
+    fireEvent.press(checkbox);
+    
+    expect(mockOnToggle).toHaveBeenCalledWith('1');
+  });
+});
+```
+
+## Backend Testing (Node.js + Express)
+
+### Testing Stack
+- **Vitest** for test runner
+- **Supertest** for API endpoint testing
+- **Mock functions** for external dependencies
+
+### API Endpoint Testing
+```javascript
+// Example: taskController.test.js
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import request from 'supertest';
+import express from 'express';
+import { getTasks, createTask } from '../controllers/taskController.js';
+import { authenticateToken } from '../middleware/auth.js';
+
+// Mock dependencies
+vi.mock('../services/taskService.js');
+vi.mock('../middleware/auth.js');
+
+const app = express();
+app.use(express.json());
+app.get('/api/tasks', authenticateToken, getTasks);
+app.post('/api/tasks', authenticateToken, createTask);
+
+describe('Task Controller', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('GET /api/tasks returns tasks for authenticated user', async () => {
+    const mockTasks = [{ id: '1', title: 'Test Task' }];
+    const mockUser = { userId: 'user123' };
+    
+    authenticateToken.mockImplementation((req, res, next) => {
+      req.user = mockUser;
+      next();
+    });
+    
+    const { taskService } = await import('../services/taskService.js');
+    taskService.getTasksByUserId.mockResolvedValue(mockTasks);
+
+    const response = await request(app)
+      .get('/api/tasks')
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toEqual(mockTasks);
+  });
+
+  it('POST /api/tasks creates new task', async () => {
+    const mockTask = { id: '1', title: 'New Task' };
+    const mockUser = { userId: 'user123' };
+    
+    authenticateToken.mockImplementation((req, res, next) => {
+      req.user = mockUser;
+      next();
+    });
+    
+    const { taskService } = await import('../services/taskService.js');
+    taskService.createTask.mockResolvedValue(mockTask);
+
+    const response = await request(app)
+      .post('/api/tasks')
+      .send({ title: 'New Task' })
+      .expect(201);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toEqual(mockTask);
+  });
+});
+```
+
+### Service Testing
+```javascript
+// Example: taskService.test.js
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { taskService } from '../services/taskService.js';
+import { supabase } from '../utils/supabase.js';
+
+vi.mock('../utils/supabase.js');
+
+describe('taskService', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('fetches tasks by user ID', async () => {
+    const mockTasks = [{ id: '1', title: 'Test Task' }];
+    supabase.from.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data: mockTasks, error: null })
+        })
+      })
+    });
+
+    const result = await taskService.getTasksByUserId('user123');
+    
+    expect(result).toEqual(mockTasks);
+    expect(supabase.from).toHaveBeenCalledWith('tasks');
+  });
+
+  it('handles database errors', async () => {
+    supabase.from.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ 
+            data: null, 
+            error: { message: 'Database error' } 
+          })
+        })
+      })
+    });
+
+    await expect(taskService.getTasksByUserId('user123'))
+      .rejects.toThrow('Failed to fetch tasks: Database error');
+  });
+});
+```
+
+## Test Organization
+
+### File Structure
+```
+tests/
+├── unit/              # Unit tests
+│   ├── components/    # Component tests
+│   ├── services/      # Service tests
+│   └── utils/         # Utility tests
+├── integration/       # Integration tests
+│   ├── api/          # API endpoint tests
+│   └── flows/        # User flow tests
+└── e2e/              # End-to-end tests
+```
+
+### Test Naming Conventions
+- Use descriptive test names: `should return tasks when user is authenticated`
+- Group related tests with `describe` blocks
+- Use `it` or `test` for individual test cases
+- Use `beforeEach` and `afterEach` for setup/cleanup
+
+## Quality Assurance
+
+### Code Coverage
+- Aim for 80%+ code coverage
+- Focus on critical business logic
+- Don't test implementation details
+- Test user-facing behavior
+
+### Linting and Formatting
+- Use ESLint for JavaScript/TypeScript
+- Use Prettier for code formatting
+- Run linting in CI/CD pipeline
+- Fix all linting errors before merging
+
+### Performance Testing
+- Test API response times
+- Test component rendering performance
+- Monitor memory usage
+- Test with large datasets
+
+### Security Testing
+- Test authentication and authorization
+- Test input validation
+- Test for common vulnerabilities
+- Use security scanning tools
+
+## Continuous Integration
+- Run tests on every commit
+- Fail builds on test failures
+- Generate coverage reports
+- Run different test suites in parallel

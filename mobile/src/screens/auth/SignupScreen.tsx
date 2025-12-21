@@ -7,7 +7,8 @@ import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, PasswordInput, Button, GoogleSignInButton } from '../../components/common';
 import { authService } from '../../services/auth';
 import { googleAuthService } from '../../services/googleAuth';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { InformationCircleIcon, Mail01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
 
 export default function SignupScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
@@ -84,15 +85,15 @@ export default function SignupScreen({ navigation }: any) {
 
   const handleSignup = async () => {
     setError('');
-    
+
     if (!validateInputs()) {
       return;
     }
-    
+
     setLoading(true);
     try {
       const result = await authService.signup({ email, password, fullName });
-      
+
       if (result.success) {
         if (result.requiresConfirmation) {
           // User was created but needs email confirmation
@@ -139,10 +140,10 @@ export default function SignupScreen({ navigation }: any) {
   const handleGoogleSignIn = async () => {
     setError('');
     setGoogleLoading(true);
-    
+
     try {
       const result = await googleAuthService.signInWithGoogle();
-      
+
       if (result.success) {
         // Auth service will automatically update the navigation state
         // No need to manually navigate - AppNavigator will handle this
@@ -163,15 +164,15 @@ export default function SignupScreen({ navigation }: any) {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Image 
-            source={require('../../../assets/icon.png')} 
+          <Image
+            source={require('../../../assets/icon.png')}
             style={styles.logo}
             resizeMode="contain"
           />
         </View>
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.subtitle}>Sign up for a Mind Clear account</Text>
-        
+
         <Input
           placeholder="Full Name"
           value={fullName}
@@ -185,40 +186,40 @@ export default function SignupScreen({ navigation }: any) {
           keyboardType="email-address"
           autoCapitalize="none"
         />
-        
+
         <PasswordInput
           placeholder="Password"
           value={password}
           onChangeText={setPassword}
         />
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.requirementsButton}
           onPress={() => setShowPasswordModal(true)}
         >
           <Text style={styles.requirementsButtonText}>Password Requirements</Text>
-          <Icon name="info" size={16} color={colors.primary} />
+          <Icon icon={InformationCircleIcon} size={16} color={colors.primary} />
         </TouchableOpacity>
-        
+
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        
+
         <Text style={styles.legalText}>
           By signing up, you agree to our{' '}
-          <Text 
-            style={styles.linkText} 
+          <Text
+            style={styles.linkText}
             onPress={() => handleOpenURL('https://www.mind-clear.com/privacy.html')}
           >
             Privacy Policy
           </Text>
         </Text>
-        
+
         <Button
           title="Sign Up"
           onPress={handleSignup}
           loading={loading}
           style={styles.button}
         />
-        
+
         <Button
           title="Sign In"
           onPress={() => navigation.navigate('Login')}
@@ -252,9 +253,9 @@ export default function SignupScreen({ navigation }: any) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Icon name="mail" size={24} color={colors.primary} style={styles.modalIcon} />
+              <Icon icon={Mail01Icon} size={24} color={colors.primary} style={styles.modalIcon} />
             </View>
-            
+
             <View style={styles.modalBody}>
               <Text style={styles.modalTitle}>Check Your Email</Text>
               <Text style={styles.modalMessage}>
@@ -264,16 +265,15 @@ export default function SignupScreen({ navigation }: any) {
               <Text style={styles.modalInstructions}>
                 Please click the link in the email to confirm your account and complete your registration.
               </Text>
-              
+
               <View style={styles.modalActions}>
                 <Button
                   title="Go to Login"
                   onPress={handleCloseModal}
                   style={styles.modalButton}
-                  accessibilityLabel="Go to login"
                 />
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   onPress={handleResendConfirmation}
                   disabled={resendLoading}
                   style={styles.resendButton}
@@ -302,7 +302,7 @@ export default function SignupScreen({ navigation }: any) {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Password Requirements</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => setShowPasswordModal(false)}
                 style={styles.closeButton}
                 accessible={true}
@@ -311,17 +311,17 @@ export default function SignupScreen({ navigation }: any) {
                 accessibilityHint="Closes the sign up help modal"
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                <Icon name="x" size={20} color={colors.text.primary} />
+                <Icon icon={Cancel01Icon} size={20} color={colors.text.primary} />
               </TouchableOpacity>
             </View>
-            
+
             <View style={styles.modalBody}>
               <Text style={styles.requirementItem}>• At least 12 characters</Text>
               <Text style={styles.requirementItem}>• One uppercase letter</Text>
               <Text style={styles.requirementItem}>• One lowercase letter</Text>
               <Text style={styles.requirementItem}>• One number</Text>
             </View>
-            
+
             <Button
               title="Got it"
               onPress={() => setShowPasswordModal(false)}
@@ -474,8 +474,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   modalMessage: {
-    ...typography.body,
-    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
     textAlign: 'center',
     marginBottom: spacing.md,
     lineHeight: 22,
@@ -485,7 +484,6 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
   },
   modalInstructions: {
-    ...typography.body,
     fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
     textAlign: 'center',

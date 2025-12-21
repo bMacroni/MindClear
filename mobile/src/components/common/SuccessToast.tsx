@@ -11,7 +11,8 @@ import {
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { CheckmarkCircle01Icon, Clock01Icon, Calendar01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface SuccessToastProps {
@@ -96,7 +97,7 @@ export const SuccessToast: React.FC<SuccessToastProps> = ({
     }
   };
 
-  if (!visible) {return null;}
+  if (!visible) { return null; }
 
   return (
     <Animated.View
@@ -115,24 +116,24 @@ export const SuccessToast: React.FC<SuccessToastProps> = ({
     >
       <View style={styles.toast}>
         <View style={styles.iconContainer}>
-          <Icon name="check-circle" size={24} color={colors.success} />
+          <Icon icon={CheckmarkCircle01Icon} size={24} color={colors.success} />
         </View>
-        
+
         <View style={styles.content}>
           <Text style={styles.message}>{message}</Text>
-          
+
           {scheduledTime && (
             <View style={styles.scheduledTimeContainer}>
-              <Icon name="clock" size={14} color={colors.text.secondary} />
+              <Icon icon={Clock01Icon} size={14} color={colors.text.secondary} />
               <Text style={styles.scheduledTimeText}>
                 Scheduled for {formatScheduledTime(scheduledTime)}
               </Text>
             </View>
           )}
-          
+
           {calendarEventCreated && (
             <View style={styles.calendarContainer}>
-              <Icon name="calendar" size={14} color={colors.text.secondary} />
+              <Icon icon={Calendar01Icon} size={14} color={colors.text.secondary} />
               <Text style={styles.calendarText}>
                 Added to calendar
               </Text>
@@ -144,9 +145,9 @@ export const SuccessToast: React.FC<SuccessToastProps> = ({
             </TouchableOpacity>
           )}
         </View>
-        
+
         <TouchableOpacity style={styles.closeButton} onPress={hideToast}>
-          <Icon name="x" size={16} color={colors.text.secondary} />
+          <Icon icon={Cancel01Icon} size={16} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
     </Animated.View>

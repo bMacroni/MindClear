@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Task01Icon, Calendar01Icon, CheckmarkCircle01Icon, CheckmarkCircle02Icon, CircleIcon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -54,7 +55,7 @@ const parseTaskData = (taskText: string): TaskData | null => {
         return normalizeTaskPayload(jsonData);
       }
     }
-    
+
     // Also try to parse if the text is just JSON
     const directJsonMatch = taskText.match(/\{[\s\S]*\}/);
     if (directJsonMatch) {
@@ -63,7 +64,7 @@ const parseTaskData = (taskText: string): TaskData | null => {
         return normalizeTaskPayload(jsonData);
       }
     }
-    
+
     return null;
   } catch (_error) {
     // ignore parse errors; fall back to null
@@ -93,7 +94,7 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
   // Track previous taskData to detect when new AI drafts arrive
   const prevTaskDataRef = useRef<TaskData | null>(null);
   const isInitialMountRef = useRef(true);
-  
+
   // Reset hasBeenSaved when new AI draft data arrives
   useEffect(() => {
     // Skip on initial mount
@@ -102,7 +103,7 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
       prevTaskDataRef.current = taskData;
       return;
     }
-    
+
     // Reset hasBeenSaved when taskData changes (new AI draft arrived)
     if (prevTaskDataRef.current !== taskData) {
       setHasBeenSaved(false);
@@ -132,32 +133,32 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
 
   // Format date for display
   const formatDate = (dateString?: string) => {
-    if (!dateString) {return '';}
+    if (!dateString) { return ''; }
     try {
       // Handle YYYY-MM-DD format to avoid timezone conversion issues
       if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
         const [year, month, day] = dateString.split('-');
         const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-        return date.toLocaleDateString('en-US', { 
-          month: 'short', 
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
           day: 'numeric',
           year: 'numeric'
         });
-      } 
+      }
       // Handle timestamp format (YYYY-MM-DDTHH:mm:ss) to avoid timezone conversion
       else if (/^\d{4}-\d{2}-\d{2}T/.test(dateString)) {
         const [datePart] = dateString.split('T');
         const [year, month, day] = datePart.split('-');
         const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-        return date.toLocaleDateString('en-US', { 
-          month: 'short', 
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
           day: 'numeric',
           year: 'numeric'
         });
       } else {
         const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-          month: 'short', 
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
           day: 'numeric',
           year: 'numeric'
         });
@@ -183,9 +184,9 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
 
   const handleToggleComplete = async (taskId: string) => {
     const index = items.findIndex(t => t.id === taskId);
-    if (index === -1) {return;}
+    if (index === -1) { return; }
     const current = items[index];
-    if (!current?.id) {return;}
+    if (!current?.id) { return; }
     const newStatus: Task['status'] = current.status === 'completed' ? 'not_started' : 'completed';
     // Optimistic update by id (avoids filtered index mismatch)
     setItems(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
@@ -212,14 +213,14 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
           {taskData?.tasks.map((task, index) => (
             <View key={index} style={styles.taskCard}>
               <View style={styles.taskHeader}>
-                <Icon name="checklist" size={18} color={colors.text.secondary} style={styles.taskIcon} />
+                <Icon icon={Task01Icon} size={18} color={colors.text.secondary} style={styles.taskIcon} />
                 <Text selectable style={styles.taskTitle} numberOfLines={2}>
                   {task.title}
                 </Text>
               </View>
               {!!task.dueDate && (
                 <View style={styles.dueDateContainer}>
-                  <Icon name="calendar" size={12} color={colors.text.secondary} style={styles.calendarIcon} />
+                  <Icon icon={Calendar01Icon} size={12} color={colors.text.secondary} style={styles.calendarIcon} />
                   <Text style={styles.dueDateText}>Due: {formatDate(task.dueDate)}</Text>
                 </View>
               )}
@@ -228,9 +229,9 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
           ))}
         </View>
         {!hasBeenSaved && (
-          <TouchableOpacity 
-            style={styles.saveButton} 
-            onPress={handleSave} 
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={handleSave}
             disabled={isSaving}
             accessibilityLabel="Save all drafted tasks"
             accessibilityRole="button"
@@ -240,7 +241,7 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
             ) : (
               <Text style={styles.saveButtonText}>Save Tasks</Text>
             )}
-          </TouchableOpacity>        )}
+          </TouchableOpacity>)}
         {saveError && (
           <Text style={styles.saveErrorText} accessibilityRole="text">
             {saveError}
@@ -248,7 +249,7 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
         )}
         {hasBeenSaved && (
           <View style={styles.savedConfirmation}>
-            <Icon name="check-circle-fill" size={16} color={colors.success} />
+            <Icon icon={CheckmarkCircle02Icon} size={16} color={colors.success} />
             <Text style={styles.savedConfirmationText}>Tasks have been saved successfully!</Text>
           </View>
         )}
@@ -281,7 +282,7 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
                 {updatingId === task.id ? (
                   <ActivityIndicator size={14} color={colors.primary} />
                 ) : (
-                  <Icon name={task.status === 'completed' ? 'check-circle' : 'circle'} size={18} color={task.status === 'completed' ? colors.primary : colors.text.secondary} />
+                  <Icon icon={task.status === 'completed' ? CheckmarkCircle01Icon : CircleIcon} size={18} color={task.status === 'completed' ? colors.primary : colors.text.secondary} />
                 )}
               </TouchableOpacity>
               <Text selectable style={[styles.taskTitle, task.status === 'completed' && styles.taskTitleCompleted]} numberOfLines={2}>
@@ -296,7 +297,7 @@ export default function TaskDisplay({ text, onSaveTasks }: TaskDisplayProps) {
             {/* Description intentionally omitted for compact list */}
             {!!task.dueDate && (
               <View style={styles.dueDateContainer}>
-                <Icon name="calendar" size={12} color={colors.text.secondary} style={styles.calendarIcon} />
+                <Icon icon={Calendar01Icon} size={12} color={colors.text.secondary} style={styles.calendarIcon} />
                 <Text style={styles.dueDateText}>Due: {formatDate(task.dueDate)}</Text>
               </View>
             )}

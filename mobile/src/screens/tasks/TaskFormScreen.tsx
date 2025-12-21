@@ -12,7 +12,8 @@ import { taskRepository } from '../../repositories/TaskRepository';
 import { goalRepository } from '../../repositories/GoalRepository';
 import { syncService } from '../../services/SyncService';
 import { authService } from '../../services/auth';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface Task {
@@ -73,10 +74,26 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
     loadData();
   }, [taskId, loadData]);
 
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: taskId ? 'Edit Task' : 'New Task',
+      headerLeft: () => (
+        <TouchableOpacity style={styles.headerIconBtn} onPress={handleCancel}>
+          <Icon icon={Cancel01Icon} size={24} color={colors.text.primary} />
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSaveSignal((s) => s + 1)}>
+          <Icon icon={Tick01Icon} size={24} color={colors.text.primary} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, taskId]);
+
   const handleSave = async (taskData: Partial<Task>) => {
     try {
       setSaving(true);
-      
+
       if (taskId) {
         // Update existing task
         await taskRepository.updateTask(taskId, taskData);
@@ -87,10 +104,10 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
           userId: authService.getCurrentUser()?.id,
         });
       }
-      
+
       // Trigger background sync
       syncService.silentSync();
-      
+
       navigation.goBack();
     } catch (error) {
       console.error('Error saving task:', error);
@@ -113,17 +130,7 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
   }
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
-        <View style={styles.headerBar}>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={handleCancel}>
-            <Icon name="x" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSaveSignal((s) => s + 1)}>
-            <Icon name="check" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+    <SafeAreaView edges={['left', 'right']} style={styles.container}>
 
       <TaskForm
         task={task}
@@ -133,7 +140,7 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
         loading={saving}
         saveSignal={saveSignal}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 

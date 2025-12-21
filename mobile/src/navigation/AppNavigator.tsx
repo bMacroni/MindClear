@@ -18,12 +18,14 @@ import ResetPasswordScreen from '@src/screens/auth/ResetPasswordScreen';
 import EmailConfirmationScreen from '@src/screens/auth/EmailConfirmationScreen';
 import BetaThankYouScreen from '@src/screens/beta/BetaThankYouScreen';
 import TabNavigator from './TabNavigator';
+import { MainHeader } from './MainHeader';
 import GoalFormScreen from '../screens/goals/GoalFormScreen';
 import GoalDetailScreen from '../screens/goals/GoalDetailScreen';
 import TaskFormScreen from '../screens/tasks/TaskFormScreen';
 import TaskDetailScreen from '../screens/tasks/TaskDetailScreen';
 import NotificationScreen from '../screens/notifications/NotificationScreen';
 import MobileAnalyticsDashboard from '../components/analytics/MobileAnalyticsDashboard';
+import ProfileScreen from '../screens/profile/ProfileScreen';
 import { parseAccessTokenFromUrl } from '@src/utils/deeplink';
 
 const BETA_SCREEN_SEEN_KEY = 'beta_thank_you_seen';
@@ -38,16 +40,16 @@ const isMatchingUrl = (url: string | null | undefined, configUri: string | undef
     }
     return false;
   }
-  
+
   try {
     const parsedUrl = new URL(url);
     const parsedConfig = new URL(configUri);
-    
+
     // Normalize: origin + pathname
     const getNormalizedPrefix = (u: URL) => {
-       // Handle custom schemes where origin might be 'null'
-       const origin = u.origin !== 'null' ? u.origin : `${u.protocol}//${u.host}`;
-       return `${origin}${u.pathname}`;
+      // Handle custom schemes where origin might be 'null'
+      const origin = u.origin !== 'null' ? u.origin : `${u.protocol}//${u.host}`;
+      return `${origin}${u.pathname}`;
     };
 
     const urlPrefix = getNormalizedPrefix(parsedUrl);
@@ -65,14 +67,14 @@ export default function AppNavigator() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const handledInitialLink = useRef(false);
-  const cachedInitialLink = useRef<{ 
-    type: 'confirm' | 'reset'; 
+  const cachedInitialLink = useRef<{
+    type: 'confirm' | 'reset';
     code?: string;
-    token?: string; 
+    token?: string;
     access_token?: string;
     refresh_token?: string;
-    error?: string; 
-    error_description?: string 
+    error?: string;
+    error_description?: string
   } | null>(null);
   const prevAuthRef = useRef<boolean>(false);
   // Use shared navigationRef for global route awareness
@@ -80,23 +82,23 @@ export default function AppNavigator() {
   // Handle initial URL only once on app launch
   useEffect(() => {
     if (handledInitialLink.current) return;
-    
+
     const handleInitialUrl = (url?: string | null) => {
       if (!url) return;
-      
+
       const confirmUri = configService.getMindClearConfirmUri();
       const resetUri = configService.getMindClearResetPasswordUri();
-      
+
       // Check if it's a confirmation link
       if (isMatchingUrl(url, confirmUri)) {
         const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         // Use code if available, fallback to token (magic link) or access_token (legacy)
         const authCode = code || token || access_token;
-        
+
         // Navigate if we have a code OR an error
         if (authCode || error) {
           if (navigationRef.current) {
-            navigationRef.current.navigate('EmailConfirmation', { 
+            navigationRef.current.navigate('EmailConfirmation', {
               code: authCode,
               error,
               error_description
@@ -112,7 +114,7 @@ export default function AppNavigator() {
         }
         return;
       }
-      
+
       // Check if it's a password reset link
       if (isMatchingUrl(url, resetUri)) {
         const { access_token, token } = parseAccessTokenFromUrl(url);
@@ -131,7 +133,7 @@ export default function AppNavigator() {
       }
     };
 
-    Linking.getInitialURL().then(handleInitialUrl).catch(() => {});
+    Linking.getInitialURL().then(handleInitialUrl).catch(() => { });
     handledInitialLink.current = true;
   }, []); // Empty dependency array - runs only once
 
@@ -139,7 +141,7 @@ export default function AppNavigator() {
     // Deep link handler: navigate to appropriate screen based on URL
     const handleUrl = (url?: string | null) => {
       if (!url) return;
-      
+
       const confirmUri = configService.getMindClearConfirmUri();
       const resetUri = configService.getMindClearResetPasswordUri();
 
@@ -147,9 +149,9 @@ export default function AppNavigator() {
       if (isMatchingUrl(url, confirmUri)) {
         const { code, access_token, token, error, error_description } = parseAccessTokenFromUrl(url);
         const authCode = code || token || access_token;
-        
+
         if ((authCode || error) && navigationRef.current) {
-          navigationRef.current.navigate('EmailConfirmation', { 
+          navigationRef.current.navigate('EmailConfirmation', {
             code: authCode,
             error,
             error_description
@@ -157,7 +159,7 @@ export default function AppNavigator() {
         }
         return;
       }
-      
+
       // Check if it's a password reset link
       if (isMatchingUrl(url, resetUri)) {
         const { access_token, token } = parseAccessTokenFromUrl(url);
@@ -189,7 +191,7 @@ export default function AppNavigator() {
         const authenticated = authService.isAuthenticated();
         setIsAuthenticated(authenticated);
         prevAuthRef.current = authenticated;
-        
+
         // If already authenticated on app start, check if beta screen should be shown
         if (authenticated && navigationRef.current) {
           try {
@@ -203,7 +205,8 @@ export default function AppNavigator() {
                     console.warn('AppNavigator: Error saving beta screen seen flag:', err);
                   });
                 }
-              }, 100);            }
+              }, 100);
+            }
           } catch (error) {
             console.warn('AppNavigator: Error checking beta screen on app start:', error);
           }
@@ -234,7 +237,7 @@ export default function AppNavigator() {
             try {
               // Check if user has seen the beta thank you screen
               const hasSeenBetaScreen = await AsyncStorage.getItem(BETA_SCREEN_SEEN_KEY);
-              
+
               if (!hasSeenBetaScreen) {
                 // First time login - show beta thank you screen
                 navigationRef.current?.reset({ index: 0, routes: [{ name: 'BetaThankYou' }] });
@@ -309,7 +312,7 @@ export default function AppNavigator() {
     if (cachedInitialLink.current && navigationRef.current) {
       const link = cachedInitialLink.current;
       if (link.type === 'confirm') {
-        navigationRef.current.navigate('EmailConfirmation', { 
+        navigationRef.current.navigate('EmailConfirmation', {
           code: link.code,
           error: link.error,
           error_description: link.error_description
@@ -324,53 +327,63 @@ export default function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef} linking={linking} onReady={handleNavigatorReady}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.secondary} animated />
-      <Stack.Navigator 
+      <Stack.Navigator
         initialRouteName={isAuthenticated ? "Main" : "Login"}
-        screenOptions={{ headerShown: false }}
+        screenOptions={{
+          headerShown: true,
+          header: (props) => <MainHeader {...props} />
+        }}
       >
-        <Stack.Screen 
-          name="Login" 
-          component={LoginScreen} 
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="Signup" 
-          component={SignupScreen} 
+        <Stack.Screen
+          name="Signup"
+          component={SignupScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="ForgotPassword" 
-          component={ForgotPasswordScreen} 
+        <Stack.Screen
+          name="ForgotPassword"
+          component={ForgotPasswordScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="ResetPassword" 
-          component={ResetPasswordScreen} 
+        <Stack.Screen
+          name="ResetPassword"
+          component={ResetPasswordScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="EmailConfirmation" 
-          component={EmailConfirmationScreen} 
+        <Stack.Screen
+          name="EmailConfirmation"
+          component={EmailConfirmationScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="BetaThankYou" 
-          component={BetaThankYouScreen} 
+        <Stack.Screen
+          name="BetaThankYou"
+          component={BetaThankYouScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="Main" 
-          component={TabNavigator} 
+        <Stack.Screen
+          name="Main"
+          component={TabNavigator}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="GoalForm" 
-          component={GoalFormScreen} 
+        <Stack.Screen
+          name="GoalForm"
+          component={GoalFormScreen}
         />
-        <Stack.Screen 
-          name="GoalDetail" 
-          component={GoalDetailScreen} 
+        <Stack.Screen
+          name="GoalDetail"
+          component={GoalDetailScreen}
         />
-        <Stack.Screen 
-          name="TaskForm" 
-          component={TaskFormScreen} 
+        <Stack.Screen
+          name="TaskForm"
+          component={TaskFormScreen}
         />
-        <Stack.Screen 
-          name="TaskDetail" 
-          component={TaskDetailScreen} 
+        <Stack.Screen
+          name="TaskDetail"
+          component={TaskDetailScreen}
         />
         <Stack.Screen
           name="Notifications"
@@ -379,6 +392,10 @@ export default function AppNavigator() {
         <Stack.Screen
           name="AnalyticsDashboard"
           component={MobileAnalyticsDashboard}
+        />
+        <Stack.Screen
+          name="Profile"
+          component={ProfileScreen}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -10,7 +10,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ArrowRight01Icon, Delete01Icon, Cancel01Icon, Search01Icon, Target01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -46,14 +47,14 @@ export default function GoalsListModal({
   onGoalDelete,
 }: GoalsListModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [swipeAnimations] = useState(() => 
+  const [swipeAnimations] = useState(() =>
     goals.map(() => new Animated.Value(0))
   );
-  const [fadeAnimations] = useState(() => 
+  const [fadeAnimations] = useState(() =>
     goals.map(() => new Animated.Value(0))
   );
 
-  const filteredGoals = useMemo(() => 
+  const filteredGoals = useMemo(() =>
     goals.filter(goal =>
       goal.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       goal.description.toLowerCase().includes(searchQuery.toLowerCase())
@@ -70,7 +71,7 @@ export default function GoalsListModal({
           useNativeDriver: true,
         })
       );
-      
+
       Animated.stagger(100, animations).start();
     }
   }, [visible, filteredGoals, fadeAnimations]);
@@ -97,7 +98,7 @@ export default function GoalsListModal({
   }, [swipeAnimations, handleDelete]);
 
   const renderGoalItem = (goal: Goal, index: number) => {
-    
+
     return (
       <View key={goal.id} style={styles.goalItemContainer}>
         <Animated.View
@@ -111,28 +112,28 @@ export default function GoalsListModal({
             }
           ]}
         >
-                           <TouchableOpacity
-                   style={styles.goalContent}
-                   onPress={() => onGoalPress(goal.id)}
-                   activeOpacity={0.7}
-                 >
-                   <View style={styles.goalHeader}>
-                     <Text style={styles.goalTitle} numberOfLines={1}>
-                       {goal.title}
-                     </Text>
-                     <Icon name="chevron-right" size={16} color={colors.text.secondary} />
-                   </View>
-                 </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.goalContent}
+            onPress={() => onGoalPress(goal.id)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.goalHeader}>
+              <Text style={styles.goalTitle} numberOfLines={1}>
+                {goal.title}
+              </Text>
+              <Icon icon={ArrowRight01Icon} size={16} color={colors.text.secondary} />
+            </View>
+          </TouchableOpacity>
         </Animated.View>
-        
+
         {/* Swipe Actions */}
         <View style={styles.swipeActions}>
-                           <TouchableOpacity
-                   style={styles.deleteAction}
-                   onPress={() => handleSwipeToDelete(goal.id, index)}
-                 >
-                   <Icon name="trash" size={14} color={colors.secondary} />
-                 </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.deleteAction}
+            onPress={() => handleSwipeToDelete(goal.id, index)}
+          >
+            <Icon icon={Delete01Icon} size={14} color={colors.secondary} />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -149,7 +150,7 @@ export default function GoalsListModal({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Icon name="x" size={24} color={colors.text.primary} />
+            <Icon icon={Cancel01Icon} size={24} color={colors.text.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>All Goals</Text>
           <View style={styles.headerSpacer} />
@@ -158,7 +159,7 @@ export default function GoalsListModal({
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchInputContainer}>
-            <Icon name="search" size={16} color={colors.text.secondary} style={styles.searchIcon} />
+            <Icon icon={Search01Icon} size={16} color={colors.text.secondary} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search goals..."
@@ -168,49 +169,49 @@ export default function GoalsListModal({
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-                <Icon name="x" size={16} color={colors.text.secondary} />
+                <Icon icon={Cancel01Icon} size={16} color={colors.text.secondary} />
               </TouchableOpacity>
             )}
           </View>
         </View>
 
-                                   {/* Goals List */}
-          <View style={styles.content}>
-            {filteredGoals.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Icon 
-                  name={searchQuery ? "search" : "target"} 
-                  size={48} 
-                  color={colors.text.disabled} 
-                />
-                <Text style={styles.emptyStateTitle}>
-                  {searchQuery ? 'No goals found' : 'No goals yet'}
-                </Text>
-                <Text style={styles.emptyStateText}>
-                  {searchQuery 
-                    ? 'Try adjusting your search terms or create a new goal'
-                    : 'Create your first goal using the AI assistant'
-                  }
-                </Text>
-                {!searchQuery && (
-                  <TouchableOpacity 
-                    style={styles.createFirstGoalButton}
-                    onPress={onClose}
-                  >
-                    <Text style={styles.createFirstGoalText}>Create First Goal</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ) : (
-              <ScrollView 
-                style={styles.goalsList}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.goalsListContent}
-              >
-                {filteredGoals.map((goal, index) => renderGoalItem(goal, index))}
-              </ScrollView>
-            )}
-          </View>
+        {/* Goals List */}
+        <View style={styles.content}>
+          {filteredGoals.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Icon
+                icon={searchQuery ? Search01Icon : Target01Icon}
+                size={48}
+                color={colors.text.disabled}
+              />
+              <Text style={styles.emptyStateTitle}>
+                {searchQuery ? 'No goals found' : 'No goals yet'}
+              </Text>
+              <Text style={styles.emptyStateText}>
+                {searchQuery
+                  ? 'Try adjusting your search terms or create a new goal'
+                  : 'Create your first goal using the AI assistant'
+                }
+              </Text>
+              {!searchQuery && (
+                <TouchableOpacity
+                  style={styles.createFirstGoalButton}
+                  onPress={onClose}
+                >
+                  <Text style={styles.createFirstGoalText}>Create First Goal</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.goalsList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.goalsListContent}
+            >
+              {filteredGoals.map((goal, index) => renderGoalItem(goal, index))}
+            </ScrollView>
+          )}
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -271,13 +272,13 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.md,
   },
-     goalsList: {
-     flex: 1,
-   },
-   goalsListContent: {
-     paddingTop: spacing.sm,
-     paddingBottom: spacing.lg,
-   },
+  goalsList: {
+    flex: 1,
+  },
+  goalsListContent: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+  },
   goalItemContainer: {
     position: 'relative',
     marginBottom: spacing.sm,
@@ -360,14 +361,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingRight: spacing.md,
   },
-           deleteAction: {
-           backgroundColor: colors.error,
-           width: 32,
-           height: 32,
-           borderRadius: 16,
-           justifyContent: 'center',
-           alignItems: 'center',
-         },
+  deleteAction: {
+    backgroundColor: colors.error,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   emptyState: {
     flex: 1,
     justifyContent: 'center',

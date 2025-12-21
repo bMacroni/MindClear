@@ -7,7 +7,8 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
 import { Button } from '../../components/common';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { CheckmarkCircle01Icon, Alert01Icon } from '@hugeicons/core-free-icons';
 import getSupabaseClient from '../../services/supabaseClient';
 import { RootStackParamList } from '../../navigation/types';
 import { authService, User } from '../../services/auth';
@@ -37,7 +38,7 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
       setError('');
 
       const params = route?.params || {};
-      
+
       // Check for explicit errors from Supabase
       if (params.error) {
         setError(params.error_description || params.error || 'Verification failed');
@@ -59,21 +60,21 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
       const supabase = getSupabaseClient();
 
       const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-      
+
       if (exchangeError) {
-         setError('Failed to verify your email. The link may be invalid or expired.');
-         setLoading(false);
-         return;
+        setError('Failed to verify your email. The link may be invalid or expired.');
+        setLoading(false);
+        return;
       } else if (data?.user?.email) {
-         setEmail(data.user.email);
-         if (data.session) {
-           sessionRef.current = data.session;
-         }
+        setEmail(data.user.email);
+        if (data.session) {
+          sessionRef.current = data.session;
+        }
       }
 
       // Show success only after successful verification
       setConfirmed(true);
-      
+
     } catch (err: any) {
       console.error('Email verification error:', err);
 
@@ -93,7 +94,7 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
       try {
         setLoading(true);
         const session = sessionRef.current;
-        
+
         const user: User = {
           id: session.user.id,
           email: session.user.email,
@@ -148,7 +149,7 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
           // Success state
           <View style={styles.centerContent}>
             <View style={styles.iconContainer}>
-              <Icon name="check-circle" size={80} color={colors.success || colors.primary} />
+              <Icon icon={CheckmarkCircle01Icon} size={80} color={colors.success || colors.primary} />
             </View>
             <Text style={styles.successTitle}>Email Confirmed!</Text>
             <Text style={styles.successMessage}>
@@ -169,7 +170,7 @@ export default function EmailConfirmationScreen({ route, navigation }: Props) {
           // Error state
           <View style={styles.centerContent}>
             <View style={styles.iconContainer}>
-              <Icon name="alert" size={80} color={colors.error || '#E53935'} />
+              <Icon icon={Alert01Icon} size={80} color={colors.error || '#E53935'} />
             </View>
             <Text style={styles.errorTitle}>Verification Failed</Text>
             <Text style={styles.errorMessage}>{error}</Text>

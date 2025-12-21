@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, LayoutAnimation, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Task01Icon, Target01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -11,8 +12,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useBrainDump } from '../../contexts/BrainDumpContext';
 import { authService } from '../../services/auth';
 import { configService } from '../../services/config';
-import { secureConfigService } from '../../services/secureConfig';
+import secureConfigService from '../../services/secureConfig';
 import logger from '../../utils/logger';
+import { hapticFeedback } from '../../utils/hapticFeedback';
 
 // Helper function to get secure API base URL
 const getSecureApiBaseUrl = (): string => {
@@ -27,16 +29,16 @@ import { SuccessToast } from '../../components/common/SuccessToast';
 import { ErrorToast } from '../../components/common/ErrorToast';
 import { useFocusEffect } from '@react-navigation/native';
 
-type Item = { id: string; text: string; type: 'task'|'goal'; confidence?: number; category?: string | null; stress_level?: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' };
+type Item = { id: string; text: string; type: 'task' | 'goal'; confidence?: number; category?: string | null; stress_level?: 'low' | 'medium' | 'high'; priority: 'low' | 'medium' | 'high' };
 
 export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const params = route?.params || {};
   const { threadId, setThreadId, items, setItems } = useBrainDump();
-  const [tab, setTab] = useState<'task'|'goal'>('task');
-  
+  const [tab, setTab] = useState<'task' | 'goal'>('task');
+
   // Helper function to generate unique IDs
   const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
+
   const sanitizeText = (text: string): string => {
     return String(text || '')
       .replace(/\r?\n|\r/g, ' ')
@@ -69,9 +71,9 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   const [errorToastMessage, setErrorToastMessage] = useState('');
   const [initialToastShown, setInitialToastShown] = useState(false);
 
-  const list = useMemo(()=> Array.isArray(editedItems) ? editedItems : [], [editedItems]);
-  const tasks = useMemo(()=> list.filter(i=>i.type==='task'), [list]);
-  const goals = useMemo(()=> list.filter(i=>i.type==='goal'), [list]);
+  const list = useMemo(() => Array.isArray(editedItems) ? editedItems : [], [editedItems]);
+  const tasks = useMemo(() => list.filter(i => i.type === 'task'), [list]);
+  const goals = useMemo(() => list.filter(i => i.type === 'goal'), [list]);
 
   // If navigated without params, try loading last session from AsyncStorage
   useEffect(() => {
@@ -84,9 +86,9 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         if (Array.isArray(parsed) && parsed.length > 0 && editedItems.length === 0 && (items?.length ?? 0) === 0) {
           setEditedItems(parsed.map((it: any) => normalizeItem(it)).filter((it: Item) => it.text.length > 0));
         }
-      } catch {}
+      } catch { }
     })();
-   
+
   }, []);
 
   // Show toast if duplicates were removed on entry
@@ -132,7 +134,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
           if (!sessionHasItems && !lastHasItems) {
             setEditedItems([]);
           }
-        } catch {}
+        } catch { }
       })();
     }, [])
   );
@@ -151,11 +153,11 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       const token = await authService.getAuthToken();
       if (token) {
         const baseUrl = getSecureApiBaseUrl();
-        
+
         // Create AbortController with 4 second timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 4000);
-        
+
         try {
           const response = await fetch(`${baseUrl}/ai/threads/${threadId}`, {
             method: 'PUT',
@@ -166,10 +168,10 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
             body: JSON.stringify({ title: item.text }),
             signal: controller.signal,
           });
-          
+
           // Clear timeout on success
           clearTimeout(timeoutId);
-          
+
           // Check if response is successful
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -177,7 +179,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
         } catch (fetchError) {
           // Clear timeout on error
           clearTimeout(timeoutId);
-          
+
           // Handle different error types
           if (fetchError instanceof Error && fetchError.name === 'AbortError') {
             setErrorToastMessage('Could not update conversation title - request timed out');
@@ -186,10 +188,10 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
           } else {
             setErrorToastMessage('Could not update conversation title');
           }
-          
+
           // Show error toast
           setErrorToastVisible(true);
-          
+
           // Re-throw to maintain existing error handling flow
           throw fetchError;
         }
@@ -205,17 +207,16 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
 
 
-  const setType = (target: Item, newType: 'task'|'goal') => {
-    if (target.type === newType) {return;}
+  const setType = (target: Item, newType: 'task' | 'goal') => {
+    if (target.type === newType) { return; }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    hapticFeedback.light();
     setEditedItems(prev => prev.map(it => {
       if (it.id === target.id) {
         return { ...it, type: newType } as Item;
       }
       return it;
     }));
-    setToastMessage(`Marked as ${newType}.`);
-    setToastVisible(true);
   };
 
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -226,23 +227,20 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
   };
 
   const goToPrioritize = () => {
-    if (tasks.length === 0) {return;}
+    if (tasks.length === 0) { return; }
     const payload = tasks.map(t => ({ id: t.id, text: sanitizeText(t.text), priority: t.priority, category: t.category ?? undefined }));
     navigation.navigate('BrainDumpPrioritization', { tasks: payload });
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Let’s pick one small step</Text>
-      </View>
-      <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length>0} />
+      <BrainDumpSubNav active="refine" navigation={navigation} canRefine={true} canPrioritize={tasks.length > 0} />
       <View style={styles.tabs}>
-        <TouchableOpacity style={[styles.tabBtn, tab==='task' && styles.tabBtnActive]} onPress={()=>setTab('task')}>
-          <Text style={[styles.tabText, tab==='task' && styles.tabTextActive]}>Tasks ({tasks.length})</Text>
+        <TouchableOpacity style={[styles.tabBtn, tab === 'task' && styles.tabBtnActive]} onPress={() => setTab('task')}>
+          <Text style={[styles.tabText, tab === 'task' && styles.tabTextActive]}>Tasks ({tasks.length})</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, tab==='goal' && styles.tabBtnActive]} onPress={()=>setTab('goal')}>
-          <Text style={[styles.tabText, tab==='goal' && styles.tabTextActive]}>Goals ({goals.length})</Text>
+        <TouchableOpacity style={[styles.tabBtn, tab === 'goal' && styles.tabBtnActive]} onPress={() => setTab('goal')}>
+          <Text style={[styles.tabText, tab === 'goal' && styles.tabTextActive]}>Goals ({goals.length})</Text>
         </TouchableOpacity>
       </View>
 
@@ -251,7 +249,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       </View>
 
       <FlatList
-        data={tab==='task' ? tasks : goals}
+        data={tab === 'task' ? tasks : goals}
         keyExtractor={(it) => it.id}
         contentContainerStyle={{ padding: spacing.md }}
         renderItem={({ item }) => (
@@ -260,42 +258,58 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
               <View style={styles.segmented}>
                 <TouchableOpacity
                   onPress={() => setType(item, 'task')}
-                  activeOpacity={0.8}
-                  style={[styles.segment, item.type==='task' && styles.segmentActive]}
+                  activeOpacity={0.7}
+                  style={[styles.segment, item.type === 'task' && styles.segmentActive]}
+                  accessibilityLabel="Mark as task"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: item.type === 'task' }}
                 >
-                  <Icon name="checklist" size={12} color={item.type==='task' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.segmentLabel, item.type==='task' && styles.segmentLabelActive]}>Task</Text>
+                  <Icon icon={Task01Icon} size={14} color={item.type === 'task' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.segmentLabel, item.type === 'task' && styles.segmentLabelActive]}>Task</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setType(item, 'goal')}
-                  activeOpacity={0.8}
-                  style={[styles.segment, item.type==='goal' && styles.segmentActive]}
+                  activeOpacity={0.7}
+                  style={[styles.segment, item.type === 'goal' && styles.segmentActive]}
+                  accessibilityLabel="Mark as goal"
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: item.type === 'goal' }}
                 >
-                  <Icon name="milestone" size={12} color={item.type==='goal' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
-                  <Text style={[styles.segmentLabel, item.type==='goal' && styles.segmentLabelActive]}>Goal</Text>
+                  <Icon icon={Target01Icon} size={14} color={item.type === 'goal' ? colors.secondary : colors.text.secondary} style={{ marginRight: 4 }} />
+                  <Text style={[styles.segmentLabel, item.type === 'goal' && styles.segmentLabelActive]}>Goal</Text>
                 </TouchableOpacity>
               </View>
               {!!item.category && (
-                <View style={styles.badge}><Text style={styles.badgeText}>{item.category}</Text></View>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.category}</Text>
+                </View>
               )}
-              <View style={[styles.badge, styles[item.priority]]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{item.priority}</Text></View>
+              <View style={[styles.badge, (styles as any)[item.priority]]}>
+                <Text style={[styles.badgeText, styles.badgeTextDark]}>{item.priority}</Text>
+              </View>
             </View>
             {editingKey === item.id ? (
               <TextInput
                 style={[styles.input, { marginTop: spacing.xs }]}
                 value={item.text}
-                onChangeText={(t)=>onChangeItemText(item, t)}
-                onBlur={()=>setEditingKey(null)}
+                onChangeText={(t) => onChangeItemText(item, t)}
+                onBlur={() => setEditingKey(null)}
                 autoFocus
               />
             ) : (
-              <Text onPress={()=>setEditingKey(item.id)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
+              <Text onPress={() => setEditingKey(item.id)} style={styles.titleText} ellipsizeMode="tail">{sanitizeText(item.text)}</Text>
             )}
-            {item.type==='goal' ? (
-              <TouchableOpacity onPress={() => startGoalBreakdown(item)}>
-                <Text style={styles.hint}>Tap to break this goal into tiny steps</Text>
-              </TouchableOpacity>
-            ) : (
+            {item.type === 'goal' ? (
+              <TouchableOpacity
+                style={styles.goalBreakdownBtn}
+                onPress={() => startGoalBreakdown(item)}
+                activeOpacity={0.7}
+                accessibilityLabel="Break this goal into tiny steps"
+                accessibilityRole="button"
+              >
+                <Text style={styles.goalBreakdownText}>Break this goal into tiny steps</Text>
+                <Icon icon={ArrowRight01Icon} size={16} color={colors.primary} />
+              </TouchableOpacity>) : (
               <Text style={styles.hint}>Tap text to edit. Use toggles to mark as Task or Goal.</Text>
             )}
           </View>
@@ -303,8 +317,15 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
       />
 
       <View style={styles.footer}>
-        <TouchableOpacity testID="nextPrioritizeButton" style={[styles.primaryBtn, (tasks.length===0) && { opacity: 0.6 }]} disabled={tasks.length===0} onPress={goToPrioritize}>
+        <TouchableOpacity
+          testID="nextPrioritizeButton"
+          style={[styles.primaryBtn, (tasks.length === 0) && { opacity: 0.6 }]}
+          disabled={tasks.length === 0}
+          onPress={goToPrioritize}
+          activeOpacity={0.8}
+        >
           <Text style={styles.primaryBtnText}>Next: Prioritize Tasks</Text>
+          <Icon icon={ArrowRight01Icon} size={20} color={colors.secondary} style={{ marginLeft: spacing.sm }} />
         </TouchableOpacity>
       </View>
 
@@ -327,11 +348,7 @@ export default function BrainDumpRefinementScreen({ navigation, route }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.surface },
-  title: { fontSize: typography.fontSize.lg, fontWeight: typography.fontWeight.bold, color: colors.text.primary, padding: spacing.md },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  newDumpBtn: { flexDirection: 'row', alignItems: 'center', marginRight: spacing.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.sm, backgroundColor: colors.background.surface },
-  newDumpText: { color: colors.text.primary, fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium },
-  tabs: { flexDirection: 'row', marginHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.md, overflow: 'hidden' },
+  tabs: { flexDirection: 'row', marginHorizontal: spacing.md, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.md, overflow: 'hidden' },
   tabBtn: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', backgroundColor: colors.secondary },
   tabBtnActive: { backgroundColor: colors.primary },
   tabText: { color: colors.text.primary },
@@ -352,23 +369,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderWidth: 1,
     borderColor: colors.border.light,
-    borderRadius: 999,
+    borderRadius: borderRadius.md,
     overflow: 'hidden',
-    marginLeft: spacing.xs,
+    backgroundColor: colors.background.surface,
   },
   segment: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    backgroundColor: colors.secondary,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: colors.background.surface,
   },
   segmentActive: {
     backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   segmentLabel: {
     color: colors.text.secondary,
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
   },
   segmentLabelActive: {
     color: colors.secondary,
@@ -378,11 +401,39 @@ const styles = StyleSheet.create({
   medium: { backgroundColor: '#FFFDE7', borderColor: '#FFF9C4' },
   high: { backgroundColor: '#FFEBEE', borderColor: '#FFCDD2' },
   hint: { color: colors.text.secondary, fontSize: typography.fontSize.xs, marginTop: spacing.xs },
-  footer: { flexDirection: 'row', justifyContent: 'space-between', padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border.light },
-  secondaryBtn: { flexDirection: 'row', alignItems: 'center' },
-  secondaryBtnText: { color: colors.text.primary },
-  primaryBtn: { backgroundColor: colors.primary, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: borderRadius.md },
-  primaryBtnText: { color: colors.secondary, fontWeight: typography.fontWeight.bold },
+  footer: { padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border.light, backgroundColor: colors.background.surface },
+  primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: borderRadius.lg,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  primaryBtnText: { color: colors.secondary, fontWeight: typography.fontWeight.bold, fontSize: typography.fontSize.base },
+  goalBreakdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.background.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  goalBreakdownText: {
+    color: colors.primary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
 });
 
 

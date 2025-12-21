@@ -5,7 +5,8 @@ import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing } from '../../themes/spacing';
 import { PasswordInput, Button } from '../../components/common';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ArrowLeft01Icon } from '@hugeicons/core-free-icons';
 
 type Props = {
   route: { params?: { access_token?: string } };
@@ -63,14 +64,14 @@ export default function ResetPasswordScreen({ route, navigation }: Props) {
     <SafeAreaView style={styles.container}>
       {/* Header with back arrow and title */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()} 
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
           style={styles.backButton}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Icon name="arrow-left" size={24} color={colors.text.primary} />
+          <Icon icon={ArrowLeft01Icon} size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reset</Text>
       </View>

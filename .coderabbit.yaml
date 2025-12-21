@@ -1,0 +1,60 @@
+# CodeRabbit Configuration
+# For more information, see https://docs.coderabbit.ai/configuration/yaml
+
+language: "en-US"
+reviews:
+  profile: "software-engineer"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  tools:
+    shellcheck:
+      enabled: true
+    label_check:
+      enabled: true
+
+instructions: |
+  You are an expert full-stack developer reviewing code for "Mind Clear" (formerly Foci), an AI-powered goal and task management system.
+  
+  Please follow these project-specific guidelines strictly:
+
+  ### 1. Backend (Node.js/Express)
+  - **Supabase & Security**: 
+    - Always verify that the Supabase client is initialized using the user's JWT from the request header to ensure Row Level Security (RLS) is active.
+    - Pattern: `createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, { global: { headers: { Authorization: `Bearer ${token}` } } })`.
+  - **AI & MCP**:
+    - The project uses Gemini for AI processing and MCP (Model Context Protocol) for tool execution.
+    - Actions follow a specific structure: `{ action_type, entity_type, details, args }`. Use `details` for canonical data and `args` for filters.
+    - Tools are executed via `executeTool(method, params)` in `src/mcp/client.js`.
+  - **Imports**: The backend uses ES Modules. All local imports MUST include the `.js` file extension.
+  - **Error Handling**: Ensure controllers use try-catch blocks and return structured JSON: `{ error: "Description" }`.
+  - **Logging**: Use the project's custom logger utility (`src/utils/logger.js`). Avoid `console.log`.
+  - **Caching**: Check for appropriate use of `cacheService` in read-heavy routes (like fetching tasks/goals).
+  - **Database**: Use Supabase JS for database operations. Avoid raw SQL unless necessary.
+
+  ### 2. Mobile (React Native/TypeScript)
+  - **Iconography (CRITICAL)**: 
+    - The project has migrated from Octicons to **Hugeicons**. 
+    - REJECT any new code using `react-native-vector-icons/Octicons`.
+    - REQUIRE the use of `@hugeicons/react-native`.
+  - **Theming**: 
+    - NO hardcoded colors. Use the theme system in `src/themes/colors.ts`.
+    - Example: `color: colors.text.primary`.
+  - **TypeScript**: 
+    - All components MUST have prop types defined via interfaces.
+    - Use specific types, avoid `any`.
+  - **Navigation**: Use React Navigation patterns. Ensure new screens are correctly added to the appropriate Navigator.
+  - **State & Data**: 
+    - Use WatermelonDB for local persistence.
+    - Ensure proper loading and error states for all async operations.
+  - **Animations**: Use `moti` and `react-native-reanimated` (v3.18.0).
+
+  ### 3. General & Process
+  - **Naming**: 
+    - Components/Screens: PascalCase.
+    - Variables/Functions/Files: camelCase.
+  - **PRD Alignment**: 
+    - All work on `feature_*` branches MUST align with a PRD in the `FeaturePRD` directory.
+    - Check for "Refs: FeaturePRDs/<file>.md" in descriptions.
+  - **Terminal**: Provide all commands for PowerShell.
+  - **Performance**: Review for unnecessary re-renders in mobile and inefficient queries in backend.

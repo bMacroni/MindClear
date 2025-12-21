@@ -1,0 +1,77 @@
+---
+alwaysApply: true
+---
+
+# Mind Clear Cursor Rules Overview
+
+This directory contains comprehensive development rules for the Mind Clear project. These rules help maintain consistency, quality, and best practices across all platforms.
+
+## Rule Files
+
+### Core Rules
+- **[project-structure.mdc](mdc:project-structure.mdc)** - Project structure, naming conventions, and technology stack overview
+- **[my-custom-rule.mdc](mdc:my-custom-rule.mdc)** - Main development workflow and standards
+
+### Platform-Specific Rules
+- **[frontend-development.mdc](mdc:frontend-development.mdc)** - React + Vite + Tailwind CSS development guidelines
+- **[mobile-development.mdc](mdc:mobile-development.mdc)** - React Native + TypeScript mobile development guidelines  
+- **[backend-development.mdc](mdc:backend-development.mdc)** - Node.js + Express + Supabase backend development guidelines
+
+### Quality & Process Rules
+- **[testing-qa.mdc](mdc:testing-qa.mdc)** - Testing strategies, TDD, and quality assurance
+- **[deployment-environment.mdc](mdc:deployment-environment.mdc)** - Deployment, environment management, and CI/CD
+- **[ux-accessibility.mdc](mdc:ux-accessibility.mdc)** - User experience and accessibility standards
+
+### Integration Rules
+- **[ai-database-integration.mdc](mdc:ai-database-integration.mdc)** - AI (Google Gemini) and database (Supabase) integration patterns
+
+## Quick Reference
+
+### Technology Stack
+- **Frontend**: React 18, Vite, Tailwind CSS, React Router, Zustand
+- **Mobile**: React Native, TypeScript, React Navigation, AsyncStorage
+- **Backend**: Node.js, Express, Supabase, Google AI (Gemini), Firebase
+- **Database**: PostgreSQL (via Supabase)
+- **Deployment**: Railway (backend), Vercel (frontend)
+
+### Key Principles
+1. **Test-Driven Development**: Write tests first, then implement features
+2. **Accessibility First**: Ensure WCAG 2.1 AA compliance
+3. **Performance**: Optimize for fast, responsive interactions
+4. **Security**: Follow security best practices
+5. **Consistency**: Use established patterns and conventions
+
+### Development Workflow
+1. Read relevant rule files before starting work
+2. Write tests first for major changes
+3. Follow platform-specific guidelines
+4. Ensure proper error handling and user feedback
+5. Test accessibility and performance
+6. Document any external setup requirements
+
+## Getting Started
+
+When working on any part of the Mind Clear project:
+
+1. **Start with [project-structure.mdc](mdc:project-structure.mdc)** to understand the overall architecture
+2. **Read the platform-specific rule** for your development area:
+   - Frontend work → [frontend-development.mdc](mdc:frontend-development.mdc)
+   - Mobile work → [mobile-development.mdc](mdc:mobile-development.mdc)  
+   - Backend work → [backend-development.mdc](mdc:backend-development.mdc)
+3. **Follow [testing-qa.mdc](mdc:testing-qa.mdc)** for testing requirements
+4. **Check [ux-accessibility.mdc](mdc:ux-accessibility.mdc)** for user experience guidelines
+5. **Reference [ai-database-integration.mdc](mdc:ai-database-integration.mdc)** for AI and database work
+
+## Important Notes
+
+- Always use "Mind Clear" as the app name in user-facing content
+- Never commit `.env` files or sensitive data
+- Write comprehensive tests for all new features
+- Ensure proper accessibility compliance
+- Follow the established error handling patterns
+- Use proper environment variable management
+- Implement proper security measures
+
+## Support
+
+If you need clarification on any rules or patterns, refer to the specific rule files or check the existing codebase for examples of proper implementation.

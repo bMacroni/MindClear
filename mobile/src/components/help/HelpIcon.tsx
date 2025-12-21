@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+
 import { useHelp } from '../../contexts/HelpContext';
 import { colors } from '../../themes/colors';
 

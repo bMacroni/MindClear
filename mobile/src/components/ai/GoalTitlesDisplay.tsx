@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Target01Icon, ArrowUp01Icon, ArrowDown01Icon, CheckmarkCircle01Icon, InformationCircleIcon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -22,7 +23,7 @@ export default function GoalTitlesDisplay({ text, onAction }: GoalTitlesDisplayP
       // Prefer JSON code block first
       const jsonBlock = input.match(/```json\s*(\{[\s\S]*?\})\s*```/i);
       const candidate = jsonBlock ? jsonBlock[1] : (input.match(/\{[\s\S]*\}/)?.[0] || null);
-      if (!candidate) {return null;}
+      if (!candidate) { return null; }
       const data = JSON.parse(candidate);
       if (data && data.category === 'goal' && Array.isArray(data.goals)) {
         const titles = data.goals.filter((g: any) => typeof g === 'string');
@@ -46,13 +47,13 @@ export default function GoalTitlesDisplay({ text, onAction }: GoalTitlesDisplayP
 
   const parsed = useMemo(() => parseTitles(text), [text]);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
-  if (!parsed) {return null;}
+  if (!parsed) { return null; }
 
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <View style={styles.headerIconWrap}>
-          <Icon name="goal" size={16} color={colors.primary} />
+          <Icon icon={Target01Icon} size={16} color={colors.primary} />
         </View>
         <Text style={styles.title} numberOfLines={0}>{parsed.title}</Text>
       </View>
@@ -68,7 +69,7 @@ export default function GoalTitlesDisplay({ text, onAction }: GoalTitlesDisplayP
               >
                 <View style={styles.bullet} />
                 <Text style={styles.itemText} numberOfLines={0}>{g}</Text>
-                <Icon name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.text.secondary} />
+                <Icon icon={isExpanded ? ArrowUp01Icon : ArrowDown01Icon} size={16} color={colors.text.secondary} />
               </TouchableOpacity>
               {isExpanded && (
                 <View style={styles.inlineMenu}>
@@ -79,7 +80,7 @@ export default function GoalTitlesDisplay({ text, onAction }: GoalTitlesDisplayP
                       onAction?.(prompt, false);
                     }}
                   >
-                    <Icon name="check-circle" size={14} color={colors.secondary} style={styles.menuIcon} />
+                    <Icon icon={CheckmarkCircle01Icon} size={14} color={colors.secondary} style={styles.menuIcon} />
                     <Text style={styles.menuText}>Add step as task</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -89,7 +90,7 @@ export default function GoalTitlesDisplay({ text, onAction }: GoalTitlesDisplayP
                       onAction?.(prompt, true);
                     }}
                   >
-                    <Icon name="info" size={14} color={colors.text.primary} style={styles.menuIcon} />
+                    <Icon icon={InformationCircleIcon} size={14} color={colors.text.primary} style={styles.menuIcon} />
                     <Text style={styles.menuText}>Review goal</Text>
                   </TouchableOpacity>
                 </View>

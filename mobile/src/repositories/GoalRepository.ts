@@ -1,12 +1,12 @@
-import {getDatabase} from '../db';
-import {Q} from '@nozbe/watermelondb';
-import {of, combineLatest, Observable} from 'rxjs';
-import {map} from 'rxjs/operators';
+import { getDatabase } from '../db';
+import { Q } from '@nozbe/watermelondb';
+import { of, combineLatest, Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import Goal from '../db/models/Goal';
 import Milestone from '../db/models/Milestone';
 import MilestoneStep from '../db/models/MilestoneStep';
 import Task from '../db/models/Task';
-import {authService} from '../services/auth';
+import { authService } from '../services/auth';
 
 // Custom error classes for domain-specific errors
 export class NotFoundError extends Error {
@@ -46,15 +46,15 @@ export class GoalRepository {
   async getGoalById(id: string): Promise<Goal | null> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     try {
       const goal = await database.get<Goal>('goals').find(id);
-      
+
       // Verify ownership - if goal doesn't exist or doesn't belong to user, return null
       if (!goal || goal.userId !== userId) {
         return null;
       }
-      
+
       return goal;
     } catch {
       return null;
@@ -84,7 +84,7 @@ export class GoalRepository {
   }): Promise<Goal> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     return await database.write(async () => {
       return await database.get<Goal>('goals').create(goal => {
         goal.title = data.title;
@@ -112,7 +112,7 @@ export class GoalRepository {
     const database = getDatabase();
     const goal = await this.getGoalById(id);
     if (!goal) throw new Error('Goal not found');
-    
+
     return await database.write(async () => {
       return await goal.update(g => {
         if (data.title !== undefined) g.title = data.title;
@@ -131,12 +131,77 @@ export class GoalRepository {
     const database = getDatabase();
     const goal = await this.getGoalById(id);
     if (!goal) return;
-    
+
     await database.write(async () => {
       await goal.update(g => {
         g.status = 'pending_delete';
         g.updatedAt = new Date();
       });
+    });
+  }
+
+  async createGoalWithMilestones(
+    goalData: {
+      title: string;
+      description?: string;
+      targetCompletionDate?: Date;
+      category?: string;
+    },
+    milestones: Array<{
+      title: string;
+      description?: string;
+      steps?: Array<{ text: string }>;
+    }>
+  ): Promise<Goal> {
+    const database = getDatabase();
+    const userId = this.getCurrentUserId();
+
+    return await database.write(async () => {
+      // Create Goal
+      const goal = await database.get<Goal>('goals').create(g => {
+        g.title = goalData.title;
+        g.description = goalData.description;
+        g.targetCompletionDate = goalData.targetCompletionDate;
+        g.progressPercentage = 0;
+        g.category = goalData.category;
+        g.isActive = true;
+        g.userId = userId;
+        g.status = 'pending_create';
+        g.createdAt = new Date();
+        g.updatedAt = new Date();
+      });
+
+      // Create Milestones and Steps
+      for (let i = 0; i < milestones.length; i++) {
+        const mData = milestones[i];
+        const milestone = await database.get<Milestone>('milestones').create(m => {
+          m.goalId = goal.id;
+          m.title = mData.title;
+          m.description = mData.description;
+          m.completed = false;
+          m.order = i; // Use loop index for order
+          m.status = 'pending_create';
+          m.createdAt = new Date();
+          m.updatedAt = new Date();
+        });
+
+        if (mData.steps) {
+          for (let j = 0; j < mData.steps.length; j++) {
+            const sData = mData.steps[j];
+            await database.get<MilestoneStep>('milestone_steps').create(s => {
+              s.milestoneId = milestone.id;
+              s.text = sData.text;
+              s.completed = false;
+              s.order = j; // Use loop index for order
+              s.status = 'pending_create';
+              s.createdAt = new Date();
+              s.updatedAt = new Date();
+            });
+          }
+        }
+      }
+
+      return goal;
     });
   }
 
@@ -147,13 +212,13 @@ export class GoalRepository {
     order: number;
   }): Promise<Milestone> {
     const database = getDatabase();
-    
+
     // Verify ownership - ensure the goal belongs to the current user
     const goal = await this.getGoalById(goalId);
     if (!goal) {
       throw new NotFoundError('Goal not found or inaccessible');
     }
-    
+
     return await database.write(async () => {
       return await database.get<Milestone>('milestones').create(milestone => {
         milestone.goalId = goalId;
@@ -175,13 +240,13 @@ export class GoalRepository {
     order?: number;
   }): Promise<Milestone> {
     const database = getDatabase();
-    
+
     // Verify ownership using getMilestoneById which includes ownership checks
     const milestone = await this.getMilestoneById(id);
     if (!milestone) {
       throw new NotFoundError(`Milestone with id ${id} not found`);
     }
-    
+
     return await database.write(async () => {
       return await milestone.update(m => {
         if (data.title !== undefined) m.title = data.title;
@@ -197,25 +262,25 @@ export class GoalRepository {
   async getMilestoneById(id: string): Promise<Milestone | null> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     try {
       const milestone = await database.get<Milestone>('milestones').find(id);
-      
+
       // Verify ownership by loading the milestone's goal
       const goal = await milestone.goal.fetch();
-      
+
       // Check if the authenticated user owns the goal
       if (goal.userId !== userId) {
         return null;
       }
-      
+
       return milestone;
     } catch (error) {
       // Handle WatermelonDB "not found" errors
       if (error instanceof Error && error.message.includes('not found')) {
         return null;
       }
-      
+
       // Re-throw other errors (auth, DB connection, etc.)
       throw error;
     }
@@ -224,26 +289,26 @@ export class GoalRepository {
   async getMilestoneStepById(id: string): Promise<MilestoneStep | null> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     try {
       const step = await database.get<MilestoneStep>('milestone_steps').find(id);
-      
+
       // Verify ownership by loading the step's milestone and its goal
       const milestone = await step.milestone.fetch();
       const goal = await milestone.goal.fetch();
-      
+
       // Check if the authenticated user owns the goal
       if (goal.userId !== userId) {
         return null;
       }
-      
+
       return step;
     } catch (error) {
       // Handle WatermelonDB "not found" errors
       if (error instanceof Error && error.message.includes('not found')) {
         return null;
       }
-      
+
       // Re-throw other errors (auth, DB connection, etc.)
       throw error;
     }
@@ -266,20 +331,20 @@ export class GoalRepository {
 
   async deleteMilestone(id: string): Promise<void> {
     const database = getDatabase();
-    
+
     try {
       // Find the milestone with proper error handling
       const milestone = await database.get<Milestone>('milestones').find(id);
-      
+
       // Verify ownership by loading the milestone's goal
       const goal = await milestone.goal.fetch();
-      
+
       // Check if the authenticated user owns the goal
       const currentUserId = this.getCurrentUserId();
       if (goal.userId !== currentUserId) {
         throw new AuthorizationError('You do not have permission to delete this milestone');
       }
-      
+
       // Perform the database write operation
       await database.write(async () => {
         await milestone.update(m => {
@@ -292,17 +357,17 @@ export class GoalRepository {
       if (error instanceof Error && error.message.includes('not found')) {
         return; // No-op for non-existent milestones
       }
-      
+
       // Re-throw custom domain errors
       if (error instanceof NotFoundError || error instanceof AuthorizationError) {
         throw error;
       }
-      
+
       // Convert other errors to domain errors
       if (error instanceof Error) {
         throw new Error(`Failed to delete milestone: ${error.message}`);
       }
-      
+
       // Handle unknown error types
       throw new Error('An unexpected error occurred while deleting the milestone');
     }
@@ -313,13 +378,13 @@ export class GoalRepository {
     order: number;
   }): Promise<MilestoneStep> {
     const database = getDatabase();
-    
+
     // Verify ownership - ensure the milestone belongs to a goal owned by the current user
     const milestone = await this.getMilestoneById(milestoneId);
     if (!milestone) {
       throw new AuthorizationError('You do not have permission to create a step for this milestone');
     }
-    
+
     return await database.write(async () => {
       return await database.get<MilestoneStep>('milestone_steps').create(step => {
         step.milestoneId = milestoneId;
@@ -339,21 +404,21 @@ export class GoalRepository {
     order?: number;
   }): Promise<MilestoneStep> {
     const database = getDatabase();
-    
+
     try {
       // Find the milestone step with proper error handling
       const step = await database.get<MilestoneStep>('milestone_steps').find(id);
-      
+
       // Verify ownership by loading the step's milestone and its goal
       const milestone = await step.milestone.fetch();
       const goal = await milestone.goal.fetch();
-      
+
       // Check if the authenticated user owns the goal
       const currentUserId = this.getCurrentUserId();
       if (goal.userId !== currentUserId) {
         throw new AuthorizationError('You do not have permission to update this milestone step');
       }
-      
+
       // Perform the database write operation
       return await database.write(async () => {
         return await step.update(s => {
@@ -369,38 +434,38 @@ export class GoalRepository {
       if (error instanceof Error && error.message.includes('not found')) {
         throw new NotFoundError(`Milestone step with id ${id} not found`);
       }
-      
+
       // Re-throw custom domain errors
       if (error instanceof NotFoundError || error instanceof AuthorizationError) {
         throw error;
       }
-      
+
       // Convert other errors to domain errors
       if (error instanceof Error) {
         throw new Error(`Failed to update milestone step: ${error.message}`);
       }
-      
+
       throw new Error('Failed to update milestone step: Unknown error');
     }
   }
 
   async deleteMilestoneStep(id: string): Promise<void> {
     const database = getDatabase();
-    
+
     try {
       // Find the step with proper error handling
       const step = await database.get<MilestoneStep>('milestone_steps').find(id);
-      
+
       // Verify ownership by loading the step's milestone and its goal
       const milestone = await step.milestone.fetch();
       const goal = await milestone.goal.fetch();
-      
+
       // Check if the authenticated user owns the goal
       const currentUserId = this.getCurrentUserId();
       if (goal.userId !== currentUserId) {
         throw new AuthorizationError('You do not have permission to delete this milestone step');
       }
-      
+
       // Perform the database write operation
       await database.write(async () => {
         await step.update(s => {
@@ -413,17 +478,17 @@ export class GoalRepository {
       if (error instanceof Error && error.message.includes('not found')) {
         return; // No-op for non-existent milestone steps
       }
-      
+
       // Re-throw custom domain errors
       if (error instanceof NotFoundError || error instanceof AuthorizationError) {
         throw error;
       }
-      
+
       // Convert other errors to domain errors
       if (error instanceof Error) {
         throw new Error(`Failed to delete milestone step: ${error.message}`);
       }
-      
+
       // Handle unknown error types
       throw new Error('An unexpected error occurred while deleting the milestone step');
     }
@@ -505,7 +570,7 @@ export class GoalRepository {
     // Gather child milestones and tasks tied to the local goal
     const milestoneCollection = database.get<Milestone>('milestones');
     const taskCollection = database.get<Task>('tasks');
-    
+
     let childMilestones: Milestone[] = [];
     try {
       childMilestones = await milestoneCollection.query(
@@ -514,7 +579,7 @@ export class GoalRepository {
     } catch (error) {
       throw new Error(`Failed to fetch child milestones: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-    
+
     let childTasks: Task[] = [];
     try {
       childTasks = await taskCollection.query(
@@ -580,7 +645,7 @@ export class GoalRepository {
   observeGoalById(id: string) {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     // Use query with both id and user_id to ensure ownership
     return database.get<Goal>('goals')
       .query(
@@ -594,7 +659,7 @@ export class GoalRepository {
   observeMilestonesByGoal(goalId: string): Observable<Milestone[]> {
     const database = getDatabase();
     const userId = this.getCurrentUserId();
-    
+
     // Create observables for goals and milestones
     const goalObservable = database.get<Goal>('goals')
       .query(
@@ -603,14 +668,14 @@ export class GoalRepository {
         Q.where('status', Q.notEq('pending_delete'))
       )
       .observe();
-    
+
     const milestonesObservable = database.get<Milestone>('milestones')
       .query(
         Q.where('goal_id', goalId),
         Q.where('status', Q.notEq('pending_delete'))
       )
       .observe();
-    
+
     // Use RxJS combineLatest to ensure both observables emit before processing
     // This eliminates the race condition and ensures milestones are only returned
     // if the goal exists and belongs to the user

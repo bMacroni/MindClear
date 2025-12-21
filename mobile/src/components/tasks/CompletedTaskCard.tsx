@@ -8,7 +8,8 @@ import {
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ReloadIcon } from '@hugeicons/core-free-icons';
 
 interface Task {
   id: string;
@@ -48,7 +49,7 @@ export const CompletedTaskCard: React.FC<CompletedTaskCardProps> = React.memo(({
           >
             {task.title}
           </Text>
-          
+
           <TouchableOpacity
             style={styles.resetButton}
             onPress={handleResetStatus}
@@ -56,7 +57,7 @@ export const CompletedTaskCard: React.FC<CompletedTaskCardProps> = React.memo(({
             accessibilityLabel="Mark task as incomplete"
             activeOpacity={0.7}
           >
-            <Icon name="iterations" size={16} color={colors.text.secondary} />
+            <Icon icon={ReloadIcon} size={16} color={colors.text.secondary} />
           </TouchableOpacity>
         </View>
       </View>

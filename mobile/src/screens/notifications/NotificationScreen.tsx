@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ArrowLeft01Icon, Alert01Icon } from '@hugeicons/core-free-icons';
 import { notificationsAPI } from '../../services/api';
 import { colors } from '../../themes/colors';
 import { spacing } from '../../themes/spacing';
@@ -27,11 +28,17 @@ const NotificationScreen = ({ navigation }: any) => {
   const [error, setError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
 
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: 'Notifications',
+    });
+  }, [navigation]);
+
   useEffect(() => {
     const fetchNotifications = async () => {
       try {
         // Fetching notifications
-        
+
         // Debug: Check if we have a token
         const { authService } = await import('../../services/auth');
         const token = await authService.getAuthToken();
@@ -42,7 +49,7 @@ const NotificationScreen = ({ navigation }: any) => {
         };
         // Auth token check
         setDebugInfo(`Token: ${tokenInfo.hasToken ? 'YES' : 'NO'} (${tokenInfo.tokenLength} chars)`);
-        
+
         // Debug: Test if other API calls work
         try {
           const { tasksAPI } = await import('../../services/api');
@@ -53,7 +60,7 @@ const NotificationScreen = ({ navigation }: any) => {
           console.error('🔔 Tasks API test failed:', taskError);
           setDebugInfo(prev => prev + ` | Tasks: FAILED`);
         }
-        
+
         // The backend now supports fetching all notifications
         const response = await notificationsAPI.getNotifications('all');
         // Notifications fetched successfully
@@ -67,16 +74,16 @@ const NotificationScreen = ({ navigation }: any) => {
           stack: e instanceof Error ? e.stack : undefined,
           type: typeof e
         });
-        
+
         // Handle specific error cases
         if (e instanceof Error && (e as ErrorWithCode).code === 'AUTH_REQUIRED') {
           setError('Please log in to view notifications');
         } else {
           setError(`Failed to load notifications: ${errorMessage}`);
         }
-        
+
         setDebugInfo(prev => prev + ` | Error: ${errorMessage}`);
-        
+
         // Set empty notifications array as fallback
         setNotifications([]);
       } finally {
@@ -105,26 +112,15 @@ const NotificationScreen = ({ navigation }: any) => {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Icon name="chevron-left" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Notifications</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
         <View style={styles.center}>
-          <Icon name="alert" size={48} color={colors.error} style={{ marginBottom: spacing.md }} />
+          <Icon icon={Alert01Icon} size={48} color={colors.error} style={{ marginBottom: spacing.md }} />
           <Text style={styles.errorText}>{error}</Text>
           {debugInfo ? (
             <Text style={styles.debugText}>Debug: {debugInfo}</Text>
           ) : null}
-reen           
           {error.includes('log in') || error.includes('Authentication') ? (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.retryButton}
               onPress={() => {
                 // Navigate to login screen
@@ -137,7 +133,7 @@ reen
               <Text style={styles.retryButtonText}>Go to Login</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.retryButton}
               onPress={() => {
                 setError(null);
@@ -172,17 +168,7 @@ reen
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Icon name="chevron-left" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
       <FlatList
         data={notifications}
         renderItem={renderItem}

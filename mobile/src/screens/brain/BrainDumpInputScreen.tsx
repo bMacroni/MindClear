@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useLayoutEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import BrainDumpSubNav from './BrainDumpSubNav';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { SparklesIcon, Shield01Icon, HelpCircleIcon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -22,7 +23,7 @@ type IncomingItem = {
 };
 
 export default function BrainDumpInputScreen({ navigation }: any) {
-  const insets = useSafeAreaInsets();
+  // const insets = useSafeAreaInsets(); // Not needed if MainHeader handles it and no manual padding
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -35,7 +36,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
         const tid = await AsyncStorage.getItem('lastBrainDumpThreadId');
         const items = await AsyncStorage.getItem('lastBrainDumpItems');
         setHasSavedRefinement(Boolean(tid && items));
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -57,7 +58,7 @@ export default function BrainDumpInputScreen({ navigation }: any) {
   const sanitizeText = (s: string) => String(s || '').replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
 
   const onSubmit = async () => {
-    if (!text.trim() || loading) {return;}
+    if (!text.trim() || loading) { return; }
     setLoading(true);
     setError('');
     try {
@@ -70,11 +71,11 @@ export default function BrainDumpInputScreen({ navigation }: any) {
         const map = new Map<string, any>();
         existing.forEach((it) => {
           const key = normalizeKey(it?.text);
-          if (key) {map.set(key, { ...it, text: sanitizeText(it?.text) });}
+          if (key) { map.set(key, { ...it, text: sanitizeText(it?.text) }); }
         });
         (Array.isArray(items) ? (items as IncomingItem[]) : []).forEach((it) => {
           const key = normalizeKey(it?.text);
-          if (!key) {return;}
+          if (!key) { return; }
           if (!map.has(key)) {
             map.set(key, {
               text: sanitizeText(it?.text),
@@ -130,12 +131,12 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           ['lastBrainDumpItems', JSON.stringify(mergedItems)],
         ]);
         setHasSavedRefinement(true);
-      } catch {}
+      } catch { }
       // Update shared session so SubNav enables Refine/Prioritize immediately
       try {
         setThreadId(threadId);
         setSessionItems(mergedItems as any);
-      } catch {}
+      } catch { }
       navigation.navigate('BrainDumpRefinement', { threadId, items: mergedItems, duplicatesRemovedCount });
     } catch (e: any) {
       setError(e?.message || 'Failed to process brain dump. Please try again.');
@@ -143,6 +144,22 @@ export default function BrainDumpInputScreen({ navigation }: any) {
       setLoading(false);
     }
   };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          accessibilityLabel="Help"
+          onPress={() => navigation.navigate('BrainDumpOnboarding')}
+          activeOpacity={0.7}
+          style={{ padding: spacing.xs }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Icon icon={HelpCircleIcon} size={24} color={colors.primary} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   const handleBackToRefinement = async () => {
     if (navigation.canGoBack()) {
@@ -158,22 +175,21 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           return;
         }
       }
-    } catch {}
+    } catch { }
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>      
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.headerRow}>
-            <Text style={styles.title}>Guided Brain Dump</Text>
+          <View style={{ marginTop: spacing.md, marginBottom: spacing.sm }}>
+            <BrainDumpSubNav
+              active="dump"
+              navigation={navigation}
+              canRefine={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task' || (it?.type || '').toLowerCase() === 'goal')) || hasSavedRefinement}
+              canPrioritize={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task')) || hasSavedRefinement}
+            />
           </View>
-          <BrainDumpSubNav
-            active="dump"
-            navigation={navigation}
-            canRefine={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task' || (it?.type || '').toLowerCase() === 'goal')) || hasSavedRefinement}
-            canPrioritize={(Array.isArray(sessionItems) && sessionItems.some((it: any) => (it?.type || '').toLowerCase() === 'task')) || hasSavedRefinement}
-          />
           <Text style={styles.subtitle}>Type anything that’s on your mind. We’ll gently help you turn it into one small, doable step.</Text>
           <TextInput
             style={styles.textarea}
@@ -187,37 +203,23 @@ export default function BrainDumpInputScreen({ navigation }: any) {
           {!!error && <Text style={styles.error}>{error}</Text>}
 
           <TouchableOpacity style={[styles.cta, loading && { opacity: 0.7 }]} onPress={onSubmit} disabled={loading}>
-            <Icon name="north-star" size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
+            <Icon icon={SparklesIcon} size={18} color={colors.secondary} style={{ marginRight: spacing.xs }} />
             <Text style={styles.ctaText}>{loading ? 'Working…' : 'Untangle My Thoughts'}</Text>
           </TouchableOpacity>
 
           <View style={styles.privacyBox}>
-            <Icon name="shield" size={16} color={colors.text.secondary} style={{ marginRight: spacing.xs }} />
+            <Icon icon={Shield01Icon} size={16} color={colors.text.secondary} style={{ marginRight: spacing.xs }} />
             <Text style={styles.privacyText}>Your brain dump is private to you. We store it securely and only use it to help you organize your thoughts. You’re always in control.</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Help button to reopen onboarding */}
-      <View style={{ position: 'absolute', top: insets.top + spacing.sm, right: spacing.sm }}>
-        <TouchableOpacity
-          accessibilityLabel="Help"
-          onPress={() => navigation.navigate('BrainDumpOnboarding')}
-          activeOpacity={0.7}
-          style={styles.helpBtn}
-        >
-          <Icon name="question" size={18} color={colors.text.secondary} />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.surface },
-  content: { padding: spacing.lg },
-  title: { fontSize: typography.fontSize.xl, fontWeight: typography.fontWeight.bold, color: colors.text.primary, marginBottom: spacing.xs },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  content: { paddingHorizontal: spacing.md, paddingBottom: spacing.lg },
   backRefineBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.sm, backgroundColor: colors.background.surface },
   backRefineText: { color: colors.text.primary, fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.medium },
   subtitle: { fontSize: typography.fontSize.sm, color: colors.text.secondary, marginBottom: spacing.md },
@@ -243,7 +245,6 @@ const styles = StyleSheet.create({
   privacyBox: { flexDirection: 'row', alignItems: 'flex-start', padding: spacing.md, marginTop: spacing.md },
   privacyText: { color: colors.text.secondary, fontSize: typography.fontSize.xs, flex: 1 },
   error: { color: colors.error, marginBottom: spacing.sm },
-  helpBtn: { padding: 8, borderWidth: 1, borderColor: colors.border.light, borderRadius: borderRadius.sm, backgroundColor: colors.background.surface },
 });
 
 

@@ -6,7 +6,8 @@ import {
   PanGestureHandlerStateChangeEvent,
   PanGestureHandlerGestureEvent,
 } from 'react-native-gesture-handler';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Sun01Icon, ArrowRight01Icon, Calendar01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 // spacing/typography not used in Simon-style UI
 
@@ -23,11 +24,10 @@ interface QuickScheduleRadialProps {
 const RADIUS = 120; // Increased from 96 for better touch targets
 const INNER_CANCEL_RADIUS = 60; // Increased proportionally from 52
 
-const OPTIONS: Array<{ key: QuickSchedulePreset; label: string; icon: string }> = [
-  { key: 'today', label: 'Today', icon: 'sun' },
-  { key: 'tomorrow', label: 'Tomorrow', icon: 'arrow-right' },
-  { key: 'this_week', label: 'This week', icon: 'calendar' },
-  { key: 'next_week', label: 'Next week', icon: 'calendar' },
+const OPTIONS: Array<{ key: QuickSchedulePreset; label: string; icon: string }> = [{ key: 'today', label: 'Today', icon: Sun01Icon },
+{ key: 'tomorrow', label: 'Tomorrow', icon: ArrowRight01Icon },
+{ key: 'this_week', label: 'This week', icon: Calendar01Icon },
+{ key: 'next_week', label: 'Next week', icon: Calendar01Icon },
 ];
 
 const QuickScheduleRadial: React.FC<QuickScheduleRadialProps> = ({ visible, center, onSelect, onClose, openTimestamp }) => {
@@ -67,7 +67,7 @@ const QuickScheduleRadial: React.FC<QuickScheduleRadialProps> = ({ visible, cent
   };
 
   const onGestureEvent = (e: PanGestureHandlerGestureEvent) => {
-    if (!startRef.current) {return;}
+    if (!startRef.current) { return; }
     const x = startRef.current.x + e.nativeEvent.translationX;
     const y = startRef.current.y + e.nativeEvent.translationY;
     const dx = x - cx;
@@ -131,7 +131,7 @@ const QuickScheduleRadial: React.FC<QuickScheduleRadialProps> = ({ visible, cent
     }
   };
 
-  if (!visible) {return null;}
+  if (!visible) { return null; }
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -166,25 +166,25 @@ const QuickScheduleRadial: React.FC<QuickScheduleRadialProps> = ({ visible, cent
                 {/* Quadrants with icons */}
                 <TouchableWithoutFeedback onPress={() => onSelect(OPTIONS[0].key)}>
                   <View style={[styles.quadrant, styles.topRight, hoverIndex === 0 && styles.quadrantActive]}>
-                    <Icon name={OPTIONS[0].icon as any} size={18} color={hoverIndex === 0 ? colors.background.surface : colors.text.primary} />
+                    <Icon icon={OPTIONS[0].icon} size={18} color={hoverIndex === 0 ? colors.background.surface : colors.text.primary} />
                     <Text style={[styles.label, hoverIndex === 0 && styles.labelActive]}>{OPTIONS[0].label}</Text>
                   </View>
                 </TouchableWithoutFeedback>
                 <TouchableWithoutFeedback onPress={() => onSelect(OPTIONS[1].key)}>
                   <View style={[styles.quadrant, styles.bottomRight, hoverIndex === 1 && styles.quadrantActive]}>
-                    <Icon name={OPTIONS[1].icon as any} size={18} color={hoverIndex === 1 ? colors.background.surface : colors.text.primary} />
+                    <Icon icon={OPTIONS[1].icon} size={18} color={hoverIndex === 1 ? colors.background.surface : colors.text.primary} />
                     <Text style={[styles.label, hoverIndex === 1 && styles.labelActive]}>{OPTIONS[1].label}</Text>
                   </View>
                 </TouchableWithoutFeedback>
                 <TouchableWithoutFeedback onPress={() => onSelect(OPTIONS[2].key)}>
                   <View style={[styles.quadrant, styles.bottomLeft, hoverIndex === 2 && styles.quadrantActive]}>
-                    <Icon name={OPTIONS[2].icon as any} size={18} color={hoverIndex === 2 ? colors.background.surface : colors.text.primary} />
+                    <Icon icon={OPTIONS[2].icon} size={18} color={hoverIndex === 2 ? colors.background.surface : colors.text.primary} />
                     <Text style={[styles.label, hoverIndex === 2 && styles.labelActive]}>{OPTIONS[2].label}</Text>
                   </View>
                 </TouchableWithoutFeedback>
                 <TouchableWithoutFeedback onPress={() => onSelect(OPTIONS[3].key)}>
                   <View style={[styles.quadrant, styles.topLeft, hoverIndex === 3 && styles.quadrantActive]}>
-                    <Icon name={OPTIONS[3].icon as any} size={18} color={hoverIndex === 3 ? colors.background.surface : colors.text.primary} />
+                    <Icon icon={OPTIONS[3].icon} size={18} color={hoverIndex === 3 ? colors.background.surface : colors.text.primary} />
                     <Text style={[styles.label, hoverIndex === 3 && styles.labelActive]}>{OPTIONS[3].label}</Text>
                   </View>
                 </TouchableWithoutFeedback>
@@ -197,7 +197,7 @@ const QuickScheduleRadial: React.FC<QuickScheduleRadialProps> = ({ visible, cent
                       { left: RADIUS - centerSize / 2, top: RADIUS - centerSize / 2, width: centerSize, height: centerSize, borderRadius: centerSize / 2 },
                     ]}
                   >
-                    <Icon name="x" size={24} color={colors.text.primary} />
+                    <Icon icon={Cancel01Icon} size={24} color={colors.text.primary} />
                   </View>
                 </TouchableWithoutFeedback>
               </View>

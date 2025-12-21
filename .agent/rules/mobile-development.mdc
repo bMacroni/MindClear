@@ -1,0 +1,205 @@
+---
+globs: mobile/**/*.tsx,mobile/**/*.ts,mobile/**/*.jsx,mobile/**/*.js
+---
+
+# Mobile Development Rules (React Native + TypeScript)
+
+## Technology Stack
+- **React Native 0.80.1** with TypeScript
+- **React Navigation v7** for navigation
+- **React Native Paper** for UI components
+- **AsyncStorage** for local data persistence
+- **Hugeicons** (@hugeicons/react-native) for icons
+- **Firebase** for authentication and push notifications
+- **Google Sign-In** for authentication
+
+## Component Guidelines
+
+### Component Structure
+```tsx
+// Import order: React, React Native, third-party, local
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Alert } from 'react-native';
+import { Button, Card } from 'react-native-paper';
+import { HugeiconsIcon, CheckmarkCircle01Icon } from '@hugeicons/react-native';
+import { TaskList } from '../components/TaskList';
+import { useTaskStore } from '../stores/taskStore';
+
+// TypeScript interfaces
+interface TaskManagerProps {
+  navigation: any;
+  route: any;
+}
+
+// Component definition
+const TaskManager: React.FC<TaskManagerProps> = ({ navigation, route }) => {
+  // State and hooks
+  const [loading, setLoading] = useState<boolean>(false);
+  const { tasks, fetchTasks } = useTaskStore();
+
+  // Event handlers
+  const handleTaskCreate = async (taskData: TaskData): Promise<void> => {
+    try {
+      setLoading(true);
+      // Implementation
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create task');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Effects
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // Render
+  return (
+    <View style={styles.container}>
+      <Card style={styles.card}>
+        <Card.Content>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <HugeiconsIcon icon={CheckmarkCircle01Icon} size={24} color="#000" />
+            <Text style={[styles.title, { marginBottom: 0, marginLeft: 8 }]}>Tasks</Text>
+          </View>
+          <TaskList tasks={tasks} onTaskCreate={handleTaskCreate} />
+        </Card.Content>
+      </Card>
+    </View>
+  );
+};
+
+// Styles
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#f5f5f5',
+  },
+  card: {
+    marginBottom: 16,
+    elevation: 2,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+});
+
+export default TaskManager;
+```
+
+### Styling Guidelines
+- Use **StyleSheet.create()** for all styles
+- Follow React Native Paper design system
+- Use consistent spacing: `padding: 16`, `margin: 8`
+- Use semantic colors from theme
+- Implement proper responsive design for different screen sizes
+
+### Navigation
+- Use **React Navigation v7** with TypeScript
+- Define proper navigation types
+- Use stack and tab navigators appropriately
+- Handle deep linking and navigation state
+
+```tsx
+// Navigation types
+export type RootStackParamList = {
+  Home: undefined;
+  TaskDetail: { taskId: string };
+  Profile: undefined;
+};
+
+// Navigation usage
+import { useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
+
+const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+```
+
+### State Management
+- Use **AsyncStorage** for persistent local state
+- Use React hooks for component state
+- Implement proper error handling and loading states
+- Use TypeScript interfaces for all data structures
+
+### Authentication
+- Use **Firebase Authentication** for user management
+- Implement **Google Sign-In** for seamless authentication
+- Store JWT tokens securely using **EncryptedStorage**
+- Handle authentication state changes properly
+
+```tsx
+// Authentication service example
+import auth from '@react-native-firebase/auth';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import EncryptedStorage from 'react-native-encrypted-storage';
+
+export const authService = {
+  async signInWithGoogle(): Promise<User> {
+    try {
+      const { idToken } = await GoogleSignin.signIn();
+      const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+      const userCredential = await auth().signInWithCredential(googleCredential);
+      return userCredential.user;
+    } catch (error) {
+      throw new Error('Google sign-in failed');
+    }
+  },
+
+  async storeToken(token: string): Promise<void> {
+    await EncryptedStorage.setItem('auth_token', token);
+  },
+
+  async getToken(): Promise<string | null> {
+    return await EncryptedStorage.getItem('auth_token');
+  }
+};
+```
+
+## File Organization
+- Components in `src/components/`
+- Screens in `src/screens/`
+- Services in `src/services/`
+- Types in `src/types/`
+- Utils in `src/utils/`
+- Navigation in `src/navigation/`
+
+## Testing
+- Use **Jest** for unit tests
+- Test components with **@testing-library/react-native**
+- Mock native modules properly
+- Test navigation flows
+
+## Performance
+- Use **React.memo** for expensive components
+- Implement proper loading states
+- Use **FlatList** for large lists
+- Optimize images and assets
+- Use **React Native Reanimated** for smooth animations
+
+## Platform-Specific Code
+- Use **Platform.select()** for platform differences
+- Handle iOS and Android specific features
+- Test on both platforms
+- Use proper platform-specific styling
+
+## Icons and Assets
+- Use **Hugeicons** (@hugeicons/react-native)
+- Optimize images for different screen densities
+- Use proper asset organization
+- Implement proper icon sizing and colors
+
+## Error Handling
+- Use **Alert.alert()** for user-facing errors
+- Implement proper try-catch blocks
+- Handle network errors gracefully
+- Provide meaningful error messages
+
+## Accessibility
+- Use proper accessibility labels
+- Implement screen reader support
+- Use semantic components
+- Test with accessibility tools

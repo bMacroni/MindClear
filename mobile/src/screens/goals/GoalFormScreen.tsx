@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { Calendar01Icon, ArrowUp01Icon, ArrowDown01Icon, Delete01Icon } from '@hugeicons/core-free-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
@@ -26,11 +27,13 @@ interface Milestone {
   }>;
 }
 
+const isTemporaryId = (id: string) => id.startsWith('temp_') || /^\d+$/.test(id);
+
 export default function GoalFormScreen({ navigation, route }: any) {
   const goalId = route.params?.goalId;
   const initialCategory = route.params?.category || '';
   const isEditing = !!goalId;
-  
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -45,15 +48,34 @@ export default function GoalFormScreen({ navigation, route }: any) {
     try {
       setInitialLoading(true);
       const goalData = await goalRepository.getGoalById(goalId);
-      
+
       if (goalData) {
-        setTitle(goalData.title);
-        setDescription(goalData.description);
+        setTitle(goalData.title || '');
+        setDescription(goalData.description || '');
         setCategory(goalData.category || '');
         // Load milestones via database query
         const milestonesData = await goalRepository.getMilestonesForGoal(goalId);
-        setMilestones(milestonesData);
-        
+
+        const mappedMilestones: Milestone[] = await Promise.all(
+          milestonesData.map(async (m) => {
+            const steps = await m.steps.fetch();
+            return {
+              id: m.id,
+              title: m.title,
+              description: m.description || '',
+              completed: m.completed,
+              steps: steps.map(s => ({
+                id: s.id,
+                text: s.text,
+                completed: s.completed,
+                order: s.order
+              })).sort((a, b) => a.order - b.order)
+            };
+          })
+        );
+
+        setMilestones(mappedMilestones);
+
         if (goalData.targetCompletionDate) {
           setTargetDate(goalData.targetCompletionDate);
         }
@@ -73,24 +95,14 @@ export default function GoalFormScreen({ navigation, route }: any) {
     }
   }, [goalId, isEditing, loadExistingGoal]);
 
-  // Track screen view
-  useEffect(() => {
-    analyticsService.trackScreenView('goal_form', {
-      isEditing,
-      goalId: goalId || null
-    }).catch(error => {
-      console.warn('Failed to track screen view analytics:', error);
-    });
-  }, [isEditing, goalId]);
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!title.trim()) {
       Alert.alert('Error', 'Please enter a goal title.');
       return;
     }
 
     setLoading(true);
-    
+
     try {
       const goalData = {
         title: title.trim(),
@@ -99,24 +111,87 @@ export default function GoalFormScreen({ navigation, route }: any) {
         category: category.trim() || undefined,
         userId: authService.getCurrentUser()?.id,
       };
-      
+
       if (isEditing) {
         await goalRepository.updateGoal(goalId, goalData);
-        
+
         // Handle milestone updates
         for (const milestone of milestones) {
-          if (milestone.id) {
-            await goalRepository.updateMilestone(milestone.id, milestone);
+          if (milestone.id && !isTemporaryId(milestone.id)) {
+            // Existing milestone - update details
+            await goalRepository.updateMilestone(milestone.id, {
+              title: milestone.title,
+              description: milestone.description,
+              completed: milestone.completed,
+              order: milestones.indexOf(milestone)
+            });
+
+            // Update steps for existing milestone
+            if (milestone.steps) {
+              for (const step of milestone.steps) {
+                if (isTemporaryId(step.id)) {
+                  // New step on existing milestone
+                  const createdStep = await goalRepository.createMilestoneStep(milestone.id, {
+                    text: step.text,
+                    order: step.order
+                  });
+                  if (step.completed) {
+                    await goalRepository.updateMilestoneStep(createdStep.id, { completed: true });
+                  }
+                } else {
+                  // Existing step update
+                  await goalRepository.updateMilestoneStep(step.id, {
+                    text: step.text,
+                    completed: step.completed,
+                    order: step.order
+                  });
+                }
+              }
+            }
+          } else {
+            // New milestone - create it
+            const newMs = await goalRepository.createMilestone(goalId, {
+              title: milestone.title,
+              description: milestone.description,
+              order: milestones.indexOf(milestone)
+            });
+
+            // If the user marked the new milestone as completed before saving
+            if (milestone.completed) {
+              await goalRepository.updateMilestone(newMs.id, { completed: true });
+            }
+
+            // Create steps for the new milestone
+            if (milestone.steps) {
+              for (const step of milestone.steps) {
+                const createdStep = await goalRepository.createMilestoneStep(newMs.id, {
+                  text: step.text,
+                  order: step.order
+                });
+                if (step.completed) {
+                  await goalRepository.updateMilestoneStep(createdStep.id, { completed: true });
+                }
+              }
+            }
           }
         }
       } else {
-        // Create goal with nested milestones
-        await goalRepository.createGoal({
-          ...goalData,
-          milestones: milestones,
-        });
+        // Use transactional create for new goals to ensure data integrity
+        await goalRepository.createGoalWithMilestones(
+          {
+            title: title.trim(),
+            description: description.trim(),
+            targetCompletionDate: targetDate,
+            category: category.trim() || undefined,
+          },
+          milestones.map(m => ({
+            title: m.title,
+            description: m.description,
+            steps: m.steps?.map(s => ({ text: s.text }))
+          }))
+        );
       }
-      
+
       syncService.silentSync();
       navigation.goBack();
     } catch (error) {
@@ -125,11 +200,40 @@ export default function GoalFormScreen({ navigation, route }: any) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [title, description, targetDate, category, isEditing, goalId, milestones, navigation]);
 
+  // Track screen view & configure header options
+  // Track screen view once on mount
+  React.useEffect(() => {
+    analyticsService.trackScreenView('goal_form', {
+      isEditing,
+      goalId: goalId || null
+    }).catch(error => {
+      console.warn('Failed to track screen view analytics:', error);
+    });
+  }, []);
+
+  // Configure header options
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: isEditing ? 'Edit Goal' : 'New Goal',
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backButton}>Cancel</Text>
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <TouchableOpacity onPress={handleSave} disabled={loading}>
+          <Text style={[styles.saveButton, loading && styles.saveButtonDisabled]}>
+            {loading ? 'Saving...' : 'Save'}
+          </Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, isEditing, goalId, loading, handleSave]);
   const addMilestone = () => {
     const newMilestone: Milestone = {
-      id: Date.now().toString(),
+      id: `temp_${Date.now()}`,
       title: '',
       description: '',
       completed: false,
@@ -139,7 +243,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
   };
 
   const updateMilestone = (id: string, field: keyof Milestone, value: any) => {
-    setMilestones(milestones.map(m => 
+    setMilestones(milestones.map(m =>
       m.id === id ? { ...m, [field]: value } : m
     ));
   };
@@ -149,7 +253,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
   };
 
   const toggleMilestone = (id: string) => {
-    setMilestones(milestones.map(m => 
+    setMilestones(milestones.map(m =>
       m.id === id ? { ...m, completed: !m.completed } : m
     ));
   };
@@ -160,16 +264,21 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
   const addStep = (milestoneId: string) => {
     setMilestones((prev) => prev.map(m => {
-      if (m.id !== milestoneId) {return m;}
+      if (m.id !== milestoneId) { return m; }
       const steps = m.steps || [];
-      const newStep = { id: `${Date.now()}_${steps.length + 1}`, text: '', completed: false, order: steps.length + 1 };
+      const newStep = {
+        id: `temp_${Date.now()}_${steps.length + 1}`,
+        text: '',
+        completed: false,
+        order: steps.length + 1
+      };
       return { ...m, steps: [...steps, newStep] };
     }));
   };
 
-  const updateStep = (milestoneId: string, stepId: string, field: 'text'|'completed', value: any) => {
+  const updateStep = (milestoneId: string, stepId: string, field: 'text' | 'completed', value: any) => {
     setMilestones((prev) => prev.map(m => {
-      if (m.id !== milestoneId) {return m;}
+      if (m.id !== milestoneId) { return m; }
       const steps = (m.steps || []).map(s => s.id === stepId ? { ...s, [field]: value } : s);
       return { ...m, steps };
     }));
@@ -177,20 +286,20 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
   const deleteStep = (milestoneId: string, stepId: string) => {
     setMilestones((prev) => prev.map(m => {
-      if (m.id !== milestoneId) {return m;}
+      if (m.id !== milestoneId) { return m; }
       const steps = (m.steps || []).filter(s => s.id !== stepId).map((s, idx) => ({ ...s, order: idx + 1 }));
       return { ...m, steps };
     }));
   };
 
-  const moveStep = (milestoneId: string, stepId: string, direction: 'up'|'down') => {
+  const moveStep = (milestoneId: string, stepId: string, direction: 'up' | 'down') => {
     setMilestones((prev) => prev.map(m => {
-      if (m.id !== milestoneId) {return m;}
+      if (m.id !== milestoneId) { return m; }
       const steps = [...(m.steps || [])];
       const index = steps.findIndex(s => s.id === stepId);
-      if (index === -1) {return m;}
+      if (index === -1) { return m; }
       const target = direction === 'up' ? index - 1 : index + 1;
-      if (target < 0 || target >= steps.length) {return m;}
+      if (target < 0 || target >= steps.length) { return m; }
       const temp = steps[index];
       steps[index] = steps[target];
       steps[target] = temp;
@@ -201,20 +310,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
   if (initialLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backButton}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {isEditing ? 'Edit Goal' : 'New Goal'}
-          </Text>
-          <TouchableOpacity disabled={true}>
-            <Text style={[styles.saveButton, styles.saveButtonDisabled]}>
-              Loading...
-            </Text>
-          </TouchableOpacity>
-        </View>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading goal data...</Text>
         </View>
@@ -223,30 +319,17 @@ export default function GoalFormScreen({ navigation, route }: any) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backButton}>Cancel</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isEditing ? 'Edit Goal' : 'New Goal'}
-        </Text>
-        <TouchableOpacity onPress={handleSave} disabled={loading}>
-          <Text style={[styles.saveButton, loading && styles.saveButtonDisabled]}>
-            {loading ? 'Saving...' : 'Save'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
 
-      <ScrollView 
-        style={styles.content} 
+      <ScrollView
+        style={styles.content}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         {/* Goal Details */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Goal Details</Text>
-          
+
           <Input
             placeholder="What do you want to achieve?"
             value={title}
@@ -254,7 +337,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
             fullWidth
             style={styles.titleInput}
           />
-          
+
           <Input
             placeholder="Describe your goal in detail..."
             value={description}
@@ -267,7 +350,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
           {/* Target Date */}
           <View style={styles.dateRow}>
-            <Icon name="calendar" size={16} color={colors.text.secondary} />
+            <Icon icon={Calendar01Icon} size={16} color={colors.text.secondary} />
             <TouchableOpacity
               onPress={() => setShowDatePicker(true)}
               accessibilityRole="button"
@@ -323,7 +406,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
                         <View style={styles.progressPill}>
                           <Text style={styles.progressPillText}>{completedSteps}/{total}</Text>
                         </View>
-                        <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.text.secondary} />
+                        <Icon icon={isOpen ? ArrowUp01Icon : ArrowDown01Icon} size={16} color={colors.text.secondary} />
                       </View>
                     </TouchableOpacity>
 
@@ -362,13 +445,13 @@ export default function GoalFormScreen({ navigation, route }: any) {
                               />
                               <View style={styles.stepActions}>
                                 <TouchableOpacity onPress={() => moveStep(milestone.id, step.id, 'up')} style={styles.iconBtnSmall}>
-                                  <Icon name="chevron-up" size={16} color={colors.text.secondary} />
+                                  <Icon icon={ArrowUp01Icon} size={16} color={colors.text.secondary} />
                                 </TouchableOpacity>
                                 <TouchableOpacity onPress={() => moveStep(milestone.id, step.id, 'down')} style={styles.iconBtnSmall}>
-                                  <Icon name="chevron-down" size={16} color={colors.text.secondary} />
+                                  <Icon icon={ArrowDown01Icon} size={16} color={colors.text.secondary} />
                                 </TouchableOpacity>
                                 <TouchableOpacity onPress={() => deleteStep(milestone.id, step.id)} style={styles.iconBtnSmall}>
-                                  <Icon name="trash" size={16} color={colors.text.secondary} />
+                                  <Icon icon={Delete01Icon} size={16} color={colors.text.secondary} />
                                 </TouchableOpacity>
                               </View>
                             </View>
@@ -380,7 +463,7 @@ export default function GoalFormScreen({ navigation, route }: any) {
 
                         <View style={styles.milestoneFooterActions}>
                           <TouchableOpacity onPress={() => removeMilestone(milestone.id)} style={styles.iconBtnDanger}>
-                            <Icon name="trash" size={16} color={colors.text.secondary} />
+                            <Icon icon={Delete01Icon} size={16} color={colors.text.secondary} />
                             <Text style={styles.removeText}>Remove Milestone</Text>
                           </TouchableOpacity>
                         </View>

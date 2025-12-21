@@ -18,7 +18,8 @@ import FocusTaskGuidanceScreen from '../screens/tasks/FocusTaskGuidanceScreen';
 import GoalsScreen from '../screens/goals/GoalsScreen';
 import TasksScreen from '../screens/tasks/TasksScreen';
 import CalendarScreen from '../screens/calendar/CalendarScreen';
-import ProfileScreen from '../screens/profile/ProfileScreen';
+
+import { MainHeader } from './MainHeader';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -27,14 +28,19 @@ export default function TabNavigator() {
   return (
     <Tab.Navigator
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
+        header: (props) => <MainHeader {...props} />,
         tabBarHideOnKeyboard: true,
       }}
       tabBar={props => <CustomTabBar {...props} />}
     >
-      <Tab.Screen 
-        name="BrainDump" 
-        options={{ title: 'Brain Dump' }}
+      <Tab.Screen
+        name="BrainDump"
+        options={{
+          title: 'Brain Dump',
+          tabBarLabel: 'Brain Dump',
+          headerShown: false // Hide tab header, show stack header instead
+        }}
         listeners={({ navigation }) => ({
           tabPress: () => {
             (async () => {
@@ -49,48 +55,50 @@ export default function TabNavigator() {
                 if (!sessionHasItems && !lastHasItems) {
                   navigation.navigate('BrainDump' as never);
                 }
-              } catch {}
+              } catch { }
             })();
           },
         })}
       >
         {() => (
           <BrainDumpProvider>
-            <BrainStack.Navigator screenOptions={{ headerShown: false }}>
-              <BrainStack.Screen name="BrainDumpEntry" component={BrainDumpEntryScreen} />
-              <BrainStack.Screen name="BrainDumpOnboarding" component={BrainDumpOnboardingScreen} />
-              <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} />
-              <BrainStack.Screen name="BrainDumpRefinement" component={BrainDumpRefinementScreen} />
-              <BrainStack.Screen name="BrainDumpPrioritization" component={BrainDumpPrioritizationScreen} />
-              <BrainStack.Screen name="FocusTaskGuidance" component={FocusTaskGuidanceScreen} />
+            <BrainStack.Navigator
+              screenOptions={{
+                headerShown: true,
+                header: (props) => <MainHeader {...props} />,
+                animation: 'fade',
+                animationDuration: 200,
+              }}
+            >
+              <BrainStack.Screen name="BrainDumpEntry" component={BrainDumpEntryScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpOnboarding" component={BrainDumpOnboardingScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpInput" component={BrainDumpInputScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpRefinement" component={BrainDumpRefinementScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="BrainDumpPrioritization" component={BrainDumpPrioritizationScreen} options={{ title: 'Brain Dump' }} />
+              <BrainStack.Screen name="FocusTaskGuidance" component={FocusTaskGuidanceScreen} options={{ title: 'Brain Dump' }} />
             </BrainStack.Navigator>
           </BrainDumpProvider>
         )}
       </Tab.Screen>
-      <Tab.Screen 
-        name="AIChat" 
+      <Tab.Screen
+        name="AIChat"
         component={AIChatScreen}
-        options={{ title: 'AI Chat' }}
+        options={{ title: 'AI Chat', tabBarLabel: 'AI Chat' }}
       />
-      <Tab.Screen 
-        name="Goals" 
+      <Tab.Screen
+        name="Goals"
         component={GoalsScreen}
-        options={{ title: 'Goals' }}
+        options={{ title: 'Goals', tabBarLabel: 'Goals' }}
       />
-      <Tab.Screen 
-        name="Tasks" 
+      <Tab.Screen
+        name="Tasks"
         component={TasksScreen}
-        options={{ title: 'Tasks' }}
+        options={{ title: 'Tasks', tabBarLabel: 'Tasks' }}
       />
-      <Tab.Screen 
-        name="Calendar" 
+      <Tab.Screen
+        name="Calendar"
         component={CalendarScreen}
-        options={{ title: 'Calendar' }}
-      />
-      <Tab.Screen 
-        name="Profile" 
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
+        options={{ title: 'Calendar', tabBarLabel: 'Calendar' }}
       />
     </Tab.Navigator>
   );

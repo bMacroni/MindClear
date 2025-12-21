@@ -1,7 +1,20 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, StatusBar, RefreshControl } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/Octicons';
+import {
+  Tick01Icon,
+  CircleIcon,
+  PencilEdit01Icon,
+  Cancel01Icon,
+  Delete01Icon,
+  Calendar01Icon,
+  ArrowRight01Icon,
+  PlusSignIcon,
+  MinusSignIcon,
+  Analytics01Icon,
+  ArrowDown01Icon
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
@@ -23,7 +36,6 @@ import HelpTarget from '../../components/help/HelpTarget';
 import { useHelp, HelpContent, HelpScope } from '../../contexts/HelpContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { LoadingSkeleton } from '../../components/common/LoadingSkeleton';
-import ScreenHeader from '../../components/common/ScreenHeader';
 
 interface Step {
   id: string;
@@ -66,11 +78,11 @@ interface StepItemProps {
 }
 
 // Memoized components moved outside the main component to avoid hooks issues
-const StepItem = React.memo(({ 
-  step, 
-  goalId, 
-  milestoneId, 
-  onToggle 
+const StepItem = React.memo(({
+  step,
+  goalId,
+  milestoneId,
+  onToggle
 }: StepItemProps) => (
   <View style={styles.stepRow}>
     <HelpTarget helpId={`goal-step-toggle:${goalId}:${step.id}`}>
@@ -82,11 +94,19 @@ const StepItem = React.memo(({
         accessibilityState={{ checked: step.completed }}
         accessibilityHint={step.completed ? "Tap to mark as incomplete" : "Tap to mark as complete"}
       >
-        <Icon 
-          name={step.completed ? 'check' : 'circle'} 
-          size={16} 
-          color={step.completed ? (colors.accent?.gold || colors.primary) : colors.text.secondary} 
-        />
+        {step.completed ? (
+          <Icon
+            icon={Tick01Icon}
+            size={16}
+            color={colors.accent?.gold || colors.primary}
+          />
+        ) : (
+          <Icon
+            icon={CircleIcon}
+            size={16}
+            color={colors.text.secondary}
+          />
+        )}
       </TouchableOpacity>
     </HelpTarget>
     <Text style={[styles.stepText, step.completed && styles.stepTextCompleted]}>
@@ -172,7 +192,24 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   const [editStepHeights, setEditStepHeights] = useState<Record<string, Record<string, number>>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [triedFullPull, setTriedFullPull] = useState(false);
-  
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => setShowAddOptions(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add goal"
+            style={styles.headerIconButton}
+          >
+            <Icon icon={PlusSignIcon} size={20} color={colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation]);
+
   // Ensure system status bar matches header background (white) with dark content
   useEffect(() => {
     try {
@@ -181,7 +218,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         StatusBar.setBackgroundColor(colors.background.primary);
         StatusBar.setTranslucent(false);
       }
-    } catch {}
+    } catch { }
   }, []);
   const [needsReviewExpanded, setNeedsReviewExpanded] = useState(false);
 
@@ -212,7 +249,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   useEffect(() => {
     const unsubscribe = authService.subscribe((state) => {
       setAuthState(state);
-      
+
       // If user becomes authenticated, trigger sync
       if (state.isAuthenticated && !state.isLoading) {
         syncService.silentSync().catch(console.error);
@@ -252,60 +289,60 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   // Transform WatermelonDB goals to the expected format with optimized batch queries
   const transformGoals = useCallback(async (watermelonGoals: Goal[], database: any) => {
-    if (watermelonGoals.length === 0) {return [];}
-    
+    if (watermelonGoals.length === 0) { return []; }
+
     const goalIds = watermelonGoals.map(g => g.id);
-    
+
     // Batch fetch all milestones for all goals (eliminates N+1 query)
     const allMilestones = await database.collections.get('milestones')
       .query(Q.where('goal_id', Q.oneOf(goalIds)))
       .fetch();
-    
+
     // Batch fetch all steps for all milestones (eliminates N*M+1 query)
     const milestoneIds = allMilestones.map((m: any) => m.id);
-    const allSteps = milestoneIds.length > 0 
+    const allSteps = milestoneIds.length > 0
       ? await database.collections.get('milestone_steps')
-          .query(Q.where('milestone_id', Q.oneOf(milestoneIds)))
-          .fetch()
+        .query(Q.where('milestone_id', Q.oneOf(milestoneIds)))
+        .fetch()
       : [];
-    
+
     // Group milestones by goal_id for efficient lookup
     const milestonesByGoal = allMilestones.reduce((acc: Record<string, any[]>, milestone: any) => {
       // Handle both camelCase and snake_case property names
       const goalId = milestone.goalId || milestone.goal_id;
       if (!goalId) {
-        if (__DEV__) {console.warn('Milestone missing goalId:', milestone);}
+        if (__DEV__) { console.warn('Milestone missing goalId:', milestone); }
         return acc;
       }
-      if (!acc[goalId]) {acc[goalId] = [];}
+      if (!acc[goalId]) { acc[goalId] = []; }
       acc[goalId].push(milestone);
       return acc;
     }, {} as Record<string, any[]>);
-    
+
     // Group steps by milestone_id for efficient lookup
     const stepsByMilestone = allSteps.reduce((acc: Record<string, any[]>, step: any) => {
       // Handle both camelCase and snake_case property names
       const milestoneId = step.milestoneId || step.milestone_id;
       if (!milestoneId) {
-        if (__DEV__) {console.warn('Step missing milestoneId:', step);}
+        if (__DEV__) { console.warn('Step missing milestoneId:', step); }
         return acc;
       }
-      if (!acc[milestoneId]) {acc[milestoneId] = [];}
+      if (!acc[milestoneId]) { acc[milestoneId] = []; }
       acc[milestoneId].push(step);
       return acc;
     }, {} as Record<string, any[]>);
-    
+
     // Transform goals using pre-fetched data
     const transformedGoals = watermelonGoals.map((goal: any) => {
       const milestones = milestonesByGoal[goal.id] || [];
-      
+
       // Sort milestones by order before processing
       const sortedMilestones = [...milestones].sort((a: any, b: any) => {
         const orderA = a.order ?? 0;
         const orderB = b.order ?? 0;
         return orderA - orderB;
       });
-      
+
       const milestonesWithSteps = sortedMilestones.map((milestone: any) => {
         const steps = stepsByMilestone[milestone.id] || [];
         // Sort steps by order
@@ -314,11 +351,11 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
           const orderB = b.order ?? 0;
           return orderA - orderB;
         });
-        
+
         // Determine if milestone is completed: either explicitly marked or all steps are complete
         const allStepsCompleted = sortedSteps.length > 0 && sortedSteps.every((s: any) => s.completed);
         const milestoneCompleted = milestone.completed === true || allStepsCompleted;
-        
+
         return {
           id: milestone.id,
           title: milestone.title || '',
@@ -328,18 +365,18 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
           steps: sortedSteps
         };
       });
-      
+
       const totalMilestones = milestonesWithSteps.length;
       const completedMilestones = milestonesWithSteps.filter((m: any) => m.completed).length;
       const totalSteps = milestonesWithSteps.reduce((total: number, milestone: any) => total + (milestone.steps?.length || 0), 0);
       const completedSteps = milestonesWithSteps.reduce((total: number, milestone: any) => total + (milestone.steps?.filter((s: any) => s.completed).length || 0), 0);
-      
+
       // Find the first incomplete milestone (sorted by order)
       const nextMilestoneObj = milestonesWithSteps.find((m: any) => !m.completed);
       const nextMilestone = nextMilestoneObj?.title || '';
       const nextStep = nextMilestoneObj?.steps?.find((s: any) => !s.completed)?.text || '';
-      
-      
+
+
       return {
         id: goal.id,
         title: goal.title,
@@ -369,7 +406,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         })),
       } as Goal;
     });
-    
+
     return transformedGoals;
   }, []);
 
@@ -389,26 +426,26 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Reset help overlay when this screen gains focus
   useFocusEffect(
     React.useCallback(() => {
-      try { setHelpScope('goals'); } catch {}
-      try { setHelpContent(getGoalsHelpContent()); } catch {}
+      try { setHelpScope('goals'); } catch { }
+      try { setHelpContent(getGoalsHelpContent()); } catch { }
       // Ensure any previously registered targets from other scopes are ignored
       // by turning the overlay off briefly on focus.
-      try { setIsHelpOverlayActive(false); } catch {}
+      try { setIsHelpOverlayActive(false); } catch { }
       return () => {
-        try { setIsHelpOverlayActive(false); } catch {}
+        try { setIsHelpOverlayActive(false); } catch { }
       };
     }, [setHelpScope, setHelpContent, getGoalsHelpContent, setIsHelpOverlayActive])
   );
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-      try {
-        // On pull-to-refresh, do a full sync to ensure complete data
-        if (goals.length === 0) {
-          await syncService.forceFullPull();
-        } else {
-          await syncService.silentSync();
-        }
+    try {
+      // On pull-to-refresh, do a full sync to ensure complete data
+      if (goals.length === 0) {
+        await syncService.forceFullPull();
+      } else {
+        await syncService.silentSync();
+      }
       await loadGoals();
     } finally {
       setRefreshing(false);
@@ -474,7 +511,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   const saveEditDate = async (goalId: string, pickedDate?: Date) => {
     const draft = pickedDate || dateDrafts[goalId];
-    if (!draft) {return;}
+    if (!draft) { return; }
     try {
       setLoading(true);
       await goalRepository.updateGoal(goalId, { targetCompletionDate: draft });
@@ -523,9 +560,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   const saveEdits = async (goalId: string) => {
     const drafts = editDrafts[goalId];
-    if (!drafts) {return;}
+    if (!drafts) { return; }
     const original = goals.find((g) => g.id === goalId);
-    if (!original) {return;}
+    if (!original) { return; }
 
     try {
       setLoading(true);
@@ -547,10 +584,10 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
       // Update local state to reflect edits
       setGoals((prev) => prev.map((g) => {
-        if (g.id !== goalId) {return g;}
+        if (g.id !== goalId) { return g; }
         const updatedMilestones = g.milestones.map((m) => {
           const draft = drafts.find((dm) => dm.id === m.id);
-          if (!draft) {return m;}
+          if (!draft) { return m; }
           return {
             ...m,
             title: draft.title,
@@ -568,7 +605,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         const { [goalId]: _, ...rest } = prev as any;
         return rest;
       });
-      
+
       // Trigger background sync
       syncService.silentSync();
     } catch (error) {
@@ -581,31 +618,31 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   const toggleStepCompleted = useCallback(async (goalId: string, milestoneId: string, stepId: string) => {
     // Find the goal and step first to get the current state
     const goal = goals.find(g => g.id === goalId);
-    if (!goal) {return;}
-    
+    if (!goal) { return; }
+
     const milestone = goal.milestones.find(m => m.id === milestoneId);
-    if (!milestone) {return;}
-    
+    if (!milestone) { return; }
+
     const step = milestone.steps.find(s => s.id === stepId);
-    if (!step) {return;}
-    
+    if (!step) { return; }
+
     const newCompleted = !step.completed;
-    
+
     // Optimistic UI update - much more efficient
     setGoals((prev) => prev.map((g) => {
-      if (g.id !== goalId) {return g;}
-      
+      if (g.id !== goalId) { return g; }
+
       const updatedMilestones = g.milestones.map((m) => {
-        if (m.id !== milestoneId) {return m;}
-        
+        if (m.id !== milestoneId) { return m; }
+
         const updatedSteps = m.steps.map((s) => {
-          if (s.id !== stepId) {return s;}
+          if (s.id !== stepId) { return s; }
           return { ...s, completed: newCompleted };
         });
-        
+
         return { ...m, completed: updatedSteps.every((s) => s.completed), steps: updatedSteps };
       });
-      
+
       // Recalculate only the necessary fields
       const totalSteps = updatedMilestones.reduce((acc, m) => acc + m.steps.length, 0);
       const completedSteps = updatedMilestones.reduce((acc, m) => acc + m.steps.filter(s => s.completed).length, 0);
@@ -614,16 +651,16 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
       const nextStep = nextMilestoneObj?.steps?.find((s) => !s.completed)?.title || '';
       const updatedCompletedMilestones = updatedMilestones.filter((m) => m.completed).length;
       const updatedTotalMilestones = updatedMilestones.length;
-      
-      return { 
-        ...g, 
-        milestones: updatedMilestones, 
-        completedSteps, 
-        totalSteps, 
-        nextMilestone, 
-        nextStep, 
-        completedMilestones: updatedCompletedMilestones, 
-        totalMilestones: updatedTotalMilestones 
+
+      return {
+        ...g,
+        milestones: updatedMilestones,
+        completedSteps,
+        totalSteps,
+        nextMilestone,
+        nextStep,
+        completedMilestones: updatedCompletedMilestones,
+        totalMilestones: updatedTotalMilestones
       };
     }));
 
@@ -634,7 +671,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     } catch (error) {
       Alert.alert('Error', 'Failed to update step status.');
       // Reload to reconcile from backend on failure
-      try { await loadGoals(); } catch {}
+      try { await loadGoals(); } catch { }
     }
   }, [goals, loadGoals]);
 
@@ -644,9 +681,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
 
   const formatTargetDate = (date?: Date): { text: string; tone: 'muted' | 'warn' | 'danger' } => {
-    if (!date) {return { text: 'No target', tone: 'muted' };}
-    if (isPast(date) && !isToday(date)) {return { text: 'Past target — tap to reschedule', tone: 'warn' };}
-    if (isToday(date)) {return { text: 'Due today', tone: 'warn' };}
+    if (!date) { return { text: 'No target', tone: 'muted' }; }
+    if (isPast(date) && !isToday(date)) { return { text: 'Past target — tap to reschedule', tone: 'warn' }; }
+    if (isToday(date)) { return { text: 'Due today', tone: 'warn' }; }
     const distance = formatDistanceToNow(date, { addSuffix: true });
     // If within ~7 days, keep relative string; else show absolute
     const withinWeek = /\b(day|hour|minute|week)\b/.test(distance);
@@ -663,14 +700,14 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     return [...arr].sort((a, b) => {
       const aDate = a.targetDate ? a.targetDate.getTime() : Number.MAX_SAFE_INTEGER;
       const bDate = b.targetDate ? b.targetDate.getTime() : Number.MAX_SAFE_INTEGER;
-      if (aDate !== bDate) {return aDate - bDate;}
+      if (aDate !== bDate) { return aDate - bDate; }
       const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return aCreated - bCreated;
     });
   };
- 
-  
+
+
 
   const renderGoalCard = useCallback((goal: Goal) => {
     const stepsPct = getProgressPercentage(goal.completedSteps, goal.totalSteps);
@@ -680,8 +717,8 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     const currentCompleted = currentSteps.filter((s) => s.completed).length;
     const currentTotal = currentSteps.length;
     return (
-      <View 
-        key={goal.id} 
+      <View
+        key={goal.id}
         style={styles.goalCard}
       >
         <View style={styles.goalHeader}>
@@ -694,25 +731,29 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                     style={styles.iconButton}
                     onPress={() => (editingGoals[goal.id] ? cancelEdit(goal.id) : enterEditMode(goal))}
                   >
-                    <Icon name={editingGoals[goal.id] ? 'x' : 'pencil'} size={16} color={colors.text.secondary} />
+                    {editingGoals[goal.id] ? (
+                      <Icon icon={Cancel01Icon} size={16} color={colors.text.secondary} />
+                    ) : (
+                      <Icon icon={PencilEdit01Icon} size={16} color={colors.text.secondary} />
+                    )}
                   </TouchableOpacity>
                 </HelpTarget>
                 <HelpTarget helpId={`goal-delete:${goal.id}`}>
                   <TouchableOpacity
                     style={styles.iconButton}
                     onPress={(e: any) => {
-                      try { e?.stopPropagation?.(); } catch {}
+                      try { e?.stopPropagation?.(); } catch { }
                       handleGoalDelete(goal.id);
                     }}
                   >
-                    <Icon name="trash" size={16} color={colors.text.secondary} />
+                    <Icon icon={Delete01Icon} size={16} color={colors.text.secondary} />
                   </TouchableOpacity>
                 </HelpTarget>
               </View>
             </View>
             <Text style={styles.goalDescription}>{goal.description}</Text>
             <View style={styles.dueRow}>
-              <Icon name="calendar" size={14} color={colors.accent?.gold || colors.text.secondary} />
+              <Icon icon={Calendar01Icon} size={14} color={colors.accent?.gold || colors.text.secondary} />
               <HelpTarget helpId={`goal-target-date:${goal.id}`}>
                 <TouchableOpacity
                   onPress={() => (editingDate[goal.id] ? cancelEditDate(goal.id) : startEditDate(goal.id, goal.targetDate))}
@@ -786,7 +827,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
             <Text style={styles.ringCaption}>{goal.completedSteps}/{goal.totalSteps} steps</Text>
           </View>
         </View>
-        
+
         <View style={styles.nextMilestoneContainer}>
           <View style={styles.inlineLabelRow}>
             <View style={styles.goldDot} />
@@ -796,7 +837,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
         </View>
         <View style={styles.nextStepContainer}>
           <View style={styles.inlineLabelRow}>
-            <Icon name="arrow-right" size={14} color={colors.text.secondary} />
+            <Icon icon={ArrowRight01Icon} size={14} color={colors.text.secondary} />
             <Text style={styles.nextStepLabel}>Next Step</Text>
           </View>
           <Text style={styles.nextStepText}>{goal.nextStep}</Text>
@@ -816,7 +857,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                 Steps ({currentCompleted}/{currentTotal})
               </Text>
               <View style={styles.stepsExpandIcon}>
-                <Icon name="chevron-down" size={16} color={colors.text.secondary} style={{ transform: [{ rotate: expandedGoals[goal.id] ? '180deg' : '0deg' }] as any }} />
+                <Icon icon={ArrowDown01Icon} size={16} color={colors.text.secondary} style={{ transform: [{ rotate: expandedGoals[goal.id] ? '180deg' : '0deg' }] as any }} />
               </View>
             </View>
           </TouchableOpacity>
@@ -873,7 +914,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                         }
                       }}
                     >
-                      <Icon name="dash" size={16} color={colors.text.secondary} />
+                      <Icon icon={MinusSignIcon} size={16} color={colors.text.secondary} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.iconButton}
@@ -899,7 +940,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                         }
                       }}
                     >
-                      <Icon name="plus" size={16} color={colors.text.secondary} />
+                      <Icon icon={PlusSignIcon} size={16} color={colors.text.secondary} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -956,7 +997,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                             }
                           }}
                         >
-                          <Icon name="dash" size={16} color={colors.text.secondary} />
+                          <Icon icon={MinusSignIcon} size={16} color={colors.text.secondary} />
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.iconButton}
@@ -982,7 +1023,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
                             }
                           }}
                         >
-                          <Icon name="plus" size={16} color={colors.text.secondary} />
+                          <Icon icon={PlusSignIcon} size={16} color={colors.text.secondary} />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1087,36 +1128,36 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
         <View style={styles.goalActions}>
           <HelpTarget helpId={`goal-schedule-next-step:${goal.id}`} style={{ flex: 1 }}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.actionButton}
               onPress={() => {
-              try {
-                const currentMilestone = goal.milestones.find((m) => !m.completed);
-                const nextStepObj = currentMilestone?.steps?.find((s) => !s.completed);
-                const stepTitle = nextStepObj?.title || goal.nextStep || '';
-                if (!stepTitle) {
-                  Alert.alert('No next step', 'Add a step to this milestone to schedule it.');
-                  return;
+                try {
+                  const currentMilestone = goal.milestones.find((m) => !m.completed);
+                  const nextStepObj = currentMilestone?.steps?.find((s) => !s.completed);
+                  const stepTitle = nextStepObj?.title || goal.nextStep || '';
+                  if (!stepTitle) {
+                    Alert.alert('No next step', 'Add a step to this milestone to schedule it.');
+                    return;
+                  }
+                  const dueHint = goal.targetDate ? ` Try to schedule before ${format(goal.targetDate, 'EEE, MMM d')}.` : '';
+                  const prompt = `Please schedule a calendar event for my next step: "${stepTitle}" (goal: "${goal.title}"). Choose an appropriate duration based on the step (generally between 15–90 minutes). Suggest 2-3 time options in the next 7 days.${dueHint}`;
+                  navigation.navigate('AIChat', { initialMessage: prompt });
+                } catch {
+                  navigation.navigate('AIChat');
                 }
-                const dueHint = goal.targetDate ? ` Try to schedule before ${format(goal.targetDate, 'EEE, MMM d')}.` : '';
-                const prompt = `Please schedule a calendar event for my next step: "${stepTitle}" (goal: "${goal.title}"). Choose an appropriate duration based on the step (generally between 15–90 minutes). Suggest 2-3 time options in the next 7 days.${dueHint}`;
-                navigation.navigate('AIChat', { initialMessage: prompt });
-              } catch {
-                navigation.navigate('AIChat');
-              }
               }}
             >
               <Text style={styles.actionButtonText}>Schedule next step</Text>
             </TouchableOpacity>
           </HelpTarget>
           <HelpTarget helpId={`goal-ask-ai:${goal.id}`} style={{ flex: 1 }}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.actionButton}
               onPress={() => {
-              // Navigate to AI Chat tab and start a new conversation with pre-filled message
-              navigation.navigate('AIChat', { 
-                initialMessage: `Help me refine and improve this goal. Please ask me clarifying questions to help better establish my vision for this goal.\n\nGoal: ${goal.title}${goal.description ? `\nDescription: ${goal.description}` : ''}`
-              });
+                // Navigate to AI Chat tab and start a new conversation with pre-filled message
+                navigation.navigate('AIChat', {
+                  initialMessage: `Help me refine and improve this goal. Please ask me clarifying questions to help better establish my vision for this goal.\n\nGoal: ${goal.title}${goal.description ? `\nDescription: ${goal.description}` : ''}`
+                });
               }}
             >
               <Text style={styles.actionButtonText}>Ask AI Help</Text>
@@ -1137,7 +1178,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
     const overallCompleted = active.reduce((sum, g) => sum + (g.completedSteps || 0), 0);
     const overallTotal = active.reduce((sum, g) => sum + (g.totalSteps || 0), 0);
     const overallPercentage = overallTotal > 0 ? (overallCompleted / overallTotal) * 100 : 0;
-    
+
     return {
       completedGoals: completed,
       activeGoalsAll: active,
@@ -1150,12 +1191,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Show loading state while checking authentication
   if (authState.isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader
-          title="Goals"
-          withDivider
-        />
+
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Checking authentication...</Text>
           <Text style={styles.debugText}>Debug: {authState.isAuthenticated ? 'Authenticated' : 'Not Authenticated'}</Text>
@@ -1206,7 +1244,7 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
               <Button
                 title="Debug: Force Full Sync"
                 onPress={async () => {
-                   await syncService.sync(false);
+                  await syncService.sync(false);
                 }}
                 variant="secondary"
                 style={styles.debugButton}
@@ -1221,9 +1259,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Show login prompt if user is not authenticated
   if (!authState.isAuthenticated) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader title="Goals" withDivider />
+
         <View style={styles.authContainer}>
           <Text style={styles.authIcon}>🔐</Text>
           <Text style={styles.authTitle}>Welcome to Mind Clear</Text>
@@ -1249,9 +1287,9 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
   // Show loading state while fetching goals
   if (goalsLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-        <ScreenHeader title="Goals" withDivider />
+
         <LoadingSkeleton type="list" count={5} />
       </SafeAreaView>
     );
@@ -1259,164 +1297,149 @@ const GoalsScreen: React.FC<GoalsScreenProps> = ({ navigation, goals: observable
 
   return (
     <HelpScope scope="goals">
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
-      <ScreenHeader
-        title="Goals"
-        rightActions={(
-          <View style={styles.headerActions}>
-            <TouchableOpacity
-              onPress={() => setShowAddOptions(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Add goal"
-              style={styles.headerIconButton}
-            >
-              <Icon name="plus" size={20} color={colors.text.secondary} />
-            </TouchableOpacity>
-          </View>
-        )}
-        withDivider
-      />
+      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+        <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} />
 
-      <ScrollView 
-        style={styles.content} 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[colors.primary] as any}
-            tintColor={colors.primary}
-            progressBackgroundColor={colors.background.surface}
-          />
-        }
-      >
-        {/* Overall Progress Section */}
-        <HelpTarget helpId="goals-overall" style={styles.overallSection}>
-          <View style={styles.overallRow}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.inlineLabelRow}>
-                <Icon name="graph" size={16} color={colors.accent?.gold || colors.primary} />
-                <Text style={styles.overallTitle}>Overall Progress</Text>
-              </View>
-              <Text style={styles.overallSubtext}>{activeGoalsAll.length} total goals</Text>
-            </View>
-            <View style={styles.overallRing}>
-              <CircularProgress percentage={overallPct} size={46} />
-            </View>
-          </View>
-        </HelpTarget>
-        
 
-        {/* Goals Section */}
-        <View style={styles.goalsSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Active Goals ({nonOverdueActiveGoals.length})</Text>
-            <HelpTarget helpId="goals-view-all">
-              <TouchableOpacity onPress={() => setShowGoalsModal(true)}>
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            </HelpTarget>
-          </View>
-
-          {nonOverdueActiveGoals.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateIcon}>🎯</Text>
-              <Text style={styles.emptyStateTitle}>No goals yet</Text>
-              <Text style={styles.emptyStateText}>
-                Use the AI Chat to help you design your first Goal
-              </Text>
-              <Button
-                title="Add Goal"
-                onPress={() => setShowAddOptions(true)}
-                style={styles.emptyStateButton}
-              />
-            </View>
-          ) : (
-            <View style={styles.goalsList}>
-              {nonOverdueActiveGoals.map(renderGoalCard)}
-            </View>
-          )}
-        </View>
-        {/* Inline AI Assistant flow removed. Use Add Goal button above. */}
-
-        {/* Needs Review (Overdue) Section */}
-        <View style={styles.goalsSection}>
-          <TouchableOpacity style={styles.sectionHeader} onPress={() => setNeedsReviewExpanded((p) => !p)}>
-            <Text style={styles.sectionTitle}>Needs Review ({overdueActiveGoals.length})</Text>
-            <Icon
-              name="chevron-right"
-              size={16}
-              color={colors.text.secondary}
-              style={{ transform: [{ rotate: needsReviewExpanded ? '90deg' : '0deg' }] as any }}
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[colors.primary] as any}
+              tintColor={colors.primary}
+              progressBackgroundColor={colors.background.surface}
             />
-          </TouchableOpacity>
-          {needsReviewExpanded && (
-            <>
-              <Text style={styles.sectionNoteText}>These goals are past their target. No worries — tap the date to pick a new one.</Text>
-              {overdueActiveGoals.length === 0 ? (
-                <Text style={styles.completedEmptyText}>Nothing needs review right now.</Text>
-              ) : (
-                <View style={styles.goalsList}>
-                  {overdueActiveGoals.map(renderGoalCard)}
+          }
+        >
+          {/* Overall Progress Section */}
+          <HelpTarget helpId="goals-overall" style={styles.overallSection}>
+            <View style={styles.overallRow}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.inlineLabelRow}>
+                  <Icon icon={Analytics01Icon} size={16} color={colors.accent?.gold || colors.primary} />
+                  <Text style={styles.overallTitle}>Overall Progress</Text>
                 </View>
-              )}
-            </>
-          )}
-        </View>
+                <Text style={styles.overallSubtext}>{activeGoalsAll.length} total goals</Text>
+              </View>
+              <View style={styles.overallRing}>
+                <CircularProgress percentage={overallPct} size={46} />
+              </View>
+            </View>
+          </HelpTarget>
 
-        {/* Completed Goals Section */}
-        <View style={styles.goalsSection}>
-          <TouchableOpacity style={styles.sectionHeader} onPress={() => setCompletedExpanded((p) => !p)}>
-            <Text style={styles.sectionTitle}>Completed Goals ({completedGoals.length})</Text>
-            <Icon
-              name="chevron-right"
-              size={16}
-              color={colors.text.secondary}
-              style={{ transform: [{ rotate: completedExpanded ? '90deg' : '0deg' }] as any }}
-            />
-          </TouchableOpacity>
 
-          {completedExpanded && (
-            completedGoals.length === 0 ? (
-              <Text style={styles.completedEmptyText}>No completed goals yet.</Text>
+          {/* Goals Section */}
+          <View style={styles.goalsSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Active Goals ({nonOverdueActiveGoals.length})</Text>
+              <HelpTarget helpId="goals-view-all">
+                <TouchableOpacity onPress={() => setShowGoalsModal(true)}>
+                  <Text style={styles.viewAllText}>View All</Text>
+                </TouchableOpacity>
+              </HelpTarget>
+            </View>
+
+            {nonOverdueActiveGoals.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateIcon}>🎯</Text>
+                <Text style={styles.emptyStateTitle}>No goals yet</Text>
+                <Text style={styles.emptyStateText}>
+                  Use the AI Chat to help you design your first Goal
+                </Text>
+                <Button
+                  title="Add Goal"
+                  onPress={() => setShowAddOptions(true)}
+                  style={styles.emptyStateButton}
+                />
+              </View>
             ) : (
               <View style={styles.goalsList}>
-                {completedGoals.map(renderGoalCard)}
+                {nonOverdueActiveGoals.map(renderGoalCard)}
               </View>
-            )
-          )}
-        </View>
+            )}
+          </View>
+          {/* Inline AI Assistant flow removed. Use Add Goal button above. */}
 
-        
-      </ScrollView>
+          {/* Needs Review (Overdue) Section */}
+          <View style={styles.goalsSection}>
+            <TouchableOpacity style={styles.sectionHeader} onPress={() => setNeedsReviewExpanded((p) => !p)}>
+              <Text style={styles.sectionTitle}>Needs Review ({overdueActiveGoals.length})</Text>
+              <Icon
+                icon={ArrowRight01Icon}
+                size={16}
+                color={colors.text.secondary}
+                style={{ transform: [{ rotate: needsReviewExpanded ? '90deg' : '0deg' }] as any }}
+              />
+            </TouchableOpacity>
+            {needsReviewExpanded && (
+              <>
+                <Text style={styles.sectionNoteText}>These goals are past their target. No worries — tap the date to pick a new one.</Text>
+                {overdueActiveGoals.length === 0 ? (
+                  <Text style={styles.completedEmptyText}>Nothing needs review right now.</Text>
+                ) : (
+                  <View style={styles.goalsList}>
+                    {overdueActiveGoals.map(renderGoalCard)}
+                  </View>
+                )}
+              </>
+            )}
+          </View>
 
-      {/* Goals List Modal */}
-      <GoalsListModal
-        visible={showGoalsModal}
-        onClose={() => setShowGoalsModal(false)}
-        goals={goals}
-        onGoalPress={handleGoalPress}
-        onGoalDelete={handleGoalDelete}
-      />
+          {/* Completed Goals Section */}
+          <View style={styles.goalsSection}>
+            <TouchableOpacity style={styles.sectionHeader} onPress={() => setCompletedExpanded((p) => !p)}>
+              <Text style={styles.sectionTitle}>Completed Goals ({completedGoals.length})</Text>
+              <Icon
+                icon={ArrowRight01Icon}
+                size={16}
+                color={colors.text.secondary}
+                style={{ transform: [{ rotate: completedExpanded ? '90deg' : '0deg' }] as any }}
+              />
+            </TouchableOpacity>
 
-      {/* Add Goal Options Modal */}
-      <AddGoalOptionsModal
-        visible={showAddOptions}
-        onClose={() => setShowAddOptions(false)}
-        onCreateManually={() => {
-          setShowAddOptions(false);
-          navigation.navigate('GoalForm');
-        }}
-        onAskAI={() => {
-          setShowAddOptions(false);
-          navigation.navigate('AIChat', { initialMessage: 'I want to add a new goal' });
-        }}
-      />
+            {completedExpanded && (
+              completedGoals.length === 0 ? (
+                <Text style={styles.completedEmptyText}>No completed goals yet.</Text>
+              ) : (
+                <View style={styles.goalsList}>
+                  {completedGoals.map(renderGoalCard)}
+                </View>
+              )
+            )}
+          </View>
 
-      {/* Help icon moved into header actions */}
-    </SafeAreaView>
+
+        </ScrollView>
+
+        {/* Goals List Modal */}
+        <GoalsListModal
+          visible={showGoalsModal}
+          onClose={() => setShowGoalsModal(false)}
+          goals={goals}
+          onGoalPress={handleGoalPress}
+          onGoalDelete={handleGoalDelete}
+        />
+
+        {/* Add Goal Options Modal */}
+        <AddGoalOptionsModal
+          visible={showAddOptions}
+          onClose={() => setShowAddOptions(false)}
+          onCreateManually={() => {
+            setShowAddOptions(false);
+            navigation.navigate('GoalForm');
+          }}
+          onAskAI={() => {
+            setShowAddOptions(false);
+            navigation.navigate('AIChat', { initialMessage: 'I want to add a new goal' });
+          }}
+        />
+
+        {/* Help icon moved into header actions */}
+      </SafeAreaView>
     </HelpScope>
   );
 };
@@ -1912,7 +1935,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     gap: spacing.xs,
   },
-  
+
   nextMilestoneContainer: {
     flexDirection: 'column',
     alignItems: 'flex-start',
@@ -1981,7 +2004,7 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontWeight: typography.fontWeight.medium as any,
   },
-  
+
   completedEmptyText: {
     fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
@@ -2040,20 +2063,20 @@ const styles = StyleSheet.create({
   },
 });
 
-const enhance = withObservables(['database'], ({database}) => {
+const enhance = withObservables(['database'], ({ database }) => {
   const goals = database.collections.get('goals')
     .query(Q.where('status', Q.notEq('pending_delete')))
     .observe();
-  
+
   // Also observe milestones and steps so component refreshes when they change
   const milestones = database.collections.get('milestones')
     .query()
     .observe();
-  
+
   const steps = database.collections.get('milestone_steps')
     .query()
     .observe();
-  
+
   return {
     goals,
     milestones,

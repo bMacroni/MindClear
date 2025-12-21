@@ -8,7 +8,8 @@ import { spacing, borderRadius } from '../../themes/spacing';
 import { Input, Button } from '../../components/common';
 import { apiService } from '../../services/apiService';
 import { SuccessToast } from '../../components/common/SuccessToast';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { ArrowLeft01Icon } from '@hugeicons/core-free-icons';
 import { RootStackParamList } from '../../navigation/types';
 
 type ForgotPasswordScreenProps = {
@@ -37,14 +38,14 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
     <SafeAreaView style={styles.container}>
       {/* Header with back arrow and title */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()} 
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
           style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Go back"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Icon name="arrow-left" size={24} color={colors.text.primary} />
+          <Icon icon={ArrowLeft01Icon} size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Forgot</Text>
       </View>

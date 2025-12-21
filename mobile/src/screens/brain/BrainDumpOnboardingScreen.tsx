@@ -2,7 +2,8 @@ import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { PencilEdit01Icon, MagicWand01Icon, ArrowHorizontalIcon } from '@hugeicons/core-free-icons';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -22,22 +23,22 @@ export default function BrainDumpOnboardingScreen({ navigation }: any) {
   }, [navigation]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <View style={styles.content}>
         <View style={styles.step}>
-          <View style={styles.iconCircle}><Icon name="pencil" size={24} color={colors.primary} /></View>
+          <View style={styles.iconCircle}><Icon icon={PencilEdit01Icon} size={24} color={colors.primary} /></View>
           <Text style={styles.stepTitle}>Dump</Text>
           <Text style={styles.stepText}>Input everything on your mind.</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.step}>
-          <View style={styles.iconCircle}><Icon name="wand" size={24} color={colors.primary} /></View>
+          <View style={styles.iconCircle}><Icon icon={MagicWand01Icon} size={24} color={colors.primary} /></View>
           <Text style={styles.stepTitle}>Refine</Text>
           <Text style={styles.stepText}>We’ll help clean up and sort your thoughts.</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.step}>
-          <View style={styles.iconCircle}><Icon name="arrow-switch" size={24} color={colors.primary} /></View>
+          <View style={styles.iconCircle}><Icon icon={ArrowHorizontalIcon} size={24} color={colors.primary} /></View>
           <Text style={styles.stepTitle}>Prioritize</Text>
           <Text style={styles.stepText}>Arrange tasks and pick one to focus on today.</Text>
         </View>

@@ -11,7 +11,19 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import {
+  Tick01Icon,
+  Calendar01Icon,
+  BulbIcon,
+  PencilEdit01Icon,
+  Delete01Icon,
+  Clock01Icon,
+  CheckmarkCircle01Icon,
+  CircleIcon,
+  CloudIcon,
+  Location01Icon
+} from '@hugeicons/core-free-icons';
 import HelpTarget from '../help/HelpTarget';
 import { formatRelativeDueLabel } from '../../utils/dateUtils';
 
@@ -68,7 +80,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   const [anchor, setAnchor] = React.useState<{ x: number; y: number } | undefined>(undefined);
 
   // helpers retained for future UI variants
-   
+
   const _getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
@@ -103,13 +115,13 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   };
 
   const _getPriorityText = (priority: string) => {
-    if (!priority) {return 'Low';}
+    if (!priority) { return 'Low'; }
     return priority.charAt(0).toUpperCase() + priority.slice(1);
   };
 
   const formatDueDate = (dueDate?: string) => {
-    if (!dueDate) {return null;}
-    
+    if (!dueDate) { return null; }
+
     // Handle YYYY-MM-DD format to avoid timezone conversion issues
     let date: Date;
     if (/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
@@ -118,7 +130,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
     } else {
       date = new Date(dueDate);
     }
-    
+
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -133,7 +145,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   };
 
   const formatScheduledTime = (dueDate?: string) => {
-    if (!dueDate) {return null;}
+    if (!dueDate) { return null; }
     const date = new Date(dueDate);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
@@ -146,7 +158,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
   const handleStateChange = (event: { nativeEvent: { state: number; translationX: number } }) => {
     if (event.nativeEvent.state === State.END) {
       const { translationX } = event.nativeEvent;
-      
+
       if (translationX < -150) {
         // Swipe left - delete
         Alert.alert(
@@ -162,7 +174,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
         const newStatus = task.status === 'completed' ? 'not_started' : 'completed';
         onToggleStatus(task.id, newStatus);
       }
-      
+
       // Reset position
       Animated.spring(translateX, {
         toValue: 0,
@@ -181,7 +193,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
         return 'not_started';
     }
   };
-   
+
 
   const handleToggleAutoSchedule = () => {
     if (onToggleAutoSchedule) {
@@ -245,54 +257,54 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
             </TouchableOpacity>
 
             <View style={styles.actionIcons}>
-                <HelpTarget helpId={`task-complete:${task.id}`}>
-                  <TouchableOpacity
-                    style={styles.iconBtn}
-                    onPress={toggleComplete}
-                    testID={`task-${task.id}-complete`}
-                    accessibilityLabel={
-                      task.status === 'completed'
-                        ? 'Mark task as incomplete'
-                        : 'Mark task as complete'
+              <HelpTarget helpId={`task-complete:${task.id}`}>
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPress={toggleComplete}
+                  testID={`task-${task.id}-complete`}
+                  accessibilityLabel={
+                    task.status === 'completed'
+                      ? 'Mark task as incomplete'
+                      : 'Mark task as complete'
+                  }
+                >
+                  <Icon icon={Tick01Icon} size={20} color={colors.text.primary} />
+                </TouchableOpacity>
+              </HelpTarget>
+              <HelpTarget helpId={`task-schedule:${task.id}`}>
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPressIn={(e) => {
+                    const { pageX, pageY } = e.nativeEvent;
+                    setAnchor({ x: pageX, y: pageY });
+                  }}
+                  onPress={() => {
+                    if (onOpenQuickSchedule && anchor) {
+                      onOpenQuickSchedule(task.id, anchor);
                     }
-                  >
-                    <Icon name="check" size={20} color={colors.text.primary} />
+                  }}
+                >
+                  <Icon icon={Calendar01Icon} size={22} color={colors.text.primary} />
+                </TouchableOpacity>
+              </HelpTarget>
+              {onAIHelp && (
+                <HelpTarget helpId={`task-ai:${task.id}`}>
+                  <TouchableOpacity style={styles.iconBtn} onPress={() => onAIHelp(task)}>
+                    <Icon icon={BulbIcon} size={22} color={colors.text.primary} />
                   </TouchableOpacity>
                 </HelpTarget>
-                <HelpTarget helpId={`task-schedule:${task.id}`}>
-                  <TouchableOpacity
-                    style={styles.iconBtn}
-                    onPressIn={(e) => {
-                      const { pageX, pageY } = e.nativeEvent;
-                      setAnchor({ x: pageX, y: pageY });
-                    }}
-                    onPress={() => {
-                      if (onOpenQuickSchedule && anchor) {
-                        onOpenQuickSchedule(task.id, anchor);
-                      }
-                    }}
-                  >
-                    <Icon name="calendar" size={22} color={colors.text.primary} />
-                  </TouchableOpacity>
-                </HelpTarget>
-                {onAIHelp && (
-                  <HelpTarget helpId={`task-ai:${task.id}`}>
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => onAIHelp(task)}>
-                      <Icon name="light-bulb" size={22} color={colors.text.primary} />
-                    </TouchableOpacity>
-                  </HelpTarget>
-                )}
-                <HelpTarget helpId={`task-edit:${task.id}`}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => onPress(task)}>
-                    <Icon name="pencil" size={22} color={colors.text.primary} />
-                  </TouchableOpacity>
-                </HelpTarget>
-                <HelpTarget helpId={`task-delete:${task.id}`}>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => onDelete(task.id)} testID={`task-${task.id}-delete`}>
-                    <Icon name="trash" size={22} color={colors.text.primary} />
-                  </TouchableOpacity>
-                </HelpTarget>
-              </View>
+              )}
+              <HelpTarget helpId={`task-edit:${task.id}`}>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => onPress(task)}>
+                  <Icon icon={PencilEdit01Icon} size={22} color={colors.text.primary} />
+                </TouchableOpacity>
+              </HelpTarget>
+              <HelpTarget helpId={`task-delete:${task.id}`}>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => onDelete(task.id)} testID={`task-${task.id}-delete`}>
+                  <Icon icon={Delete01Icon} size={22} color={colors.text.primary} />
+                </TouchableOpacity>
+              </HelpTarget>
+            </View>
 
             {/* Meta chips row */}
             <View style={styles.metaRow}>
@@ -309,7 +321,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
               </View>
               {Number.isFinite((task as any).estimated_duration_minutes) && (
                 <View style={styles.durationBadge}>
-                  <Icon name="clock" size={14} color={colors.text.secondary} />
+                  <Icon icon={Clock01Icon} size={14} color={colors.text.secondary} />
                   <Text style={styles.durationText}>{(task as any).estimated_duration_minutes}m</Text>
                 </View>
               )}
@@ -330,10 +342,10 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                         activeOpacity={0.7}
                         disabled={task.status === 'completed'}
                       >
-                        <Icon 
-                          name={task.auto_schedule_enabled ? "check-circle" : "circle"} 
-                          size={20} 
-                          color={task.status === 'completed' ? colors.text.disabled : (task.auto_schedule_enabled ? colors.primary : colors.text.disabled)} 
+                        <Icon
+                          icon={task.auto_schedule_enabled ? CheckmarkCircle01Icon : CircleIcon}
+                          size={20}
+                          color={task.status === 'completed' ? colors.text.disabled : (task.auto_schedule_enabled ? colors.primary : colors.text.disabled)}
                         />
                         <Text style={[
                           styles.autoScheduleText,
@@ -350,7 +362,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                           onPress={handleScheduleNow}
                           activeOpacity={0.7}
                         >
-                          <Icon name="clock" size={16} color={colors.primary} />
+                          <Icon icon={Clock01Icon} size={16} color={colors.primary} />
                           <Text style={styles.scheduleNowText}>Schedule Now</Text>
                         </TouchableOpacity>
                       )}
@@ -359,7 +371,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                     {/* Scheduled time display */}
                     {task.due_date && (
                       <View style={styles.scheduledTimeRow}>
-                        <Icon name="clock" size={14} color={colors.text.secondary} />
+                        <Icon icon={Clock01Icon} size={14} color={colors.text.secondary} />
                         <Text style={styles.scheduledTimeText}>
                           Scheduled for {formatScheduledTime(task.due_date)}
                         </Text>
@@ -371,7 +383,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                 {/* Weather dependency indicator */}
                 {task.weather_dependent && (
                   <View style={styles.weatherIndicator}>
-                    <Icon name="cloud" size={14} color={colors.text.secondary} />
+                    <Icon icon={CloudIcon} size={14} color={colors.text.secondary} />
                     <Text style={styles.weatherText}>Weather dependent</Text>
                   </View>
                 )}
@@ -379,7 +391,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                 {/* Location indicator */}
                 {task.location && (
                   <View style={styles.locationIndicator}>
-                    <Icon name="location" size={14} color={colors.text.secondary} />
+                    <Icon icon={Location01Icon} size={14} color={colors.text.secondary} />
                     <Text style={styles.locationText}>{task.location}</Text>
                   </View>
                 )}

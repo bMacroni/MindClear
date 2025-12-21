@@ -3,12 +3,22 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Activi
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native';
-import Icon from 'react-native-vector-icons/Octicons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import {
+  PinIcon,
+  Delete01Icon,
+  Menu01Icon,
+  HelpCircleIcon,
+  InformationCircleIcon,
+  FlashIcon,
+  Comment01Icon,
+  Cancel01Icon
+} from '@hugeicons/core-free-icons';
+
 import axios from 'axios';
 import { colors } from '../../themes/colors';
 import { typography } from '../../themes/typography';
 import { spacing, borderRadius } from '../../themes/spacing';
-import ScreenHeader from '../../components/common/ScreenHeader';
 import { OnboardingState, QuickAction } from '../../types/onboarding';
 import { OnboardingService } from '../../services/onboarding';
 import { configService } from '../../services/config';
@@ -121,11 +131,11 @@ interface InternalAIChatScreenProps {
 function AIChatScreen({ navigation, route, threads: observableThreads, database }: InternalAIChatScreenProps) {
   const insets = useSafeAreaInsets();
   const screenWidth = Dimensions.get('window').width;
-  
+
   // Animation for sidebar
   const sidebarAnimation = useRef(new Animated.Value(-screenWidth * 0.8)).current;
   const overlayAnimation = useRef(new Animated.Value(0)).current;
-  
+
   // Convert WatermelonDB threads to Conversation format and sort by most recent
   const threads = useMemo(() => {
     const allThreads = observableThreads || [];
@@ -139,7 +149,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     });
   }, [observableThreads]);
   const [currentConversationId, setCurrentConversationId] = useState<string>('');
-  
+
   // Observe messages for current thread
   const messagesQuery = useMemo(() => {
     if (!currentConversationId) return null;
@@ -149,7 +159,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       )
       .observe();
   }, [currentConversationId, database]);
-  
+
   // Convert threads to Conversation format for display
   const conversations: Conversation[] = useMemo(() => {
     return threads.map(thread => ({
@@ -161,14 +171,14 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       lastMessageAt: thread.updatedAt,
     }));
   }, [threads]);
-  
+
   // Set initial conversation ID if not set and threads exist
   useEffect(() => {
     if (!currentConversationId && threads.length > 0) {
       setCurrentConversationId(threads[0].id);
     }
   }, [threads, currentConversationId]);
-  
+
   // Trigger background sync on mount if needed
   useEffect(() => {
     syncService.silentSync().catch(err => {
@@ -188,7 +198,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const displayedBufferRef = useRef('');
   const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamCompletedRef = useRef(false);
-  
+
   // Clean up interval on unmount
   useEffect(() => {
     return () => {
@@ -229,7 +239,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
   // Store messages in state, synced with WatermelonDB
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>({});
-  
+
   // Helper to deduplicate messages by ID
   const deduplicateMessages = useCallback((messages: Message[]): Message[] => {
     const seen = new Map<string, Message>();
@@ -241,12 +251,17 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     return Array.from(seen.values());
   }, []);
 
+
+
+
+
+
   // Helper to get messages for a thread
   const getMessagesForThread = useCallback(async (threadId: string): Promise<Message[]> => {
     try {
       const messages = await conversationRepository.getMessagesByThreadId(threadId);
       // Sort by createdAt ascending (oldest first) to maintain conversation order
-      const sortedMessages = [...messages].sort((a, b) => 
+      const sortedMessages = [...messages].sort((a, b) =>
         a.createdAt.getTime() - b.createdAt.getTime()
       );
       const mappedMessages: Message[] = sortedMessages.map(m => ({
@@ -272,7 +287,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   ): Message[] => {
     const merged: Message[] = [];
     const seenContent = new Set<string>();
-    
+
     // First, add all real messages from DB (they're already sorted chronologically)
     for (const realMsg of realMessages) {
       const contentKey = `${realMsg.sender}:${realMsg.text}`;
@@ -281,7 +296,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         seenContent.add(contentKey);
       }
     }
-    
+
     // Then, add optimistic messages that don't have a real counterpart
     // These should be newer, so they go at the end
     for (const optMsg of optimisticMessages) {
@@ -305,52 +320,52 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         }
       }
     }
-    
+
     // Final deduplication by ID to handle any edge cases
     return deduplicateMessages(merged);
   }, [deduplicateMessages]);
-  
+
   // Load messages for current thread and subscribe to changes
   useEffect(() => {
     if (!currentConversationId) return;
-    
+
     // Skip subscription for temporary thread IDs (they'll be migrated when real thread is created)
     if (currentConversationId.startsWith('temp-thread-')) {
       return;
     }
-    
+
     // Initial load - always load from DB to ensure we have persisted messages
     getMessagesForThread(currentConversationId).then(msgs => {
       // Messages from getMessagesForThread are already sorted by createdAt
       // Filter out temp messages from DB
       const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
       const deduplicated = deduplicateMessages(realMsgs);
-      
+
       setMessagesByThread(prev => {
         const existing = prev[currentConversationId] || [];
         const merged = mergeMessagesWithOptimistic(deduplicated, existing);
         return { ...prev, [currentConversationId]: merged };
       });
     });
-    
+
     // Subscribe to message changes for this thread
     const messagesQuery = database.collections.get<ConversationMessage>('conversation_messages')
       .query(Q.where('thread_id', currentConversationId));
-    
+
     const subscription = messagesQuery.observe().subscribe(async () => {
       // Refresh messages when they change, but merge with optimistic messages
       const msgs = await getMessagesForThread(currentConversationId);
       // Filter out temp messages from DB
       const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
       const deduplicated = deduplicateMessages(realMsgs);
-      
+
       setMessagesByThread(prev => {
         const existing = prev[currentConversationId] || [];
         const merged = mergeMessagesWithOptimistic(deduplicated, existing);
         return { ...prev, [currentConversationId]: merged };
       });
     });
-    
+
     return () => subscription.unsubscribe();
   }, [currentConversationId, getMessagesForThread, database, deduplicateMessages, mergeMessagesWithOptimistic]);
 
@@ -380,7 +395,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       }
       return null;
     }
-    
+
     // Handle temporary thread IDs (for new conversations before server responds)
     if (currentConversationId.startsWith('temp-thread-')) {
       const messages = messagesByThread[currentConversationId] || [];
@@ -393,10 +408,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         lastMessageAt: new Date(),
       };
     }
-    
+
     const thread = threads.find(t => t.id === currentConversationId);
     const messages = messagesByThread[currentConversationId] || [];
-    
+
     // If thread doesn't exist in observable yet but we have messages (optimistic updates),
     // still return a conversation object so messages can be displayed
     if (!thread) {
@@ -413,7 +428,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       }
       return null;
     }
-    
+
     return {
       id: thread.id,
       title: thread.title,
@@ -486,7 +501,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       setLoading(false);
       toggleSidebar();
       // Trigger sync
-      syncService.silentSync().catch(() => {});
+      syncService.silentSync().catch(() => { });
     }
   };
 
@@ -510,7 +525,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     } finally {
       setLoading(false);
       // Trigger sync
-      syncService.silentSync().catch(() => {});
+      syncService.silentSync().catch(() => { });
     }
   };
 
@@ -523,7 +538,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         });
         // Thread will update in observable automatically
         // Trigger sync
-        syncService.silentSync().catch(() => {});
+        syncService.silentSync().catch(() => { });
       }
     } catch (err) {
       logger.warn('Failed to toggle pin:', err);
@@ -536,7 +551,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     try {
       const pinnedThreads = threads.filter(t => t.isPinned);
       const hadPinned = pinnedThreads.length > 0;
-      
+
       if (!hadPinned) {
         // No pinned: delete ALL threads locally then create a fresh one
         for (const thread of threads) {
@@ -545,13 +560,13 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         await startNewConversation();
         return;
       }
-      
+
       // Otherwise delete only non-pinned
       const toDelete = threads.filter(t => !t.isPinned);
       for (const thread of toDelete) {
         await conversationRepository.deleteThread(thread.id);
       }
-      
+
       // Switch to pinned thread if current is deleted
       if (toDelete.some(t => t.id === currentConversationId)) {
         if (pinnedThreads.length > 0) {
@@ -560,9 +575,9 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           await startNewConversation();
         }
       }
-      
+
       // Trigger sync
-      syncService.silentSync().catch(() => {});
+      syncService.silentSync().catch(() => { });
     } catch (err) {
       logger.warn('Failed to clear conversations:', err);
       setError('Failed to clear conversations. Please try again.');
@@ -579,7 +594,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const initializeOnboarding = useCallback(async () => {
     const state = await OnboardingService.getOnboardingState();
     setOnboardingState(state);
-    
+
     if (!state.isCompleted) {
       setShowOnboarding(true);
     }
@@ -641,7 +656,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       syncService.silentSync().catch(err => {
         logger.warn('Background sync failed after saving goal:', err);
       });
-  
+
     } catch (error) {
       logger.error('Failed to save goal from AIChatScreen:', error);
       Alert.alert('Error', 'There was an error saving the goal. Please try again.');
@@ -813,33 +828,33 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
 
 
-  
+
 
   const handleHelpPress = useCallback(async (messageToSend?: string) => {
     await OnboardingService.resetOnboarding();
     setShowOnboarding(true);
     setHasUserInteracted(false);
     setOnboardingState({ isCompleted: false });
-    
-    if (currentConversationId) {
-        try {
-            const messagesToDelete = await conversationRepository.getMessagesByThreadId(currentConversationId);
-            if (messagesToDelete.length > 0) {
-                await database.write(async () => {
-                    const deletions = messagesToDelete.map(msg => msg.prepareDestroyPermanently());
-                    await database.batch(...deletions);
-                });
-            }
 
-            const welcomeMessage = await conversationRepository.createMessage(
-                currentConversationId,
-                'Welcome to Mind Clear! How can I help you today?',
-                'assistant'
-            );
-            await conversationRepository.markMessageAsSynced(welcomeMessage.id);
-        } catch (error) {
-            logger.error('Failed to reset conversation for help press:', error);
+    if (currentConversationId) {
+      try {
+        const messagesToDelete = await conversationRepository.getMessagesByThreadId(currentConversationId);
+        if (messagesToDelete.length > 0) {
+          await database.write(async () => {
+            const deletions = messagesToDelete.map(msg => msg.prepareDestroyPermanently());
+            await database.batch(...deletions);
+          });
         }
+
+        const welcomeMessage = await conversationRepository.createMessage(
+          currentConversationId,
+          'Welcome to Mind Clear! How can I help you today?',
+          'assistant'
+        );
+        await conversationRepository.markMessageAsSynced(welcomeMessage.id);
+      } catch (error) {
+        logger.error('Failed to reset conversation for help press:', error);
+      }
     }
 
     if (messageToSend) {
@@ -868,21 +883,21 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       /here.*schedule.*today.*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
       /your.*schedule.*today.*\d{1,2}:\d{2}\s*(?:AM|PM)/i,
     ];
-    
+
     // Check if the text contains actual schedule events (not just mentions)
     const hasTimeRanges = schedulePatterns.some(pattern => pattern.test(text));
-    
+
     // Also check if it contains bullet points with time information
     const hasBulletPointsWithTimes = /\n[•\-\*]\s*.+?\s+\d{1,2}:\d{2}\s*(?:AM|PM)/i.test(text);
-    
+
     // Check if the text contains multiple time patterns (indicating a schedule)
     const timePattern = /\d{1,2}:\d{2}\s*(?:AM|PM)/g;
     const timeMatches = text.match(timePattern);
     const hasMultipleTimes = timeMatches ? timeMatches.length >= 2 : false;
-    
+
     // Check for schedule-related keywords
     const hasScheduleKeywords = /schedule|calendar|events|appointments/i.test(text);
-    
+
     return hasJsonScheduleFormat || hasTimeRanges || hasBulletPointsWithTimes || (hasMultipleTimes && hasScheduleKeywords);
   };
 
@@ -892,31 +907,31 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     const hasJsonGoalFormat = /"category":\s*"goal"/i.test(text);
     // Treat titles-only payloads differently so we render a list component
     const isTitlesOnly = /"category"\s*:\s*"goal"[\s\S]*"goals"\s*:\s*\[\s*"/.test(text);
-    
+
     // If it's JSON format and not titles-only, it's definitely a goal breakdown
     if (hasJsonGoalFormat && !isTitlesOnly) {
       // Additional check: must have milestones array in JSON
       const hasMilestonesInJson = /"milestones"\s*:\s*\[/i.test(text);
       return hasMilestonesInJson;
     }
-    
+
     // Check for explicit milestone headers (e.g., "Milestone 1:", "**Milestone 2:**")
     // This is more reliable than generic patterns
     const hasExplicitMilestoneHeaders = /(?:^|\n)\s*(?:\*\*)?milestone\s+\d+\s*(?:\*\*)?\s*:/im.test(text);
-    
+
     // Check for the specific format with **Goal:** and **Milestones:**
     const hasGoalFormat = /(?:\*\*goal\*\*|goal):\s*.+?(?:\*\*milestones\*\*|milestones):/is.test(text);
-    
+
     // Only use lenient detection if we have clear structural indicators
     // Require: milestone headers + multiple bullet points (indicating steps)
     const hasMilestoneHeaders = /milestone\s+\d+/i.test(text);
     const bulletPointMatches = text.match(/\n[•\-\*]\s+/g);
     const hasMultipleBulletPoints = (bulletPointMatches?.length ?? 0) >= 2;
-    
+
     // Strict detection: only match if we have clear structural indicators
     // This prevents matching conversational text that just mentions goals/milestones
     return (
-      hasExplicitMilestoneHeaders || 
+      hasExplicitMilestoneHeaders ||
       hasGoalFormat ||
       (hasMilestoneHeaders && hasMultipleBulletPoints && /"category":\s*"goal"/i.test(text))
     ) && !isTitlesOnly;
@@ -925,20 +940,20 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   // Detect if message contains a titles-only goal list
   const isGoalTitlesContent = (text: string): boolean => {
     return /"category"\s*:\s*"goal"[\s\S]*"goals"\s*:\s*\[\s*"/i.test(text) ||
-           /"action_type"\s*:\s*"read"[\s\S]*"entity_type"\s*:\s*"goal"[\s\S]*"goals"\s*:\s*\[\s*"/i.test(text);
+      /"action_type"\s*:\s*"read"[\s\S]*"entity_type"\s*:\s*"goal"[\s\S]*"goals"\s*:\s*\[\s*"/i.test(text);
   };
 
   // Detect if a message contains task content
   const isTaskContent = (text: string): boolean => {
     // Check for standardized JSON format
     const hasJsonTaskFormat = /"category":\s*"task"/i.test(text);
-    
+
     // Check for task-related keywords
     const hasTaskKeywords = /task|todo|reminder/i.test(text);
-    
+
     // Check for task list patterns
     const hasTaskListPatterns = /\n[•\-\*]\s*.+$/im.test(text);
-    
+
     return hasJsonTaskFormat || (hasTaskKeywords && hasTaskListPatterns);
   };
 
@@ -972,7 +987,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   // Helper function to extract meaningful title from a message
   const extractTitleFromMessage = (message: string): string => {
     let text = message.toLowerCase().trim();
-    
+
     // Common prefixes to remove that don't add meaning to the title
     const prefixesToRemove = [
       /^let'?s\s+create\s+(a\s+)?goal\s+to\s+/i,
@@ -991,18 +1006,18 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       /^the\s+goal\s+is\s+to\s+/i,
       /^my\s+goal\s+is\s+to\s+/i,
     ];
-    
+
     // Remove prefixes
     for (const prefix of prefixesToRemove) {
       text = text.replace(prefix, '');
     }
-    
+
     // Remove trailing punctuation and question words
     text = text.replace(/[?.!\s]+$/g, '').trim();
-    
+
     // Remove quotes if present
     text = text.replace(/^["']|["']$/g, '').trim();
-    
+
     // Extract meaningful words (filter out common stop words and short words)
     const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those']);
     const words = text.split(/\s+/)
@@ -1010,40 +1025,40 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         const cleaned = word.replace(/[^\w]/g, '').toLowerCase();
         return cleaned.length > 2 && !stopWords.has(cleaned);
       });
-    
+
     if (words.length === 0) {
       // If no meaningful words found, fall back to original message processing
       const allWords = text.split(/\s+/).filter(w => w.length > 2);
       if (allWords.length > 0) {
-        return allWords.slice(0, 4).map(w => 
+        return allWords.slice(0, 4).map(w =>
           w.charAt(0).toUpperCase() + w.slice(1)
         ).join(' ');
       }
       return 'New Goal';
     }
-    
+
     // Take up to 4-5 meaningful words for a descriptive title
     const titleWords = words.slice(0, 5).map(word => {
       // Capitalize first letter of each word
       return word.charAt(0).toUpperCase() + word.slice(1);
     });
-    
+
     return titleWords.join(' ');
   };
 
   const generateConversationTitle = (messages: Message[]): string => {
     // Get all user messages to analyze the conversation topic
     const userMessages = messages.filter(msg => msg.sender === 'user').map(msg => msg.text);
-    
+
     if (userMessages.length === 0) {
       return 'New Conversation';
     }
-    
+
     // If it's the first message, use it to generate a title
     if (userMessages.length === 1) {
       const firstMessage = userMessages[0];
       const firstMessageLower = firstMessage.toLowerCase();
-      
+
       // Common conversation starters and their topics
       const topicPatterns = [
         { pattern: /help.*goal|goal.*help/, title: 'Goal Planning' },
@@ -1067,7 +1082,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         { pattern: /decision|choice|advice/, title: 'Decision Making' },
         { pattern: /motivation|inspiration|encouragement/, title: 'Motivation' },
       ];
-      
+
       // Check for topic patterns first (only if they're very specific)
       // Skip generic goal patterns to allow extraction of actual goal content
       for (const topic of topicPatterns) {
@@ -1076,10 +1091,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           return topic.title;
         }
       }
-      
+
       // Extract meaningful title from the message
       const extractedTitle = extractTitleFromMessage(firstMessage);
-      
+
       // If extracted title is too generic or short, try to improve it
       if (extractedTitle.length < 5 || extractedTitle.toLowerCase().includes('goal') || extractedTitle.toLowerCase().includes('create')) {
         // Try extracting again with more aggressive prefix removal
@@ -1089,20 +1104,20 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           const words = firstMessage.split(/\s+/).filter(w => w.length > 2);
           if (words.length > 3) {
             // Skip first 2-3 words and take next meaningful ones
-            improved = words.slice(2, 6).map(w => 
+            improved = words.slice(2, 6).map(w =>
               w.charAt(0).toUpperCase() + w.slice(1)
             ).join(' ');
           }
         }
         return improved || 'New Goal';
       }
-      
+
       return extractedTitle;
     }
-    
+
     // For conversations with multiple messages, analyze the overall topic
     const allText = userMessages.join(' ').toLowerCase();
-    
+
     // Check for recurring themes
     const themePatterns = [
       { pattern: /goal|objective|target/, title: 'Goal Setting' },
@@ -1125,29 +1140,29 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       { pattern: /decision|choice/, title: 'Decision Making' },
       { pattern: /motivation|inspiration/, title: 'Motivation' },
     ];
-    
+
     for (const theme of themePatterns) {
       if (theme.pattern.test(allText)) {
         return theme.title;
       }
     }
-    
+
     // Fallback: extract meaningful title from first message
     const extractedTitle = extractTitleFromMessage(userMessages[0]);
     if (extractedTitle && extractedTitle.length > 5) {
       return extractedTitle;
     }
-    
+
     // Last resort: use the first few words of the first message
     const firstMessage = userMessages[0];
     const words = firstMessage.split(' ').filter(word => word.length > 2);
     if (words.length > 0) {
-      const titleWords = words.slice(0, 2).map(word => 
+      const titleWords = words.slice(0, 2).map(word =>
         word.charAt(0).toUpperCase() + word.slice(1)
       );
       return titleWords.join(' ');
     }
-    
+
     return 'Conversation';
   };
 
@@ -1177,7 +1192,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         // Replace "Thinking..." with real AI response
         if (optMsg.id === tempAiMessageId || (optMsg.sender === 'ai' && optMsg.text === 'Thinking...')) {
           // Check if AI response already exists (by content)
-          const aiExists = mergedMsgs.some(m => 
+          const aiExists = mergedMsgs.some(m =>
             m.sender === 'ai' && m.text === response.message
           );
           if (!aiExists) {
@@ -1191,7 +1206,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           }
         } else if (optMsg.id === tempUserMessageId) {
           // Check if user message already exists (by content) before adding
-          const userExists = mergedMsgs.some(m => 
+          const userExists = mergedMsgs.some(m =>
             m.sender === 'user' && m.text === userMessage
           );
           if (!userExists) {
@@ -1205,7 +1220,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           }
         } else {
           // Check if this optimistic message already exists before adding
-          const exists = mergedMsgs.some(m => 
+          const exists = mergedMsgs.some(m =>
             m.text === optMsg.text && m.sender === optMsg.sender
           );
           if (!exists) {
@@ -1245,7 +1260,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           m.createdAt = now;
           m.updatedAt = now;
         });
-        
+
         // Create AI response message
         await database.get<ConversationMessage>('conversation_messages').create(m => {
           m._raw.id = tempAiMsgId;
@@ -1278,7 +1293,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       // Filter out temp messages from DB (we already have them in state with temp IDs)
       const realMsgs = msgs.filter(m => !m.id.startsWith('temp-'));
       const deduplicated = deduplicateMessages(realMsgs);
-      
+
       // If we got real messages from DB, merge them (they'll have proper IDs from server)
       if (deduplicated.length > 0) {
         setMessagesByThread(prev => {
@@ -1300,7 +1315,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
   const currentStreamRef = useRef<any>(null);
   const streamTargetThreadIdRef = useRef<string | null>(null);
-  
+
   // Debounce timers for title updates per thread to prevent race conditions
   const titleUpdateTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const titleUpdateInProgressRef = useRef<Record<string, boolean>>({});
@@ -1325,10 +1340,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   const handleSend = useCallback(async (messageOverride?: string) => {
     const candidate = (messageOverride !== undefined ? String(messageOverride) : input).trim();
     if (!candidate || loading || isSendingRef.current) return;
-    
+
     // Set sending flag immediately to prevent duplicates
     isSendingRef.current = true;
-    
+
     const userMessage = candidate;
     if (messageOverride === undefined) {
       setInput('');
@@ -1339,14 +1354,14 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     const currentThreadModel = threads.find(t => t.id === currentConversationId);
     const isThreadSynced = currentThreadModel?.status === 'synced';
     const threadIdToUse = isThreadSynced ? currentConversationId : null;
-    
+
     // For new conversations, use a temporary thread ID so optimistic messages display immediately
     const tempThreadId = threadIdToUse || `temp-thread-${Date.now()}`;
-    
+
     // Create temporary IDs for optimistic updates
     const tempUserMessageId = `temp-user-${Date.now()}-${Math.random()}`;
     const tempAiMessageId = `temp-ai-${Date.now()}-${Math.random()}`;
-    
+
     // Optimistic UI: Add user message immediately
     const optimisticUserMessage: Message = {
       id: tempUserMessageId,
@@ -1354,7 +1369,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       sender: 'user',
       status: 'synced',
     };
-    
+
     // Optimistic UI: Add "Thinking..." AI message immediately
     // We will update this message in-place as tokens arrive
     const optimisticAiMessage: Message = {
@@ -1369,7 +1384,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     if (!threadIdToUse) {
       setCurrentConversationId(tempThreadId);
     }
-    
+
     setMessagesByThread(prev => {
       const currentMsgs = prev[tempThreadId] || [];
       const newMessages = [...currentMsgs, optimisticUserMessage, optimisticAiMessage];
@@ -1378,7 +1393,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         [tempThreadId]: newMessages,
       };
     });
-    
+
     setLoading(true);
 
     // Track serverThreadId so we can preserve it on error
@@ -1387,14 +1402,14 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     streamBufferRef.current = '';
     displayedBufferRef.current = '';
     streamTargetThreadIdRef.current = null;
-    
+
     try {
       // Close previous stream if exists
       if (currentStreamRef.current) {
         currentStreamRef.current.close();
         currentStreamRef.current = null;
       }
-      
+
       // Clear previous interval if any
       if (streamIntervalRef.current) {
         clearInterval(streamIntervalRef.current);
@@ -1413,7 +1428,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       streamIntervalRef.current = setInterval(() => {
         const target = streamBufferRef.current;
         const current = displayedBufferRef.current;
-        
+
         if (current.length < target.length) {
           // Determine chunk size based on lag to catch up if behind
           const diff = target.length - current.length;
@@ -1421,10 +1436,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           // If moderately behind (>10), speed up a bit
           // Otherwise 1 char per tick for smooth typing
           const chunkSize = diff > 50 ? 5 : (diff > 10 ? 2 : 1);
-          
+
           const nextChunk = target.slice(current.length, current.length + chunkSize);
           displayedBufferRef.current += nextChunk;
-          
+
           // Update UI state with the displayed buffer
           // Use the ref to get the current thread ID (may have migrated)
           const currentThreadId = streamTargetThreadIdRef.current || streamTargetThreadId;
@@ -1470,66 +1485,66 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             // Received real thread ID
             if (payload.threadId) {
               serverThreadId = payload.threadId;
-              
+
               // Determine title if new conversation
               if (!threadIdToUse) {
-                 const initialTitle = extractTitleFromMessage(userMessage) || 'New Conversation';
-                 
-                 // Create or update local thread record
-                 // If we have a temp thread, we might want to migrate it or just create the real one
-                 // Logic here mirrors original handleSend but inside the stream
-                 const createLocalThread = async () => {
-                    try {
-                      let localThread = await conversationRepository.getThreadById(serverThreadId!);
-                      if (!localThread) {
-                        await database.write(async () => {
-                          await database.get<ConversationThread>('conversation_threads').create(t => {
-                            t._raw.id = serverThreadId!;
-                            t.userId = authService.getCurrentUser()?.id || '';
-                            t.title = initialTitle;
-                            t.summary = null;
-                            t.isActive = true;
-                            t.isPinned = false;
-                            t.status = 'synced';
-                            t.createdAt = new Date();
-                            t.updatedAt = new Date();
-                          });
+                const initialTitle = extractTitleFromMessage(userMessage) || 'New Conversation';
+
+                // Create or update local thread record
+                // If we have a temp thread, we might want to migrate it or just create the real one
+                // Logic here mirrors original handleSend but inside the stream
+                const createLocalThread = async () => {
+                  try {
+                    let localThread = await conversationRepository.getThreadById(serverThreadId!);
+                    if (!localThread) {
+                      await database.write(async () => {
+                        await database.get<ConversationThread>('conversation_threads').create(t => {
+                          t._raw.id = serverThreadId!;
+                          t.userId = authService.getCurrentUser()?.id || '';
+                          t.title = initialTitle;
+                          t.summary = null;
+                          t.isActive = true;
+                          t.isPinned = false;
+                          t.status = 'synced';
+                          t.createdAt = new Date();
+                          t.updatedAt = new Date();
                         });
-                        // Clean up pending local thread if different
-                        if (currentThreadModel && currentThreadModel.id !== serverThreadId) {
-                           try { await conversationRepository.deleteThread(currentThreadModel.id); } catch(e) {}
-                        }
+                      });
+                      // Clean up pending local thread if different
+                      if (currentThreadModel && currentThreadModel.id !== serverThreadId) {
+                        try { await conversationRepository.deleteThread(currentThreadModel.id); } catch (e) { }
                       }
-                    } catch (err) {
-                      logger.warn('Error creating local thread from SSE meta:', err);
-                      throw err; // Re-throw to allow caller to handle
                     }
-                 };
-                 
-                 // Await thread creation before migrating messages to ensure thread exists
-                 try {
-                   await createLocalThread();
-                 } catch (err) {
-                   // Log error but continue with migration since server thread exists
-                   // The local thread creation failure doesn't prevent message display
-                   logger.error('Failed to create local thread, continuing with message migration:', err);
-                 }
-                 
-                 // Update current conversation ID to the real one
-                 if (serverThreadId !== currentConversationId) {
-                   setCurrentConversationId(serverThreadId!);
-                   // Migrate optimistic messages to the new ID in state
-                   setMessagesByThread(prev => {
-                     const msgs = prev[tempThreadId] || [];
-                     const newState = { ...prev };
-                     delete newState[tempThreadId];
-                     newState[serverThreadId!] = msgs;
-                     return newState;
-                   });
-                   
-                   // Update the ref so interval uses the migrated thread ID
-                   streamTargetThreadIdRef.current = serverThreadId;
-                 }
+                  } catch (err) {
+                    logger.warn('Error creating local thread from SSE meta:', err);
+                    throw err; // Re-throw to allow caller to handle
+                  }
+                };
+
+                // Await thread creation before migrating messages to ensure thread exists
+                try {
+                  await createLocalThread();
+                } catch (err) {
+                  // Log error but continue with migration since server thread exists
+                  // The local thread creation failure doesn't prevent message display
+                  logger.error('Failed to create local thread, continuing with message migration:', err);
+                }
+
+                // Update current conversation ID to the real one
+                if (serverThreadId !== currentConversationId) {
+                  setCurrentConversationId(serverThreadId!);
+                  // Migrate optimistic messages to the new ID in state
+                  setMessagesByThread(prev => {
+                    const msgs = prev[tempThreadId] || [];
+                    const newState = { ...prev };
+                    delete newState[tempThreadId];
+                    newState[serverThreadId!] = msgs;
+                    return newState;
+                  });
+
+                  // Update the ref so interval uses the migrated thread ID
+                  streamTargetThreadIdRef.current = serverThreadId;
+                }
               }
             }
           } else if (payload.type === 'token') {
@@ -1540,22 +1555,22 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           } else if (payload.type === 'finish') {
             // Mark stream as completed
             streamCompletedRef.current = true;
-            
+
             // Finalize message - ensure we show everything
             const finalMessage = payload.message || streamBufferRef.current;
             const actions = payload.actions;
             const modelProvider = payload.provider;
-            
+
             // Clear interval immediately to stop typing effect and jump to final state
             if (streamIntervalRef.current) {
-                clearInterval(streamIntervalRef.current);
-                streamIntervalRef.current = null;
+              clearInterval(streamIntervalRef.current);
+              streamIntervalRef.current = null;
             }
-            
+
             // Use serverThreadId if migration has occurred, otherwise use the captured stream target thread ID
             // This ensures we update the correct thread even if migration happened during streaming
             const targetThreadId = serverThreadId || streamTargetThreadIdRef.current || tempThreadId;
-            
+
             // Update state one last time
             setMessagesByThread(prev => {
               const currentMsgs = prev[targetThreadId] || [];
@@ -1578,115 +1593,115 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             // We should just ensure local DB reflects this state.
             // Using `createMessagesInDatabase` (adapted from original code)
             if (serverThreadId) {
-               const userId = authService.getCurrentUser()?.id || '';
-               const now = new Date();
-               createMessagesInDatabase(
-                 database,
-                 serverThreadId,
-                 tempUserMessageId,
-                 tempAiMessageId,
-                 userId,
-                 userMessage,
-                 { message: finalMessage, actions },
-                 now
-               ).then(async () => {
-                 // Trigger background sync to reconcile IDs
-                 syncService.silentSync().catch(() => {});
-                 
-                 // Update title if needed (for both fast and smart modes, especially for new conversations)
-                 // Use async/await with proper error handling and debouncing to prevent race conditions
-                 try {
-                   const msgs = await mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread);
-                   
-                   // Fetch the latest thread from repository to avoid stale closure
-                   const currentThread = await conversationRepository.getThreadById(serverThreadId!);
-                   if (!currentThread) return;
-                   
-                   const genericTitles = [
-                     'New Conversation',
-                     'New Goal',
-                     'Conversation',
-                     'Goal Planning',
-                     'Scheduling Help'
-                   ];
-                   
-                   const isGenericTitle = genericTitles.some(
-                     generic => currentThread.title.toLowerCase() === generic.toLowerCase()
-                   );
-                   
-                   // Only update if title is generic and we have enough messages
-                   if (isGenericTitle && msgs.length >= 2) {
-                     const newTitle = generateConversationTitle(msgs);
-                     
-                     // Only update if new title is different and more meaningful
-                     if (newTitle && 
-                         newTitle.toLowerCase() !== currentThread.title.toLowerCase() &&
-                         newTitle.length > 5 &&
-                         !genericTitles.some(gt => newTitle.toLowerCase() === gt.toLowerCase())) {
-                       
-                       // Debounce title updates to prevent race conditions from concurrent updates
-                       const threadId = serverThreadId!;
-                       
-                       // Clear any existing timer for this thread
-                       if (titleUpdateTimersRef.current[threadId]) {
-                         clearTimeout(titleUpdateTimersRef.current[threadId]);
-                       }
-                       
-                       // Schedule the update with debounce
-                       titleUpdateTimersRef.current[threadId] = setTimeout(async () => {
-                         // Check if update is already in progress for this thread
-                         if (titleUpdateInProgressRef.current[threadId]) {
-                           return; // Skip if update is already in progress
-                         }
-                         
-                         try {
-                           titleUpdateInProgressRef.current[threadId] = true;
-                           
-                           // Re-fetch thread to get latest state before updating (avoid stale data)
-                           const latestThread = await conversationRepository.getThreadById(threadId);
-                           if (!latestThread) {
-                             titleUpdateInProgressRef.current[threadId] = false;
-                             return;
-                           }
-                           
-                           // Check again if title is still generic (might have been updated by another call)
-                           const stillGeneric = genericTitles.some(
-                             generic => latestThread.title.toLowerCase() === generic.toLowerCase()
-                           );
-                           
-                           if (stillGeneric) {
-                             await conversationRepository.updateThread(threadId, {
-                               title: newTitle
-                             });
-                             // Trigger sync to update server
-                             syncService.silentSync().catch(() => {});
-                           }
-                           
-                           titleUpdateInProgressRef.current[threadId] = false;
-                           delete titleUpdateTimersRef.current[threadId];
-                         } catch (debouncedError) {
-                           titleUpdateInProgressRef.current[threadId] = false;
-                           delete titleUpdateTimersRef.current[threadId];
-                           logger.warn('Failed to update conversation title (debounced):', debouncedError);
-                         }
-                       }, 500); // 500ms debounce - only the final update will run
-                     }
-                   }
-                 } catch (titleError) {
-                   logger.warn('Failed to update conversation title:', titleError);
-                   // Don't throw - title update is non-critical
-                 }
-               }).catch((error) => {
-                 logger.warn('Failed to complete message persistence and title update:', error);
-               });
+              const userId = authService.getCurrentUser()?.id || '';
+              const now = new Date();
+              createMessagesInDatabase(
+                database,
+                serverThreadId,
+                tempUserMessageId,
+                tempAiMessageId,
+                userId,
+                userMessage,
+                { message: finalMessage, actions },
+                now
+              ).then(async () => {
+                // Trigger background sync to reconcile IDs
+                syncService.silentSync().catch(() => { });
+
+                // Update title if needed (for both fast and smart modes, especially for new conversations)
+                // Use async/await with proper error handling and debouncing to prevent race conditions
+                try {
+                  const msgs = await mergeRealMessagesFromDB(serverThreadId!, getMessagesForThread);
+
+                  // Fetch the latest thread from repository to avoid stale closure
+                  const currentThread = await conversationRepository.getThreadById(serverThreadId!);
+                  if (!currentThread) return;
+
+                  const genericTitles = [
+                    'New Conversation',
+                    'New Goal',
+                    'Conversation',
+                    'Goal Planning',
+                    'Scheduling Help'
+                  ];
+
+                  const isGenericTitle = genericTitles.some(
+                    generic => currentThread.title.toLowerCase() === generic.toLowerCase()
+                  );
+
+                  // Only update if title is generic and we have enough messages
+                  if (isGenericTitle && msgs.length >= 2) {
+                    const newTitle = generateConversationTitle(msgs);
+
+                    // Only update if new title is different and more meaningful
+                    if (newTitle &&
+                      newTitle.toLowerCase() !== currentThread.title.toLowerCase() &&
+                      newTitle.length > 5 &&
+                      !genericTitles.some(gt => newTitle.toLowerCase() === gt.toLowerCase())) {
+
+                      // Debounce title updates to prevent race conditions from concurrent updates
+                      const threadId = serverThreadId!;
+
+                      // Clear any existing timer for this thread
+                      if (titleUpdateTimersRef.current[threadId]) {
+                        clearTimeout(titleUpdateTimersRef.current[threadId]);
+                      }
+
+                      // Schedule the update with debounce
+                      titleUpdateTimersRef.current[threadId] = setTimeout(async () => {
+                        // Check if update is already in progress for this thread
+                        if (titleUpdateInProgressRef.current[threadId]) {
+                          return; // Skip if update is already in progress
+                        }
+
+                        try {
+                          titleUpdateInProgressRef.current[threadId] = true;
+
+                          // Re-fetch thread to get latest state before updating (avoid stale data)
+                          const latestThread = await conversationRepository.getThreadById(threadId);
+                          if (!latestThread) {
+                            titleUpdateInProgressRef.current[threadId] = false;
+                            return;
+                          }
+
+                          // Check again if title is still generic (might have been updated by another call)
+                          const stillGeneric = genericTitles.some(
+                            generic => latestThread.title.toLowerCase() === generic.toLowerCase()
+                          );
+
+                          if (stillGeneric) {
+                            await conversationRepository.updateThread(threadId, {
+                              title: newTitle
+                            });
+                            // Trigger sync to update server
+                            syncService.silentSync().catch(() => { });
+                          }
+
+                          titleUpdateInProgressRef.current[threadId] = false;
+                          delete titleUpdateTimersRef.current[threadId];
+                        } catch (debouncedError) {
+                          titleUpdateInProgressRef.current[threadId] = false;
+                          delete titleUpdateTimersRef.current[threadId];
+                          logger.warn('Failed to update conversation title (debounced):', debouncedError);
+                        }
+                      }, 500); // 500ms debounce - only the final update will run
+                    }
+                  }
+                } catch (titleError) {
+                  logger.warn('Failed to update conversation title:', titleError);
+                  // Don't throw - title update is non-critical
+                }
+              }).catch((error) => {
+                logger.warn('Failed to complete message persistence and title update:', error);
+              });
             }
-            
+
             eventSource.close();
             currentStreamRef.current = null;
             setLoading(false);
             isSendingRef.current = false;
           } else if (payload.type === 'error') {
-             throw new Error(payload.message || 'Stream error');
+            throw new Error(payload.message || 'Stream error');
           }
         } catch (parseError) {
           logger.warn('SSE Parse Error:', parseError);
@@ -1698,26 +1713,26 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         logger.warn('SSE Error:', event);
         eventSource.close();
         currentStreamRef.current = null;
-        
+
         // Mark stream as completed (error state)
         streamCompletedRef.current = true;
-        
+
         // Clear interval and stream target thread ID ref
         if (streamIntervalRef.current) {
-            clearInterval(streamIntervalRef.current);
-            streamIntervalRef.current = null;
+          clearInterval(streamIntervalRef.current);
+          streamIntervalRef.current = null;
         }
         streamTargetThreadIdRef.current = null;
-        
+
         // If we haven't finished yet and received an error
         setLoading(false);
         isSendingRef.current = false;
-        
+
         if (!streamBufferRef.current) {
-           setError('Connection interrupted. Please try again.');
+          setError('Connection interrupted. Please try again.');
         } else {
-           // If we have partial message, keep it but mark as error?
-           // For now, assume partial success if we have text.
+          // If we have partial message, keep it but mark as error?
+          // For now, assume partial success if we have text.
         }
       });
 
@@ -1726,20 +1741,20 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       setError('Failed to connect to AI service. Please try again.');
       setLoading(false);
       isSendingRef.current = false;
-      
+
       // Mark stream as completed (error state)
       streamCompletedRef.current = true;
-      
+
       // Clear interval and stream target thread ID ref
       if (streamIntervalRef.current) {
         clearInterval(streamIntervalRef.current);
         streamIntervalRef.current = null;
       }
       streamTargetThreadIdRef.current = null;
-      
+
       // Cleanup optimistic messages if nothing sent
       if (!streamBufferRef.current) {
-         setMessagesByThread(prev => {
+        setMessagesByThread(prev => {
           const currentMsgs = prev[tempThreadId] || [];
           return {
             ...prev,
@@ -1799,14 +1814,14 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
       const initialMessage = route.params.initialMessage as string;
       // Use the improved title extraction function for consistency
       const inferredTitle = extractTitleFromMessage(initialMessage) || 'New Goal';
-      
+
       // Create thread and send message using repository
       (async () => {
         try {
           setLoading(true);
           setError('');
           let threadIdToUse = route.params?.threadId as string | undefined;
-          
+
           if (!threadIdToUse) {
             // Create new thread locally
             const thread = await conversationRepository.createThread({
@@ -1830,7 +1845,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
           // Clear the route params to prevent re-triggering
           navigation.setParams({ initialMessage: undefined, threadId: threadIdToUse });
-          
+
           // Send message using handleSend
           await handleSend(initialMessage);
         } catch (err: any) {
@@ -1876,7 +1891,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
   // Animated "Thinking..." component
   const ThinkingIndicator = () => {
     const [dots, setDots] = useState('.');
-    
+
     useEffect(() => {
       const interval = setInterval(() => {
         setDots(prev => {
@@ -1885,10 +1900,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           return '.';
         });
       }, 500);
-      
+
       return () => clearInterval(interval);
     }, []);
-    
+
     return (
       <Text style={styles.thinkingText}>Thinking{dots}</Text>
     );
@@ -1896,7 +1911,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
   const renderMessage = (msg: Message) => {
     const isThinking = msg.sender === 'ai' && msg.status === 'pending' && msg.text === 'Thinking...';
-    
+
     if (msg.sender === 'user') {
       return (
         <View key={msg.id} style={styles.userMsg}>
@@ -1904,7 +1919,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         </View>
       );
     }
-    
+
     // Show "Thinking..." indicator for pending AI messages
     if (isThinking) {
       return (
@@ -1913,13 +1928,13 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         </View>
       );
     }
-    
+
     // Check if this is structured content
     const hasScheduleContent = isScheduleContent(msg.text);
     const hasGoalBreakdownContent = isGoalBreakdownContent(msg.text);
     const hasGoalTitlesContent = isGoalTitlesContent(msg.text);
     const hasTaskContent = isTaskContent(msg.text);
-    
+
     // Remove JSON code blocks and (when present) the goal breakdown section
     // from AI text for conversational display, then simplify redundant lines
     const baseConversational = hasGoalBreakdownContent
@@ -1941,7 +1956,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
 
     // Use full width for structured content to prevent truncation
     const shouldUseFullWidth = hasGoalBreakdownContent || hasScheduleContent || hasTaskContent || hasGoalTitlesContent;
-    
+
     return (
       <View key={msg.id} style={[styles.aiMsg, shouldUseFullWidth && styles.aiMsgFullWidth]}>
         {/* Show conversational text - show it even with goal breakdown so user sees context */}
@@ -1959,10 +1974,10 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           <ScheduleDisplay text={msg.text} taskTitle={route?.params?.taskTitle} />
         )}
         {hasGoalBreakdownContent && (
-          <GoalBreakdownDisplay 
+          <GoalBreakdownDisplay
             key={`goal-breakdown-${msg.id}`}
-            text={msg.text} 
-            onSaveGoal={handleSaveGoal} 
+            text={msg.text}
+            onSaveGoal={handleSaveGoal}
             conversationalText={conversationalText}
             conversationTitle={currentConversation?.title}
           />
@@ -1998,7 +2013,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     const isActive = thread.id === currentConversationId;
     const messages = messagesByThread[thread.id] || [];
     const lastMessage = messages[messages.length - 1];
-    
+
     return (
       <TouchableOpacity
         key={thread.id}
@@ -2022,24 +2037,24 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
             <Text style={[styles.conversationTitle, isActive && styles.activeConversationTitle]} numberOfLines={1}>
               {thread.title}
             </Text>
-            {thread.isPinned && <Icon name="pin" size={12} color={colors.primary} style={styles.pinIcon} />}
+            {thread.isPinned && <Icon icon={PinIcon} size={12} color={colors.primary} style={styles.pinIcon} />}
           </View>
           <View style={styles.conversationActions}>
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => togglePinConversation(thread.id)}
             >
-              <Icon 
-                name={thread.isPinned ? "pin-fill" : "pin"} 
-                size={16} 
-                color={colors.text.secondary} 
+              <Icon
+                icon={PinIcon}
+                size={16}
+                color={colors.text.secondary}
               />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionButton}
               onPress={async () => { await deleteConversation(thread.id); }}
             >
-              <Icon name="trash" size={16} color={colors.text.secondary} />
+              <Icon icon={Delete01Icon} size={16} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -2053,23 +2068,29 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
     );
   };
 
+  // Update header options
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      title: currentConversation?.title || 'Mind Clear AI Chat',
+      headerLeft: () => (
+        <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
+          <Icon icon={Menu01Icon} size={20} color={colors.text.primary} />
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.helpButton} onPress={handleHelpPressWithSend}>
+            <Icon icon={HelpCircleIcon} size={20} color={colors.text.primary} />
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation, currentConversation?.title, toggleSidebar, handleHelpPressWithSend]);
+
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background.primary} translucent={false} animated />
-        <ScreenHeader
-          title={currentConversation?.title || 'Mind Clear AI Chat'}
-          leftAction={(
-            <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
-              <Icon name="three-bars" size={20} color={colors.text.primary} />
-            </TouchableOpacity>
-          )}
-          rightActions={(
-            <TouchableOpacity style={styles.helpButton} onPress={handleHelpPressWithSend}>
-              <Icon name="question" size={20} color={colors.text.primary} />
-            </TouchableOpacity>
-          )}
-          withDivider
-        />
+
 
 
       <KeyboardAvoidingView
@@ -2077,25 +2098,25 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <ScrollView 
-          style={styles.messagesContainer} 
-          contentContainerStyle={{ 
-            paddingBottom: Platform.OS === 'android' ? 160 + insets.bottom : 160 
+        <ScrollView
+          style={styles.messagesContainer}
+          contentContainerStyle={{
+            paddingBottom: Platform.OS === 'android' ? 160 + insets.bottom : 160
           }}
           keyboardShouldPersistTaps="handled"
         >
           {/* AI Disclaimer */}
           <View style={styles.disclaimerContainer}>
-            <Icon name="info" size={16} color={colors.text.secondary} />
+            <Icon icon={InformationCircleIcon} size={16} color={colors.text.secondary} />
             <Text style={styles.disclaimerText}>
               AI-generated content. Please verify important information and use your best judgment.
             </Text>
           </View>
-          
+
           {currentConversation?.messages.map((msg) => renderMessage(msg))}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </ScrollView>
-        
+
         <View style={styles.inputRow}>
           <TextInput
             style={styles.input}
@@ -2123,7 +2144,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
               onPress={() => setShowModelPicker(prev => !prev)}
             >
               <Icon
-                name={modelMode === 'fast' ? 'zap' : 'comment-discussion'}
+                icon={modelMode === 'fast' ? FlashIcon : Comment01Icon}
                 size={16}
                 color={colors.primary}
               />
@@ -2148,7 +2169,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
               }}
             >
               <View style={styles.modelOptionHeader}>
-                <Icon name="zap" size={18} color={colors.primary} />
+                <Icon icon={FlashIcon} size={18} color={colors.primary} />
                 <Text style={styles.modelOptionTitle}>Auto / Fast</Text>
               </View>
               <Text style={styles.modelOptionSubtitle}>Groq • Low latency</Text>
@@ -2163,7 +2184,7 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
               }}
             >
               <View style={styles.modelOptionHeader}>
-                <Icon name="comment-discussion" size={18} color={colors.text.primary} />
+                <Icon icon={Comment01Icon} size={18} color={colors.text.primary} />
                 <Text style={styles.modelOptionTitle}>Smart</Text>
               </View>
               <Text style={styles.modelOptionSubtitle}>Gemini • More depth</Text>
@@ -2194,18 +2215,18 @@ function AIChatScreen({ navigation, route, threads: observableThreads, database 
           },
         ]}
       >
-                 <View style={styles.sidebarHeader}>
-           <Text style={styles.sidebarTitle}>Conversations</Text>
-           <TouchableOpacity onPress={toggleSidebar} style={styles.closeButton}>
-             <Icon name="x" size={18} color={colors.text.secondary} />
-           </TouchableOpacity>
-         </View>
+        <View style={[styles.sidebarHeader, { paddingTop: insets.top + spacing.sm }]}>
+          <Text style={styles.sidebarTitle}>Conversations</Text>
+          <TouchableOpacity onPress={toggleSidebar} style={styles.closeButton}>
+            <Icon icon={Cancel01Icon} size={18} color={colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.sidebarActions}>
           <TouchableOpacity style={styles.newConversationButton} onPress={startNewConversation}>
             <Text style={styles.newConversationButtonText}>+ New Conversation</Text>
           </TouchableOpacity>
-          
+
           {threads.some(t => !t.isPinned) && (
             <TouchableOpacity style={styles.clearButton} onPress={clearNonPinnedConversations}>
               <Text style={styles.clearButtonText}>Clear Non-Pinned</Text>
@@ -2436,10 +2457,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: spacing.md,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.light,
-    paddingTop: 60, // Account for status bar
   },
   sidebarTitle: {
     fontSize: typography.fontSize.lg,
@@ -2607,7 +2628,7 @@ const enhance = withObservables<{ database: Database }, "threads">(
       Q.where('status', Q.notEq('pending_delete'))
     );
     const threads: Observable<ConversationThread[]> = threadsQuery.observe();
-    
+
     return {
       threads,
     };
