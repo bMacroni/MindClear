@@ -161,10 +161,10 @@ class AuthService {
             logger.info('Token expiring soon, refreshing proactively on initialization...');
             const refreshResult = await this.refreshToken();
             if (!refreshResult.success && refreshResult.error === 'auth') {
-              // Auth failure during proactive refresh - clear auth data
-              logger.warn('Proactive refresh failed due to auth error, clearing auth data.');
-              await this.clearAuthData();
-              this.setUnauthenticatedState();
+              // Auth failure during proactive refresh - DO NOT clear auth data immediately
+              // This was causing users to be logged out just because the refresh failed (e.g. network blip or missing refresh token)
+              // The existing token is still valid (just expiring soon), so let them use it until it actually expires
+              logger.warn('Proactive refresh failed. Allowing session to continue with expiring token.', { error: refreshResult.error });
             }
             // If refresh succeeded or was a network error, continue with current token
             // Network errors will be retried on next API call
