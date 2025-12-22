@@ -171,25 +171,25 @@ tasks.whenTaskAdded { task ->
             def keyAlias = System.getenv("KEY_ALIAS")
             
             if (!keystorePath || keystorePath.trim().isEmpty()) {
-                throw new GradleException("KEYSTORE_PATH environment variable is required for release builds. Please set it to the path of your keystore file.")
+                throw new RuntimeException("KEYSTORE_PATH environment variable is required for release builds. Please set it to the path of your keystore file.")
             }
             
             if (!keystorePassword || keystorePassword.trim().isEmpty()) {
-                throw new GradleException("KEYSTORE_PASSWORD environment variable is required for release builds.")
+                throw new RuntimeException("KEYSTORE_PASSWORD environment variable is required for release builds.")
             }
             
             if (!keyPassword || keyPassword.trim().isEmpty()) {
-                throw new GradleException("KEY_PASSWORD environment variable is required for release builds.")
+                throw new RuntimeException("KEY_PASSWORD environment variable is required for release builds.")
             }
             
             if (!keyAlias || keyAlias.trim().isEmpty()) {
-                throw new GradleException("KEY_ALIAS environment variable is required for release builds.")
+                throw new RuntimeException("KEY_ALIAS environment variable is required for release builds.")
             }
             
             // Validate keystore file exists
             def keystoreFile = file(keystorePath)
             if (!keystoreFile.exists()) {
-                throw new GradleException("Keystore file not found at path: ${keystorePath}. Please check your KEYSTORE_PATH environment variable.")
+                throw new RuntimeException("Keystore file not found at path: ${keystorePath}. Please check your KEYSTORE_PATH environment variable.")
             }
         }
     }
