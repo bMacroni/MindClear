@@ -83,8 +83,8 @@ class GoogleAuthService {
         offlineAccess: true, // Required for getting the access token
         forceCodeForRefreshToken: true, // Required for getting the refresh token
         scopes: [
-          'openid', 
-          'email', 
+          'openid',
+          'email',
           'profile',
           'https://www.googleapis.com/auth/calendar.events.readonly'
         ],
@@ -117,7 +117,7 @@ class GoogleAuthService {
       if (!this.isConfigured) {
         this.configureGoogleSignIn();
       }
-      
+
       // If still not configured, the client IDs weren't available
       if (!this.isConfigured) {
         throw new Error('Google Sign-In not configured. Client IDs not available.');
@@ -128,7 +128,7 @@ class GoogleAuthService {
 
       // Sign in with Google
       const userInfo = await GoogleSignin.signIn();
-      
+
       if (!userInfo.idToken) {
         throw new Error('No ID token received from Google');
       }
@@ -142,7 +142,7 @@ class GoogleAuthService {
       return result;
     } catch (error: any) {
       logger.error('Google Sign-In error', error);
-      
+
       // Handle specific Google Sign-In errors
       if (error.code === 'SIGN_IN_CANCELLED') {
         return {
@@ -150,7 +150,7 @@ class GoogleAuthService {
           error: 'Sign-in was cancelled'
         };
       }
-      
+
       if (error.code === 'PLAY_SERVICES_NOT_AVAILABLE') {
         return {
           success: false,
@@ -176,7 +176,7 @@ class GoogleAuthService {
       if (!webClientId) {
         webClientId = configService.getGoogleWebClientId();
       }
-      
+
       if (__DEV__) {
         logger.info('[GoogleAuth] Authenticating with backend', {
           url: `${baseUrl}/auth/google/mobile-signin`,
@@ -185,15 +185,15 @@ class GoogleAuthService {
           serverAuthCodeLen: serverAuthCode?.length ?? 0,
         });
       }
-      
+
       const data = await enhancedAPI.authenticateWithGoogle(idToken, serverAuthCode, webClientId);
-      
+
       if (data?.token) {
         // Successful authentication
         if (__DEV__) logger.info('[GoogleAuth] Authentication successful, setting session...');
         await authService.setSession(data.token, data.user, data.refresh_token);
         if (__DEV__) logger.info('[GoogleAuth] Session set successfully');
-        
+
         // Verify refresh token was stored (critical for persistent login)
         if (data.refresh_token) {
           try {
@@ -209,14 +209,17 @@ class GoogleAuthService {
             logger.warn('[GoogleAuth] WARNING: Failed to verify refresh token storage. Treating as not stored.', error);
           }
         } else {
-          logger.warn('[GoogleAuth] WARNING: No refresh token received from backend. Persistent login will not work.');
+          logger.warn('[GoogleAuth] WARNING: No refresh token received from backend response. Persistent login will not work properly.', {
+            hasIdToken: !!idToken,
+            hasServerAuthCode: !!serverAuthCode
+          });
         }
-        
+
         // If we have a user ID, trigger the OAuth flow for calendar permissions
         if (data.user?.id) {
           await this.triggerCalendarOAuth(data.user.id);
         }
-        
+
         return {
           success: true,
           token: data.token,
@@ -286,20 +289,20 @@ class GoogleAuthService {
     try {
       const baseUrl = getSecureApiBaseUrl();
       const oauthUrl = `${baseUrl}/auth/google/login?state=mobile:${userId}`;
-      
+
       if (__DEV__) {
         logger.info('[GoogleAuth] Triggering calendar OAuth flow', { oauthUrl });
       }
-      
+
       // For mobile, we need to open this URL in a web browser
       // The user will be redirected back to the mobile app after OAuth completion
       // This is a simplified approach - in production you'd use a proper OAuth flow
-      
+
       // For now, just log the URL - the user can manually complete the flow
       if (__DEV__) {
         logger.info('[GoogleAuth] Please complete OAuth flow manually', { oauthUrl });
       }
-      
+
     } catch (error) {
       logger.error('[GoogleAuth] Error triggering calendar OAuth', error);
     }
