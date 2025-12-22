@@ -133,7 +133,7 @@ class AuthService {
       let token = await secureStorage.get('auth_token');
       let userData = await secureStorage.get('auth_user');
       logger.info(`Token found: ${!!token}, User data found: ${!!userData}`);
-      
+
       // Fallback: migrate legacy keys
       if (!token) {
         const legacyToken = await secureStorage.get('authToken');
@@ -149,7 +149,7 @@ class AuthService {
           await secureStorage.set('auth_user', legacyUser);
         }
       }
-      
+
       if (token) {
         // Check if token is expired
         if (isTokenExpired(token)) {
@@ -161,17 +161,18 @@ class AuthService {
             logger.info('Token expiring soon, refreshing proactively on initialization...');
             const refreshResult = await this.refreshToken();
             if (!refreshResult.success && refreshResult.error === 'auth') {
-              // Auth failure during proactive refresh - DO NOT clear auth data immediately
-              // This was causing users to be logged out just because the refresh failed (e.g. network blip or missing refresh token)
-              // The existing token is still valid (just expiring soon), so let them use it until it actually expires
-              logger.warn('Proactive refresh failed. Allowing session to continue with expiring token.', { error: refreshResult.error });
+              // Auth failure during proactive refresh - allow session to continue
+              // This prevents logout when refresh token is temporarily missing (e.g., storage issue)
+              // The existing access token is still valid (just expiring soon), so let them use it until it actually expires
+              // Note: Network errors are handled separately and will retry automatically
+              logger.warn('Proactive refresh failed due to auth error. Allowing session to continue with expiring token.', { error: refreshResult.error });
             }
             // If refresh succeeded or was a network error, continue with current token
             // Network errors will be retried on next API call
           }
           // Try to get user data from storage first
           let user: User | null = null;
-          
+
           if (userData) {
             try {
               user = JSON.parse(userData);
@@ -179,7 +180,7 @@ class AuthService {
               logger.error('Error parsing user data', error);
             }
           }
-          
+
           // If no user data in storage, try to extract from JWT token
           if (!user) {
             const decodedToken = decodeJWT(token);
@@ -187,13 +188,13 @@ class AuthService {
               // Require a stable ID before creating the user object
               const stableId = decodedToken.sub || decodedToken.user_id;
               const idString = stableId ? String(stableId).trim() : '';
-              
+
               // Only proceed if we have a valid, non-empty ID
               if (idString && decodedToken.email && typeof decodedToken.email === 'string') {
                 // Guard against non-numeric iat values
                 const iatValue = decodedToken.iat;
                 const isValidIat = typeof iatValue === 'number' && !isNaN(iatValue) && isFinite(iatValue);
-                
+
                 user = {
                   id: idString,
                   email: decodedToken.email,
@@ -211,7 +212,7 @@ class AuthService {
               }
             }
           }
-          
+
           if (user) {
             logger.info('User data loaded successfully from storage');
             this.authState = {
@@ -234,7 +235,7 @@ class AuthService {
             // attempt to fetch user profile from server
             logger.info('User reconstruction failed, attempting to fetch profile from server...');
             const profileResult = await this.getProfile();
-            
+
             if (profileResult.success && profileResult.user) {
               // Profile fetch successful, use the user data
               this.authState = {
@@ -265,13 +266,13 @@ class AuthService {
         logger.info('No authentication token found, setting unauthenticated state');
         this.setUnauthenticatedState();
       }
-      
+
       // Try to recover background refresh timer if token exists but timer wasn't set
       if (this.authState.isAuthenticated && !this.refreshTimer) {
         logger.info('Attempting to recover background refresh timer from storage');
         this.recoverBackgroundRefreshFromStorage();
       }
-      
+
       this.initialized = true;
       logger.info(`Authentication service initialized. Authenticated: ${this.authState.isAuthenticated}`);
       this.notifyListeners();
@@ -369,10 +370,10 @@ class AuthService {
   // Subscribe to auth state changes
   public subscribe(listener: (_state: AuthState) => void): () => void {
     this.listeners.push(listener);
-    
+
     // Immediately notify with current state (may be loading)
     listener(this.getAuthState());
-    
+
     // Return unsubscribe function
     return () => {
       const index = this.listeners.indexOf(listener);
@@ -412,15 +413,15 @@ class AuthService {
 
       if (data.user && !data.session) {
         // User created but needs email confirmation
-        return { 
-          success: true, 
+        return {
+          success: true,
           message: 'Account created successfully! Please check your email to confirm your account.',
           requiresConfirmation: true
         };
       } else if (data.user && data.session) {
         // Successfully created user and got session
         const userEmail = data.user.email;
-        
+
         if (!userEmail) {
           logger.error('Signup successful but email is missing from user data', { userId: data.user.id });
           return { success: false, message: 'Signup failed: Invalid user data received.' };
@@ -466,8 +467,8 @@ class AuthService {
       } else {
         // Check if it's an email confirmation error
         if (data.errorCode === 'EMAIL_NOT_CONFIRMED') {
-          return { 
-            success: false, 
+          return {
+            success: false,
             message: data.message || 'Please confirm your email address',
             errorCode: 'EMAIL_NOT_CONFIRMED',
             requiresConfirmation: true
@@ -493,21 +494,21 @@ class AuthService {
       });
 
       if (ok) {
-        return { 
-          success: true, 
-          message: data.message || 'Confirmation email sent. Please check your inbox.' 
+        return {
+          success: true,
+          message: data.message || 'Confirmation email sent. Please check your inbox.'
         };
       } else {
-        return { 
-          success: false, 
-          message: data.error || 'Failed to resend confirmation email' 
+        return {
+          success: false,
+          message: data.error || 'Failed to resend confirmation email'
         };
       }
     } catch (_error) {
       logger.error('Resend confirmation error', _error);
-      return { 
-        success: false, 
-        message: 'Network error. Please try again.' 
+      return {
+        success: false,
+        message: 'Network error. Please try again.'
       };
     }
   }
@@ -517,16 +518,16 @@ class AuthService {
     try {
       // Stop background refresh timer
       this.stopBackgroundRefresh();
-      
+
       await this.clearAuthData();
-      
+
       this.authState = {
         user: null,
         token: null,
         isLoading: false,
         isAuthenticated: false,
       };
-      
+
       this.notifyListeners();
     } catch (_error) {
       logger.error('Logout error', _error);
@@ -608,7 +609,7 @@ class AuthService {
       logger.debug('Current token is valid, returning it');
       return this.authState.token;
     }
-    
+
     try {
       const token = await secureStorage.get('auth_token');
       if (token) {
@@ -668,7 +669,7 @@ class AuthService {
 
     await secureStorage.set('auth_token', token);
     await secureStorage.set('auth_user', JSON.stringify(user));
-    
+
     // Store token expiry timestamp for recovery after app kill
     const timeUntilExpiry = getTimeUntilExpiry(token);
     if (timeUntilExpiry !== null) {
@@ -676,7 +677,7 @@ class AuthService {
       await secureStorage.set('auth_token_expiry', expiryTimestamp.toString());
       logger.info(`Stored token expiry timestamp: ${new Date(expiryTimestamp).toISOString()}`);
     }
-    
+
     // Store refresh token if provided and verify it was stored
     if (refreshToken) {
       await secureStorage.set('auth_refresh_token', refreshToken);
@@ -691,19 +692,19 @@ class AuthService {
     } else {
       logger.warn('No refresh token provided during authentication. Session may not persist across app restarts.');
     }
-    
+
     this.authState = {
       user,
       token,
       isLoading: false,
       isAuthenticated: true,
     };
-    
+
     logger.info(`Authentication data set successfully for user: ${user.email}`);
-    
+
     // Start background token refresh timer
     this.startBackgroundRefresh();
-    
+
     this.notifyListeners();
   }
 
@@ -755,7 +756,7 @@ class AuthService {
 
   // Debug method to re-initialize auth
   public async debugReinitialize(): Promise<void> {
-   this.initialized = false;
+    this.initialized = false;
     await this.initializeAuth();
   }
 
@@ -767,18 +768,18 @@ class AuthService {
       logger.debug('Token refresh already in progress, returning existing promise');
       return this.refreshPromise;
     }
-    
+
     logger.info('Starting token refresh...');
     this.refreshPromise = this.performRefresh();
     const result = await this.refreshPromise;
     this.refreshPromise = null;
-    
+
     if (result.success) {
       logger.info('Token refresh completed successfully');
     } else {
       logger.warn(`Token refresh failed: ${result.error || 'unknown'}`);
     }
-    
+
     return result;
   }
 
@@ -805,8 +806,8 @@ class AuthService {
       if (ok && data.access_token) {
         // Use setAuthData for atomic updates of all auth state
         await this.setAuthData(
-          data.access_token, 
-          data.user, 
+          data.access_token,
+          data.user,
           data.refresh_token
         );
         logger.info('Token refreshed successfully');
@@ -817,18 +818,18 @@ class AuthService {
         const errorCode = data?.code || '';
         const errorString = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : '';
         const codeString = typeof errorCode === 'string' ? errorCode.toLowerCase() : '';
-        
+
         // Check for authentication failures: 401/403 status or explicit auth error codes
-        const isAuthError = 
-          status === 401 || 
-          status === 403 || 
+        const isAuthError =
+          status === 401 ||
+          status === 403 ||
           errorString.includes('invalid_refresh') ||
           errorString.includes('revoked') ||
           codeString.includes('invalid_refresh') ||
           codeString.includes('revoked') ||
           codeString === 'unauthorized' ||
           codeString === 'forbidden';
-        
+
         if (isAuthError) {
           logger.warn(`Token refresh failed (auth): ${errorMessage}. User will need to sign in again.`);
           return { success: false, error: 'auth' };
@@ -849,10 +850,10 @@ class AuthService {
   // Retry refresh with exponential backoff for network errors
   private async retryRefresh(maxAttempts: number = MAX_REFRESH_RETRIES): Promise<RefreshTokenResult> {
     let lastResult: RefreshTokenResult | null = null;
-    
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       lastResult = await this.performSingleRefresh();
-      
+
       // If successful, return immediately
       if (lastResult.success) {
         if (attempt > 1) {
@@ -860,13 +861,13 @@ class AuthService {
         }
         return lastResult;
       }
-      
+
       // If auth error, don't retry - return immediately
       if (lastResult.error === 'auth') {
         logger.warn(`Token refresh failed with auth error on attempt ${attempt}, not retrying`);
         return lastResult;
       }
-      
+
       // If network/unknown error and not last attempt, wait and retry
       if (attempt < maxAttempts) {
         const backoffDelay = RETRY_BACKOFF_BASE_MS * Math.pow(2, attempt - 1);
@@ -876,7 +877,7 @@ class AuthService {
         logger.warn(`Token refresh failed after ${maxAttempts} attempts (${lastResult.error})`);
       }
     }
-    
+
     // Return last result (failure after all retries)
     return lastResult || { success: false, error: 'network' };
   }
@@ -924,7 +925,7 @@ class AuthService {
   private startBackgroundRefresh(): void {
     // Clear any existing timer
     this.stopBackgroundRefresh();
-    
+
     if (!this.authState.isAuthenticated) {
       return;
     }
@@ -936,7 +937,7 @@ class AuthService {
       this.recoverBackgroundRefreshFromStorage();
       return;
     }
-    
+
     // Use helper function for consistent expiry calculation
     const timeUntilExpiry = getTimeUntilExpiry(token);
     if (timeUntilExpiry === null) {
@@ -944,13 +945,13 @@ class AuthService {
       this.recoverBackgroundRefreshFromStorage();
       return;
     }
-    
+
     // Refresh REFRESH_BUFFER_MINUTES before expiry, or immediately if less time left
     const refreshBuffer = REFRESH_BUFFER_MINUTES * 60 * 1000;
     const refreshInterval = Math.max(timeUntilExpiry - refreshBuffer, 0);
-    
+
     logger.info(`Scheduling background token refresh in ${Math.round(refreshInterval / 1000 / 60)} minutes`);
-    
+
     this.refreshTimer = setTimeout(async () => {
       if (this.authState.isAuthenticated) {
         logger.info('Background token refresh timer triggered');
@@ -966,28 +967,28 @@ class AuthService {
       if (!storedExpiry) {
         return;
       }
-      
+
       const expiryTimestamp = parseInt(storedExpiry, 10);
       if (!Number.isFinite(expiryTimestamp)) {
         return;
       }
-      
+
       const now = Date.now();
       const timeUntilExpiry = expiryTimestamp - now;
-      
+
       // If already expired or expiring soon, refresh immediately
       if (timeUntilExpiry <= 0) {
         logger.info('Recovered token expiry shows token is expired, refreshing immediately');
         await this.refreshToken();
         return;
       }
-      
+
       // Schedule refresh based on stored expiry
       const refreshBuffer = REFRESH_BUFFER_MINUTES * 60 * 1000;
       const refreshInterval = Math.max(timeUntilExpiry - refreshBuffer, 0);
-      
+
       logger.info(`Recovered background refresh schedule from storage, refreshing in ${Math.round(refreshInterval / 1000 / 60)} minutes`);
-      
+
       this.refreshTimer = setTimeout(async () => {
         if (this.authState.isAuthenticated) {
           logger.info('Background token refresh timer triggered (recovered from storage)');
