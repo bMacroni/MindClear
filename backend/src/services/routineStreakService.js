@@ -10,6 +10,11 @@ import { toZonedTime, fromZonedTime } from 'date-fns-tz';
  * @returns {object} { start: Date, end: Date } in UTC
  */
 export function getPeriodBounds(frequency, date = new Date(), timezone = 'UTC', weekStart = 1) {
+    // Ensure weekStart is 0 (Sunday) or 1 (Monday). Default to 1 if invalid.
+    if (weekStart !== 0 && weekStart !== 1) {
+        weekStart = 1;
+    }
+
     // Convert UTC date to user's zoned time for calculation
     const zonedDate = toZonedTime(date, timezone);
 
@@ -57,27 +62,37 @@ export function getPreviousPeriodBounds(frequency, date, timezone, weekStart) {
         case 'monthly':
             prevDate = subMonths(zonedDate, 1);
             break;
+        default:
+            throw new Error(`Invalid frequency: ${frequency}`);
     }
 
     return getPeriodBounds(frequency, prevDate, timezone, weekStart);
 }
-
 /**
  * Calculate streak stats based on completion history
  * This is a simplified version for run-time checks.
  * For full history recalculation, we'd need a more complex algorithm.
- */
 export function checkStreakStatus(routine, completions, timezone = 'UTC', weekStart = 1) {
-    const now = new Date();
+    if (!routine || !routine.frequency_type) {
+        throw new Error('Invalid routine: missing required properties');
+    }
+    if (!Array.isArray(completions)) {
+        throw new Error('Completions must be an array');
+    }
+
+    const now = new Date();    const now = new Date();
 
     // 1. Check current period status
     const currentPeriod = getPeriodBounds(routine.frequency_type, now, timezone, weekStart);
 
     // Filter completions for current period
-    const currentCompletions = completions.filter(c =>
-        c.completed_at >= currentPeriod.start.toISOString() &&
-        c.completed_at <= currentPeriod.end.toISOString()
-    );
+    const currentCompletions = completions.filter(c => {
+        if (!c.completed_at) return false;
+        const compTime = new Date(c.completed_at).getTime();
+        return !isNaN(compTime) &&
+            compTime >= currentPeriod.start.getTime() &&
+            compTime <= currentPeriod.end.getTime();
+    });
 
     const isCurrentPeriodComplete = currentCompletions.length >= routine.target_count;
     const currentProgress = currentCompletions.length;

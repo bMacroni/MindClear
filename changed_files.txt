@@ -1,0 +1,15 @@
+SQL/migrations/2025-12-23_0043_routines_feature.sql
+backend/src/controllers/routinesController.js
+backend/src/routes/routines.js
+backend/src/server.js
+backend/src/services/notificationService.js
+backend/src/services/routineStreakService.js
+mobile/src/components/common/CustomTabBar.tsx
+mobile/src/components/routines/RoutineCard.tsx
+mobile/src/components/routines/RoutineQuickAdd.tsx
+mobile/src/contexts/RoutineContext.tsx
+mobile/src/screens/routines/RoutineDetailScreen.tsx
+mobile/src/screens/routines/RoutinesScreen.tsx
+mobile/src/services/apiService.ts
+mobile/src/services/routineService.ts
+mobile/src/themes/colors.ts

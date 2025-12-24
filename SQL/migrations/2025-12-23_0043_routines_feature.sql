@@ -17,11 +17,16 @@ CREATE TABLE public.routines (
   color text DEFAULT '#6366F1',
   is_active boolean NOT NULL DEFAULT true,
   reminder_enabled boolean NOT NULL DEFAULT true,
+  -- We store reminder_time as 'time without time zone' (wall clock time)
+  -- and a separate 'timezone' column to track which zone that time belongs to.
+  -- This approach enables robust recurring scheduling (e.g., "7:00 AM every day") 
+  -- that stays consistent even if the server is in a different timezone or if the user travels.
   reminder_time time without time zone,
-  current_streak integer NOT NULL DEFAULT 0,
-  longest_streak integer NOT NULL DEFAULT 0,
-  total_completions integer NOT NULL DEFAULT 0,
-  grace_periods_remaining integer NOT NULL DEFAULT 1,
+  timezone text NOT NULL DEFAULT 'UTC',
+  current_streak integer NOT NULL DEFAULT 0 CHECK (current_streak >= 0),
+  longest_streak integer NOT NULL DEFAULT 0 CHECK (longest_streak >= 0),
+  total_completions integer NOT NULL DEFAULT 0 CHECK (total_completions >= 0),
+  grace_periods_remaining integer NOT NULL DEFAULT 1 CHECK (grace_periods_remaining >= 0),
   grace_period_used_at date,
   last_completed_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now(),
@@ -34,7 +39,7 @@ CREATE TABLE public.routines (
 
 -- Indexes for routines
 CREATE INDEX idx_routines_user_active ON public.routines(user_id, is_active);
-CREATE INDEX idx_routines_user_reminder ON public.routines(user_id, reminder_enabled, reminder_time) WHERE reminder_enabled = true;
+CREATE INDEX idx_routines_user_reminder ON public.routines(user_id, reminder_enabled, reminder_time, timezone) WHERE reminder_enabled = true;
 
 -- Table: routine_completions
 CREATE TABLE public.routine_completions (
@@ -48,9 +53,9 @@ CREATE TABLE public.routine_completions (
   
   CONSTRAINT routine_completions_pkey PRIMARY KEY (id),
   CONSTRAINT routine_completions_routine_id_fkey FOREIGN KEY (routine_id) REFERENCES public.routines(id) ON DELETE CASCADE,
-  CONSTRAINT routine_completions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
+  CONSTRAINT routine_completions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE,
+  CONSTRAINT routine_completions_unique_period UNIQUE (routine_id, period_date)
 );
-
 -- Indexes for routine_completions
 CREATE INDEX idx_routine_completions_routine_period ON public.routine_completions(routine_id, period_date);
 CREATE INDEX idx_routine_completions_user_date ON public.routine_completions(user_id, completed_at DESC);
@@ -82,7 +87,18 @@ CREATE POLICY "Users can view own completions" ON public.routine_completions
   FOR SELECT USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can create own completions" ON public.routine_completions
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
+  FOR INSERT WITH CHECK (
+    auth.uid() = user_id AND 
+    EXISTS (
+      SELECT 1 FROM public.routines 
+      WHERE routines.id = routine_id AND routines.user_id = auth.uid()
+    )
+  );
 CREATE POLICY "Users can delete own completions" ON public.routine_completions
   FOR DELETE USING (auth.uid() = user_id);
+
+-- Data Migration: Initialize timezone from users table
+UPDATE public.routines r
+SET timezone = u.timezone
+FROM public.users u
+WHERE r.user_id = u.id AND (r.timezone IS NULL OR r.timezone = 'UTC');

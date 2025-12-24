@@ -1,0 +1,1319 @@
+diff --git a/mobile/src/components/common/CustomTabBar.tsx b/mobile/src/components/common/CustomTabBar.tsx
+index 4a9b3c9..de6ebe4 100644
+--- a/mobile/src/components/common/CustomTabBar.tsx
++++ b/mobile/src/components/common/CustomTabBar.tsx
+@@ -8,6 +8,7 @@ import {
+   Flag01Icon,
+   Task01Icon,
+   Calendar01Icon,
++  RepeatIcon,
+   ArrowDown01Icon,
+   AiBrain02Icon
+ } from '@hugeicons/core-free-icons';
+@@ -45,7 +46,7 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors,
+       case 'Tasks':
+         return Task01Icon;
+       case 'Routines':
+-        return Calendar01Icon; // Using Calendar/Schedule icon for Routines temporarily or choose a better one if available
++        return RepeatIcon;
+       case 'Calendar':
+         return Calendar01Icon;
+       default:
+diff --git a/mobile/src/components/routines/RoutineCard.tsx b/mobile/src/components/routines/RoutineCard.tsx
+index 13aa2b8..796b36c 100644
+--- a/mobile/src/components/routines/RoutineCard.tsx
++++ b/mobile/src/components/routines/RoutineCard.tsx
+@@ -1,9 +1,9 @@
+ import React, { useMemo } from 'react';
+-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+-import { Tick02Icon } from '@hugeicons/core-free-icons';
++import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+ import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
++import { CheckmarkCircle01Icon } from '@hugeicons/core-free-icons';
+ import { Routine } from '../../services/routineService';
+-import { colors } from '../../themes/colors';
++import { colors as themeColors, useTheme } from '../../themes/colors';
+ 
+ interface RoutineCardProps {
+     routine: Routine;
+@@ -12,14 +12,15 @@ interface RoutineCardProps {
+ }
+ 
+ export const RoutineCard: React.FC<RoutineCardProps> = ({ routine, onPress, onLongPress }) => {
++    const theme = useTheme();
+     const isComplete = routine.period_status?.is_complete;
+     const progress = routine.period_status?.completions_count || 0;
+     const target = routine.target_count;
+ 
+     // Visual states
+     const opacity = isComplete ? 0.7 : 1;
+-    const backgroundColor = isComplete ? colors.background.secondary : colors.background.surface;
+-    const borderColor = isComplete ? colors.border.medium : 'transparent';
++    const backgroundColor = isComplete ? theme.background.secondary : theme.background.surface;
++    const borderColor = isComplete ? theme.border.medium : 'transparent';
+ 
+     const streakText = useMemo(() => {
+         if (routine.current_streak === 0) return "Start today!";
+@@ -28,14 +29,20 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({ routine, onPress, onLo
+         return `${routine.current_streak} ${unit}`;
+     }, [routine.current_streak, routine.frequency_type]);
+ 
++    const styles = useMemo(() => getStyles(theme), [theme]);
++
+     return (
+         <TouchableOpacity
+             style={[styles.container, { backgroundColor, borderColor, opacity }]}
+             onPress={onPress}
+             onLongPress={onLongPress}
+             activeOpacity={0.8}
++            accessibilityRole="button"
++            accessibilityLabel={`${routine.title}. ${streakText}. ${isComplete ? 'Completed' : `Progress: ${progress} of ${target}`}`}
++            accessibilityState={{ disabled: false, checked: isComplete }}
++            accessibilityHint="Tap to view details, long press for options"
+         >
+-            <View style={styles.iconContainer}>
++            <View style={[styles.iconContainer, { backgroundColor: theme.rgba(theme.text.primary, 0.05) }]}>
+                 <Text style={styles.icon}>{routine.icon}</Text>
+             </View>
+ 
+@@ -48,16 +55,15 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({ routine, onPress, onLo
+ 
+             <View style={styles.statusContainer}>
+                 {isComplete ? (
+-                    <Icon icon={Tick02Icon} size={28} color={colors.primary} />
++                    <Icon icon={CheckmarkCircle01Icon} size={24} color={theme.primary} />
+                 ) : (
+                     <Text style={styles.progress}>{progress}/{target}</Text>
+                 )}
+             </View>
+-        </TouchableOpacity>
+-    );
++        </TouchableOpacity>);
+ };
+ 
+-const styles = StyleSheet.create({
++const getStyles = (theme: typeof themeColors) => StyleSheet.create({
+     container: {
+         flexDirection: 'row',
+         alignItems: 'center',
+@@ -65,7 +71,7 @@ const styles = StyleSheet.create({
+         borderRadius: 12,
+         marginBottom: 12,
+         borderWidth: 1,
+-        shadowColor: '#000',
++        shadowColor: theme.shadow,
+         shadowOffset: { width: 0, height: 2 },
+         shadowOpacity: 0.05,
+         shadowRadius: 4,
+@@ -75,7 +81,6 @@ const styles = StyleSheet.create({
+         width: 40,
+         height: 40,
+         borderRadius: 20,
+-        backgroundColor: 'rgba(0,0,0,0.05)',
+         justifyContent: 'center',
+         alignItems: 'center',
+         marginRight: 12,
+@@ -89,16 +94,16 @@ const styles = StyleSheet.create({
+     title: {
+         fontSize: 16,
+         fontWeight: '600',
+-        color: colors.text.primary,
++        color: theme.text.primary,
+         marginBottom: 4,
+     },
+     completedText: {
+         textDecorationLine: 'line-through',
+-        color: colors.text.secondary,
++        color: theme.text.secondary,
+     },
+     streak: {
+         fontSize: 13,
+-        color: colors.text.secondary,
++        color: theme.text.secondary,
+     },
+     statusContainer: {
+         justifyContent: 'center',
+@@ -108,6 +113,6 @@ const styles = StyleSheet.create({
+     progress: {
+         fontSize: 14,
+         fontWeight: 'bold',
+-        color: colors.text.disabled,
++        color: theme.text.disabled,
+     }
+ });
+diff --git a/mobile/src/components/routines/RoutineQuickAdd.tsx b/mobile/src/components/routines/RoutineQuickAdd.tsx
+index 0ce1fa7..712663d 100644
+--- a/mobile/src/components/routines/RoutineQuickAdd.tsx
++++ b/mobile/src/components/routines/RoutineQuickAdd.tsx
+@@ -15,42 +15,63 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
+     const [title, setTitle] = useState('');
+     const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+     const [loading, setLoading] = useState(false);
++    const [error, setError] = useState<string | null>(null);
+ 
+     const handleCreate = async () => {
+         if (!title.trim()) return;
+ 
+         setLoading(true);
+-        const success = await createRoutine({
+-            title: title.trim(),
+-            frequency_type: frequency,
+-            // Smart defaults handled by backend/service fallback values
+-        });
+-        setLoading(false);
++        setError(null);
++        try {
++            const success = await createRoutine({
++                title: title.trim(),
++                frequency_type: frequency,
++            });
+ 
+-        if (success) {
+-            setTitle('');
+-            setFrequency('daily');
+-            onClose();
++            if (success) {
++                setTitle('');
++                setFrequency('daily');
++                onClose();
++            } else {
++                setError('Failed to create routine. Please try again.');
++            }
++        } catch (err) {
++            setError('An unexpected error occurred. Please try again.');
++            console.error('[RoutineQuickAdd] Create failed:', err);
++        } finally {
++            setLoading(false);
+         }
+     };
+ 
++    const handleClose = () => {
++        setError(null);
++        setTitle('');
++        setFrequency('daily');
++        onClose();
++    };
++
+     return (
+         <Modal
+             visible={visible}
+             animationType="slide"
+             transparent={true}
+-            onRequestClose={onClose}
++            onRequestClose={handleClose}
+         >
+             <KeyboardAvoidingView
+                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                 style={styles.modalOverlay}
+             >
+-                <TouchableOpacity style={styles.backdrop} onPress={onClose} activeOpacity={1} />
++                <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
+ 
+                 <View style={styles.container}>
+                     <View style={styles.header}>
+                         <Text style={styles.title}>New Routine</Text>
+-                        <TouchableOpacity onPress={onClose}>
++                        <TouchableOpacity
++                            onPress={handleClose}
++                            accessibilityRole="button"
++                            accessibilityLabel="Close"
++                            accessibilityHint="Closes the new routine dialog"
++                        >
+                             <Icon icon={Cancel01Icon} size={24} color={colors.text.secondary} />
+                         </TouchableOpacity>
+                     </View>
+@@ -60,10 +81,19 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
+                         placeholder="What habit do you want to build?"
+                         placeholderTextColor={colors.text.disabled}
+                         value={title}
+-                        onChangeText={setTitle}
++                        onChangeText={(text) => {
++                            setTitle(text);
++                            if (error) setError(null);
++                        }}
+                         autoFocus
++                        accessibilityLabel="Routine title"
++                        accessibilityHint="Enter a name for your new routine"
+                     />
+ 
++                    {error && (
++                        <Text style={styles.errorText}>{error}</Text>
++                    )}
++
+                     <View style={styles.frequencyContainer}>
+                         {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
+                             <TouchableOpacity
+@@ -73,6 +103,10 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
+                                     frequency === freq && styles.freqSelected
+                                 ]}
+                                 onPress={() => setFrequency(freq)}
++                                accessibilityRole="button"
++                                accessibilityState={{ selected: frequency === freq }}
++                                accessibilityLabel={`Frequency ${freq}`}
++                                accessibilityHint={`Sets frequency to ${freq}`}
+                             >
+                                 <Text style={[
+                                     styles.freqText,
+@@ -86,6 +120,9 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
+                         style={[styles.createButton, (!title.trim() || loading) && styles.disabledButton]}
+                         onPress={handleCreate}
+                         disabled={!title.trim() || loading}
++                        accessibilityRole="button"
++                        accessibilityLabel={loading ? "Creating Routine" : "Create Routine"}
++                        accessibilityState={{ disabled: !title.trim() || loading, busy: loading }}
+                     >
+                         <Text style={styles.createButtonText}>
+                             {loading ? 'Creating...' : 'Create Routine'}
+@@ -137,6 +174,12 @@ const styles = StyleSheet.create({
+         paddingVertical: 12,
+         marginBottom: 24,
+     },
++    errorText: {
++        color: colors.error || '#ef4444',
++        fontSize: 14,
++        marginBottom: 16,
++        marginTop: -16,
++    },
+     frequencyContainer: {
+         flexDirection: 'row',
+         marginBottom: 24,
+diff --git a/mobile/src/contexts/RoutineContext.tsx b/mobile/src/contexts/RoutineContext.tsx
+index e19c488..7583927 100644
+--- a/mobile/src/contexts/RoutineContext.tsx
++++ b/mobile/src/contexts/RoutineContext.tsx
+@@ -1,6 +1,11 @@
+ import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+ import { Routine, CreateRoutinePayload, routineService } from '../services/routineService';
+ import { useToast } from '../contexts/ToastContext';
++import { authService } from '../services/auth';
++interface LogCompletionResult {
++    routine: Routine;
++    celebration?: any; // Define proper celebration type based on routineService
++}
+ 
+ interface RoutineContextType {
+     routines: Routine[];
+@@ -10,7 +15,8 @@ interface RoutineContextType {
+     createRoutine: (payload: CreateRoutinePayload) => Promise<Routine | null>;
+     updateRoutine: (id: string, payload: Partial<CreateRoutinePayload>) => Promise<Routine | null>;
+     deleteRoutine: (id: string) => Promise<boolean>;
+-    logCompletion: (id: string, notes?: string) => Promise<any>;
++    logCompletion: (id: string, notes?: string) => Promise<LogCompletionResult>;
++    undoCompletion: (id: string) => Promise<void>;
+     removeCompletion: (id: string, completionId: string) => Promise<void>;
+ }
+ 
+@@ -28,27 +34,56 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
+     const [routines, setRoutines] = useState<Routine[]>([]);
+     const [isLoading, setIsLoading] = useState(true);
+     const [isRefreshing, setIsRefreshing] = useState(false);
++    const [error, setError] = useState<string | null>(null);
+     const { showToast } = useToast();
+ 
+     const fetchRoutines = useCallback(async (background = false) => {
+-        if (!background) setIsLoading(true);
++        if (!background) {
++            setIsLoading(true);
++            setError(null);
++        }
+         try {
+             const data = await routineService.getAllRoutines();
+             setRoutines(data);
+-        } catch (error) {
+-            console.error('Error fetching routines:', error);
++            setError(null);
++        } catch (err: any) {
++            console.error('Error fetching routines:', err);
++            const message = err.response?.data?.message || 'Failed to load routines';
++            setError(message);
+             // Don't show toast for background refetch
+-            if (!background) showToast('error', 'Failed to load routines');
++            if (!background) showToast('error', message);
+         } finally {
+             if (!background) setIsLoading(false);
+             setIsRefreshing(false);
+         }
+     }, [showToast]);
+ 
++
+     useEffect(() => {
+-        fetchRoutines();
++        const unsubscribe = authService.subscribe((state) => {
++            if (state.isAuthenticated && state.token) {
++                // User just logged in or initial load with token
++                fetchRoutines(false);
++            } else {
++                // User logged out
++                setRoutines([]);
++            }
++        });
++
++        // Initial check
++        if (authService.isAuthenticated()) {
++            fetchRoutines(false);
++        } else {
++            setIsLoading(false);
++        }
++
++        return () => {
++            unsubscribe();
++        };
+     }, [fetchRoutines]);
+ 
++
++
+     const refreshRoutines = async () => {
+         setIsRefreshing(true);
+         await fetchRoutines(true);
+@@ -102,14 +137,20 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
+                 if (r.id === id) {
+                     // Simple optimistic logic: increment counts
+                     // This is imperfect but provides instant feedback
+-                    const newCount = (r.period_status?.completions_count || 0) + 1;
+-                    const isComplete = newCount >= r.target_count;
++                    const prevStatus = r.period_status ?? {
++                        completions_count: 0,
++                        is_complete: false,
++                        target_count: r.target_count,
++                        period_date: new Date().toISOString()
++                    };
++                    const newCount = (prevStatus.completions_count || 0) + 1;
++                    const isComplete = newCount >= (r.target_count || 0);
+                     return {
+                         ...r,
+-                        total_completions: r.total_completions + 1,
+-                        current_streak: isComplete && !r.period_status?.is_complete ? r.current_streak + 1 : r.current_streak,
++                        total_completions: (r.total_completions || 0) + 1,
++                        current_streak: isComplete && !prevStatus.is_complete ? (r.current_streak || 0) + 1 : (r.current_streak || 0),
+                         period_status: {
+-                            ...r.period_status!,
++                            ...prevStatus,
+                             completions_count: newCount,
+                             is_complete: isComplete
+                         }
+@@ -133,6 +174,58 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
+         }
+     };
+ 
++    const undoCompletion = async (id: string) => {
++        try {
++            // Optimistic update
++            setRoutines(prev => prev.map(r => {
++                if (r.id === id) {
++                    const prevStatus = r.period_status ?? {
++                        completions_count: 0,
++                        is_complete: false,
++                        target_count: r.target_count,
++                        period_date: new Date().toISOString()
++                    };
++                    const newCount = Math.max(0, (prevStatus.completions_count || 0) - 1);
++                    const wasComplete = prevStatus.is_complete;
++                    const isComplete = newCount >= (r.target_count || 0);
++
++                    let newStreak = r.current_streak || 0;
++                    // Initial heuristic: if we drop from complete -> incomplete, decrement streak if valid
++                    if (wasComplete && !isComplete && newStreak > 0) {
++                        newStreak -= 1;
++                    }
++
++                    return {
++                        ...r,
++                        total_completions: Math.max(0, (r.total_completions || 0) - 1),
++                        current_streak: newStreak,
++                        period_status: {
++                            ...prevStatus,
++                            completions_count: newCount,
++                            is_complete: isComplete
++                        }
++                    };
++                }
++                return r;
++            }));
++
++            const response = await routineService.undoCompletion(id);
++            // Ideally we'd get the enriched routine back from undoCompletion too, to confirm state.
++            // My backend implementation returns { routine: enrichedRoutine }, checking service..
++            // The service returns void right now in the interface, need to update if I want to use the return value.
++            // For now, I'll rely on the optimistic update + background refresh if needed or update service to return it.
++            // The controller implementation DOES return the routine. 
++            // I'll stick to refresh for safety or update service separately. 
++            // Let's just trigger a silent refresh to ensure sync.
++            // Actually, for better UX, I should just trust my optimistic logic and maybe fetch in background.
++            refreshRoutines();
++        } catch (error) {
++            console.error('Error undoing completion:', error);
++            showToast('error', 'Failed to undo completion');
++            refreshRoutines();
++        }
++    };
++
+     const removeCompletion = async (id: string, completionId: string) => {
+         try {
+             await routineService.removeCompletion(id, completionId);
+@@ -148,11 +241,13 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
+             routines,
+             isLoading,
+             isRefreshing,
++            error,
+             refreshRoutines,
+             createRoutine,
+             updateRoutine,
+             deleteRoutine,
+             logCompletion,
++            undoCompletion,
+             removeCompletion
+         }}>
+             {children}
+diff --git a/mobile/src/screens/routines/RoutineDetailScreen.tsx b/mobile/src/screens/routines/RoutineDetailScreen.tsx
+index 3cc8f8a..20827af 100644
+--- a/mobile/src/screens/routines/RoutineDetailScreen.tsx
++++ b/mobile/src/screens/routines/RoutineDetailScreen.tsx
+@@ -1,39 +1,62 @@
+ import React, { useEffect, useState } from 'react';
+-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
++import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
+ import { useRoute, useNavigation } from '@react-navigation/native';
+-// unused import removed
++import { PencilEdit01Icon, FloppyDiskIcon, Cancel01Icon, Delete01Icon } from '@hugeicons/core-free-icons';
++import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+ import { useRoutines } from '../../contexts/RoutineContext';
+ import { colors } from '../../themes/colors';
+-import { routineService } from '../../services/routineService';
++import { CreateRoutinePayload } from '../../services/routineService';
++
++type RoutineDetailScreenParams = {
++    routineId: string;
++};
+ 
+ export default function RoutineDetailScreen() {
+-    const route = useRoute<any>();
++    const route = useRoute<{ params: RoutineDetailScreenParams }>();
+     const navigation = useNavigation();
+-    const { routines, deleteRoutine, updateRoutine } = useRoutines();
+     const { routineId } = route.params;
++    const { routines, updateRoutine, deleteRoutine } = useRoutines();
+ 
+-    // Use local state for full details which might include history not in list view
+     const [routine, setRoutine] = useState(routines.find(r => r.id === routineId));
+-    const [loading, setLoading] = useState(false);
++    const [isEditing, setIsEditing] = useState(false);
++    const [saving, setSaving] = useState(false);
++
++    // Edit form state
++    const [formData, setFormData] = useState<Partial<CreateRoutinePayload>>({});
+ 
+     useEffect(() => {
+-        // If we need more data than in the list context, fetch it here
+-        const fetchFullDetails = async () => {
+-            setLoading(true);
+-            try {
+-                // Note: service.getRoutineById fetches fresh data
+-                // const data = await routineService.getRoutineById(routineId); 
+-                // implementation of getRoutineById needed in service first if different from getAll
+-                // For MVP, context data is likely sufficient or we reuse find
+-                const found = routines.find(r => r.id === routineId);
+-                setRoutine(found);
+-            } finally {
+-                setLoading(false);
+-            }
+-        };
+-        fetchFullDetails();
++        const found = routines.find(r => r.id === routineId);
++        if (found) {
++            setRoutine(found);
++            setFormData({
++                title: found.title,
++                description: found.description,
++                frequency_type: found.frequency_type,
++                target_count: found.target_count,
++                time_window: found.time_window,
++                reminder_enabled: found.reminder_enabled,
++            });
++        }
+     }, [routineId, routines]);
+ 
++    const handleSave = async () => {
++        if (!routine) return;
++        setSaving(true);
++        try {
++            const success = await updateRoutine(routine.id, formData);
++            if (success) {
++                setIsEditing(false);
++            } else {
++                Alert.alert('Error', 'Failed to update routine. Please try again.');
++            }
++        } catch (error) {
++            console.error('Error updating routine:', error);
++            Alert.alert('Error', 'An unexpected error occurred.');
++        } finally {
++            setSaving(false);
++        }
++    };
++
+     const handleDelete = () => {
+         Alert.alert(
+             "Delete Routine",
+@@ -56,25 +79,69 @@ export default function RoutineDetailScreen() {
+ 
+     return (
+         <ScrollView style={styles.container}>
++            <View style={styles.topBar}>
++                <TouchableOpacity onPress={() => navigation.goBack()}>
++                    <Text style={styles.backText}>Back</Text>
++                </TouchableOpacity>
++                <View style={styles.actions}>
++                    {isEditing ? (
++                        <>
++                            <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.actionButton}>
++                                <Icon icon={Cancel01Icon} size={24} color={colors.text.secondary} />
++                            </TouchableOpacity>
++                            <TouchableOpacity onPress={handleSave} style={styles.actionButton} disabled={saving}>
++                                {saving ? <ActivityIndicator size="small" color={colors.primary} /> : <Icon icon={FloppyDiskIcon} size={24} color={colors.primary} />}
++                            </TouchableOpacity>
++                        </>
++                    ) : (
++                        <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.actionButton}>
++                            <Icon icon={PencilEdit01Icon} size={24} color={colors.primary} />
++                        </TouchableOpacity>
++                    )}
++                </View>
++            </View>
++
+             <View style={styles.header}>
+                 <View style={styles.iconContainer}>
+                     <Text style={styles.icon}>{routine.icon}</Text>
+                 </View>
+-                <Text style={styles.title}>{routine.title}</Text>
+-                <Text style={styles.subtitle}>{routine.description || 'No description'}</Text>
++
++                {isEditing ? (
++                    <View style={styles.editHeaderContainer}>
++                        <TextInput
++                            style={styles.editTitle}
++                            value={formData.title}
++                            onChangeText={t => setFormData(prev => ({ ...prev, title: t }))}
++                            placeholder="Routine Name"
++                        />
++                        <TextInput
++                            style={styles.editDescription}
++                            value={formData.description}
++                            onChangeText={t => setFormData(prev => ({ ...prev, description: t }))}
++                            placeholder="Description (optional)"
++                            multiline
++                        />
++                    </View>
++                ) : (
++                    <>
++                        <Text style={styles.title}>{routine.title}</Text>
++                        <Text style={styles.subtitle}>{routine.description || 'No description'}</Text>
++                    </>
++                )}
+             </View>
+ 
++            {/* Stats are read-only */}
+             <View style={styles.statsContainer}>
+                 <View style={styles.statBox}>
+-                    <Text style={styles.statValue}>{routine.current_streak}</Text>
++                    <Text style={styles.statValue}>{routine.current_streak ?? 0}</Text>
+                     <Text style={styles.statLabel}>Current Streak</Text>
+                 </View>
+                 <View style={styles.statBox}>
+-                    <Text style={styles.statValue}>{routine.longest_streak}</Text>
++                    <Text style={styles.statValue}>{routine.longest_streak ?? 0}</Text>
+                     <Text style={styles.statLabel}>Best Streak</Text>
+                 </View>
+                 <View style={styles.statBox}>
+-                    <Text style={styles.statValue}>{routine.total_completions}</Text>
++                    <Text style={styles.statValue}>{routine.total_completions ?? 0}</Text>
+                     <Text style={styles.statLabel}>Total</Text>
+                 </View>
+             </View>
+@@ -82,27 +149,94 @@ export default function RoutineDetailScreen() {
+             <View style={styles.section}>
+                 <Text style={styles.sectionTitle}>Settings</Text>
+ 
++                {/* Frequency */}
+                 <View style={styles.row}>
+                     <Text style={styles.label}>Frequency</Text>
+-                    <Text style={styles.value}>{routine.frequency_type}</Text>
++                    {isEditing ? (
++                        <View style={styles.optionRow}>
++                            {(['daily', 'weekly', 'monthly'] as const).map(f => (
++                                <TouchableOpacity
++                                    key={f}
++                                    style={[styles.optionChip, formData.frequency_type === f && styles.optionChipSelected]}
++                                    onPress={() => setFormData(prev => ({ ...prev, frequency_type: f }))}
++                                >
++                                    <Text style={[styles.optionText, formData.frequency_type === f && styles.optionTextSelected]}>{f}</Text>
++                                </TouchableOpacity>
++                            ))}
++                        </View>
++                    ) : (
++                        <Text style={styles.value}>{routine.frequency_type}</Text>
++                    )}
+                 </View>
++
++                {/* Target */}
+                 <View style={styles.row}>
+-                    <Text style={styles.label}>Target</Text>
+-                    <Text style={styles.value}>{routine.target_count}x per period</Text>
++                    <Text style={styles.label}>Target count</Text>
++                    {isEditing ? (
++                        <View style={styles.counterRow}>
++                            <TouchableOpacity
++                                onPress={() => setFormData(prev => ({ ...prev, target_count: Math.max(1, (prev.target_count || 1) - 1) }))}
++                                style={styles.counterButton}
++                            >
++                                <Text style={styles.counterButtonText}>-</Text>
++                            </TouchableOpacity>
++                            <Text style={styles.counterValue}>{formData.target_count}</Text>
++                            <TouchableOpacity
++                                onPress={() => setFormData(prev => ({ ...prev, target_count: Math.min(10, (prev.target_count || 1) + 1) }))}
++                                style={styles.counterButton}
++                            >
++                                <Text style={styles.counterButtonText}>+</Text>
++                            </TouchableOpacity>
++                        </View>
++                    ) : (
++                        <Text style={styles.value}>{routine.target_count}x per period</Text>
++                    )}
+                 </View>
++
++                {/* Time Window */}
+                 <View style={styles.row}>
+                     <Text style={styles.label}>Time Window</Text>
+-                    <Text style={styles.value}>{routine.time_window}</Text>
++                    {isEditing ? (
++                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollOptions}>
++                            {(['morning', 'afternoon', 'evening', 'anytime'] as const).map(tw => (
++                                <TouchableOpacity
++                                    key={tw}
++                                    style={[styles.optionChip, formData.time_window === tw && styles.optionChipSelected]}
++                                    onPress={() => setFormData(prev => ({ ...prev, time_window: tw }))}
++                                >
++                                    <Text style={[styles.optionText, formData.time_window === tw && styles.optionTextSelected]}>{tw}</Text>
++                                </TouchableOpacity>
++                            ))}
++                        </ScrollView>
++                    ) : (
++                        <Text style={styles.value}>{routine.time_window}</Text>
++                    )}
+                 </View>
++
++                {/* Reminders */}
+                 <View style={styles.row}>
+                     <Text style={styles.label}>Reminders</Text>
+-                    <Text style={styles.value}>{routine.reminder_enabled ? 'On' : 'Off'}</Text>
++                    {isEditing ? (
++                        <Switch
++                            value={formData.reminder_enabled}
++                            onValueChange={v => setFormData(prev => ({ ...prev, reminder_enabled: v }))}
++                            trackColor={{ false: colors.text.disabled, true: colors.primary }}
++                        />
++                    ) : (
++                        <Text style={styles.value}>{routine.reminder_enabled ? 'On' : 'Off'}</Text>
++                    )}
+                 </View>
+             </View>
+ 
+             <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+-                <Text style={styles.deleteText}>Delete Routine</Text>
++                <View style={styles.deleteContent}>
++                    <Icon icon={Delete01Icon} size={20} color="white" />
++                    <Text style={styles.deleteText}>Delete Routine</Text>
++                </View>
+             </TouchableOpacity>
++
++            {/* Bottom padding */}
++            <View style={{ height: 40 }} />
+         </ScrollView>
+     );
+ }
+@@ -112,12 +246,56 @@ const styles = StyleSheet.create({
+         flex: 1,
+         backgroundColor: colors.background.primary,
+     },
++    topBar: {
++        flexDirection: 'row',
++        justifyContent: 'space-between',
++        alignItems: 'center',
++        paddingHorizontal: 20,
++        paddingTop: 20,
++        paddingBottom: 10,
++    },
++    backText: {
++        color: colors.primary,
++        fontSize: 16,
++        fontWeight: '600',
++    },
++    actions: {
++        flexDirection: 'row',
++    },
++    actionButton: {
++        marginLeft: 16,
++        padding: 4,
++    },
+     header: {
+         alignItems: 'center',
+         padding: 24,
+         borderBottomWidth: 1,
+         borderBottomColor: colors.border.light,
+     },
++    editHeaderContainer: {
++        width: '100%',
++        alignItems: 'center',
++    },
++    editTitle: {
++        fontSize: 24,
++        fontWeight: 'bold',
++        color: colors.text.primary,
++        marginBottom: 8,
++        textAlign: 'center',
++        borderBottomWidth: 1,
++        borderBottomColor: colors.primary,
++        width: '80%',
++        paddingVertical: 4,
++    },
++    editDescription: {
++        fontSize: 16,
++        color: colors.text.secondary,
++        textAlign: 'center',
++        borderBottomWidth: 1,
++        borderBottomColor: colors.border.medium,
++        width: '80%',
++        paddingVertical: 4,
++    },
+     iconContainer: {
+         width: 80,
+         height: 80,
+@@ -174,13 +352,16 @@ const styles = StyleSheet.create({
+     row: {
+         flexDirection: 'row',
+         justifyContent: 'space-between',
++        alignItems: 'center',
+         paddingVertical: 12,
+         borderBottomWidth: 1,
+         borderBottomColor: colors.border.light,
++        minHeight: 60,
+     },
+     label: {
+         fontSize: 16,
+         color: colors.text.secondary,
++        flex: 1,
+     },
+     value: {
+         fontSize: 16,
+@@ -188,6 +369,59 @@ const styles = StyleSheet.create({
+         color: colors.text.primary,
+         textTransform: 'capitalize',
+     },
++    optionRow: {
++        flexDirection: 'row',
++        flexWrap: 'wrap',
++        justifyContent: 'flex-end',
++        flex: 2,
++    },
++    optionChip: {
++        paddingHorizontal: 12,
++        paddingVertical: 6,
++        borderRadius: 16,
++        backgroundColor: colors.background.secondary,
++        marginLeft: 8,
++        marginBottom: 4,
++    },
++    optionChipSelected: {
++        backgroundColor: colors.primary,
++    },
++    optionText: {
++        fontSize: 14,
++        color: colors.text.primary,
++        textTransform: 'capitalize',
++    },
++    optionTextSelected: {
++        color: 'white',
++        fontWeight: '600',
++    },
++    counterRow: {
++        flexDirection: 'row',
++        alignItems: 'center',
++    },
++    counterButton: {
++        width: 32,
++        height: 32,
++        borderRadius: 16,
++        backgroundColor: colors.background.secondary,
++        justifyContent: 'center',
++        alignItems: 'center',
++    },
++    counterButtonText: {
++        fontSize: 18,
++        fontWeight: 'bold',
++        color: colors.primary,
++    },
++    counterValue: {
++        fontSize: 18,
++        fontWeight: '600',
++        marginHorizontal: 16,
++        color: colors.text.primary,
++    },
++    scrollOptions: {
++        flexGrow: 0,
++        maxWidth: '60%',
++    },
+     deleteButton: {
+         margin: 20,
+         padding: 16,
+@@ -195,9 +429,14 @@ const styles = StyleSheet.create({
+         borderRadius: 12,
+         alignItems: 'center',
+     },
++    deleteContent: {
++        flexDirection: 'row',
++        alignItems: 'center',
++    },
+     deleteText: {
+         color: 'white',
+         fontWeight: 'bold',
+         fontSize: 16,
++        marginLeft: 8,
+     }
+ });
+diff --git a/mobile/src/screens/routines/RoutinesScreen.tsx b/mobile/src/screens/routines/RoutinesScreen.tsx
+index ffc5d15..8319360 100644
+--- a/mobile/src/screens/routines/RoutinesScreen.tsx
++++ b/mobile/src/screens/routines/RoutinesScreen.tsx
+@@ -1,8 +1,8 @@
+ import React, { useState } from 'react';
+ import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+-import { Add01Icon } from '@hugeicons/core-free-icons';
+ import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
++import { PlusSignIcon } from '@hugeicons/core-free-icons';
+ import { useRoutines } from '../../contexts/RoutineContext';
+ import { RoutineCard } from '../../components/routines/RoutineCard';
+ import { colors } from '../../themes/colors';
+@@ -10,17 +10,21 @@ import { useNavigation } from '@react-navigation/native';
+ import { RoutineQuickAdd } from '../../components/routines/RoutineQuickAdd';
+ 
+ export default function RoutinesScreen() {
+-    const { routines, isLoading, isRefreshing, refreshRoutines, logCompletion } = useRoutines();
++    const { routines, isLoading, isRefreshing, error, refreshRoutines, logCompletion, undoCompletion } = useRoutines();
+     const insets = useSafeAreaInsets();
+     const navigation = useNavigation<any>();
+     const [showQuickAdd, setShowQuickAdd] = useState(false);
+ 
+-    const handleComplete = async (id: string) => {
++    const handleComplete = async (routine: any) => {
++        const isComplete = routine.period_status?.is_complete;
+         try {
+-            await logCompletion(id);
+-            // Optional: Trigger celebration animation here
++            if (isComplete) {
++                await undoCompletion(routine.id);
++            } else {
++                await logCompletion(routine.id);
++            }
+         } catch (error) {
+-            // Error handled in context (toast)
++            // Error handled in context
+         }
+     };
+ 
+@@ -43,11 +47,30 @@ export default function RoutinesScreen() {
+         );
+     }
+ 
++    if (error && routines.length === 0) {
++        return (
++            <View style={[styles.container, styles.center, { padding: 20 }]}>
++                <Text style={styles.errorText}>{error}</Text>
++                <TouchableOpacity style={styles.retryButton} onPress={refreshRoutines}>
++                    <Text style={styles.retryText}>Retry</Text>
++                </TouchableOpacity>
++            </View>
++        );
++    }
++
+     return (
+         <View style={[styles.container, { paddingTop: insets.top }]}>
+             <View style={styles.header}>
+-                <Text style={styles.headerTitle}>Routines</Text>
+-                <Text style={styles.headerSubtitle}>Build better habits</Text>
++                <View>
++                    <Text style={styles.headerTitle}>Build better habits</Text>
++                    {/*<Text style={styles.headerSubtitle}>Build better habits</Text>*/}
++                </View>
++                <TouchableOpacity
++                    style={styles.headerButton}
++                    onPress={() => setShowQuickAdd(true)}
++                >
++                    <Icon icon={PlusSignIcon} size={28} color={colors.primary} />
++                </TouchableOpacity>
+             </View>
+ 
+             <FlatList
+@@ -56,7 +79,7 @@ export default function RoutinesScreen() {
+                 renderItem={({ item }) => (
+                     <RoutineCard
+                         routine={item}
+-                        onPress={() => handleComplete(item.id)}
++                        onPress={() => handleComplete(item)}
+                         onLongPress={() => navigation.navigate('RoutineDetail', { routineId: item.id })}
+                     />
+                 )}
+@@ -72,13 +95,6 @@ export default function RoutinesScreen() {
+                 }
+             />
+ 
+-            <TouchableOpacity
+-                style={[styles.fab, { marginBottom: insets.bottom + 16 }]}
+-                onPress={() => setShowQuickAdd(true)} // Or navigate to form
+-            >
+-                <Icon icon={Add01Icon} size={32} color="white" />
+-            </TouchableOpacity>
+-
+             <RoutineQuickAdd visible={showQuickAdd} onClose={() => setShowQuickAdd(false)} />
+         </View>
+     );
+@@ -94,6 +110,9 @@ const styles = StyleSheet.create({
+         alignItems: 'center',
+     },
+     header: {
++        flexDirection: 'row',
++        justifyContent: 'space-between',
++        alignItems: 'center',
+         paddingHorizontal: 20,
+         paddingBottom: 16,
+         borderBottomWidth: 1,
+@@ -109,9 +128,14 @@ const styles = StyleSheet.create({
+         color: colors.text.secondary,
+         marginTop: 4,
+     },
++    headerButton: {
++        padding: 8,
++        backgroundColor: colors.background.secondary,
++        borderRadius: 12,
++    },
+     listContent: {
+         padding: 16,
+-        paddingBottom: 100, // Space for FAB
++        paddingBottom: 20,
+     },
+     emptyState: {
+         padding: 24,
+@@ -129,20 +153,21 @@ const styles = StyleSheet.create({
+         color: colors.text.disabled,
+         textAlign: 'center',
+     },
+-    fab: {
+-        position: 'absolute',
+-        right: 20,
+-        bottom: 20,
+-        width: 56,
+-        height: 56,
+-        borderRadius: 28,
++    errorText: {
++        fontSize: 16,
++        color: colors.error,
++        textAlign: 'center',
++        marginBottom: 16,
++    },
++    retryButton: {
++        paddingHorizontal: 24,
++        paddingVertical: 12,
+         backgroundColor: colors.primary,
+-        justifyContent: 'center',
+-        alignItems: 'center',
+-        shadowColor: '#000',
+-        shadowOffset: { width: 0, height: 4 },
+-        shadowOpacity: 0.3,
+-        shadowRadius: 4,
+-        elevation: 8,
++        borderRadius: 12,
++    },
++    retryText: {
++        color: '#FFFFFF',
++        fontWeight: '600',
++        fontSize: 16,
+     }
+ });
+diff --git a/mobile/src/services/apiService.ts b/mobile/src/services/apiService.ts
+index b4ecf0a..aaf68e8 100644
+--- a/mobile/src/services/apiService.ts
++++ b/mobile/src/services/apiService.ts
+@@ -26,20 +26,21 @@ export interface ApiResponse<T = any> {
+ }
+ 
+ export async function apiFetch<T = any>(
+-  path: string, 
+-  init: RequestInit = {}, 
++  path: string,
++  init: RequestInit = {},
+   timeoutMs = 15000
+ ): Promise<ApiResponse<T>> {
+   const controller = new AbortController();
+   const id = setTimeout(() => controller.abort(), timeoutMs);
+   const startTime = Date.now();
+-  
++
+   try {
+     // Build headers: start with init.headers, then add our headers
+     const headers: Record<string, string> = {
+       'Accept': 'application/json',
++      'X-User-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+     };
+-    
++
+     // Merge existing headers from init.headers
+     if (init.headers) {
+       if (init.headers instanceof Headers) {
+@@ -52,16 +53,16 @@ export async function apiFetch<T = any>(
+         Object.assign(headers, init.headers);
+       }
+     }
+-    
++
+     // Check if Authorization is explicitly set to empty string (for public endpoints)
+     const shouldSkipAuth = headers['Authorization'] === '';
+-    
++
+     // Get auth token if available and not explicitly skipped
+     let token: string | null = null;
+     if (!shouldSkipAuth) {
+       token = await authService.getAuthToken();
+     }
+-    
++
+     // Add Authorization header if token is available and not explicitly skipped
+     if (token && !shouldSkipAuth) {
+       headers['Authorization'] = `Bearer ${token}`;
+@@ -69,20 +70,20 @@ export async function apiFetch<T = any>(
+       // Remove the empty Authorization header for public endpoints
+       delete headers['Authorization'];
+     }
+-    
++
+     // Add Content-Type only for non-GET requests or when body is present
+     const method = init.method?.toUpperCase() || 'GET';
+     const hasBody = init.body !== undefined && init.body !== null;
+     if (method !== 'GET' || hasBody) {
+       headers['Content-Type'] = 'application/json';
+     }
+-    
++
+     let res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
+       ...init,
+       signal: controller.signal,
+       headers,
+     });
+-    
++
+     // Handle 401 Unauthorized - attempt token refresh and retry (only once per request)
+     // Skip retry for public endpoints (where auth was explicitly skipped)
+     if (res.status === 401 && token && !shouldSkipAuth && !(init as any).retryAttempted) {
+@@ -96,7 +97,7 @@ export async function apiFetch<T = any>(
+           const newToken = await authService.getAuthToken();
+           if (newToken) {
+             headers['Authorization'] = `Bearer ${newToken}`;
+-            
++
+             // Create a new abort controller for retry with remaining time
+             const retryController = new AbortController();
+             const remainingTime = Math.max(1000, timeoutMs - (Date.now() - startTime));
+@@ -132,64 +133,64 @@ export async function apiFetch<T = any>(
+         // This ensures proper API error response path instead of throwing
+       }
+     }
+-    
++
+     const text = await res.text();
+     let data: any = null;
+-    
++
+     // Parse JSON only if there's content and it's not a 204 No Content response
+     if (text && res.status !== 204) {
+       try {
+         data = JSON.parse(text);
+       } catch (parseError) {
+         // If JSON parsing fails, treat as error
+-        return { 
+-          ok: false, 
+-          status: res.status, 
+-          data: { 
+-            error: 'Invalid JSON response', 
++        return {
++          ok: false,
++          status: res.status,
++          data: {
++            error: 'Invalid JSON response',
+             code: 'PARSE_ERROR',
+-            details: parseError 
+-          } 
++            details: parseError
++          }
+         };
+       }
+     }
+-    
++
+     if (!res.ok) {
+       // Ensure error responses use the standardized ApiError format
+-      const errorData: ApiError = data && typeof data === 'object' && 'error' in data 
+-        ? data 
+-        : { 
+-            error: data?.message || data?.error || 'Request failed', 
+-            code: data?.code,
+-            details: data 
+-          };
++      const errorData: ApiError = data && typeof data === 'object' && 'error' in data
++        ? data
++        : {
++          error: data?.message || data?.error || 'Request failed',
++          code: data?.code,
++          details: data
++        };
+       return { ok: false, status: res.status, data: errorData };
+     }
+-    
++
+     return { ok: true, status: res.status, data };
+   } catch (error) {
+     if (error instanceof Error && error.name === 'AbortError') {
+       logger.error('API request timed out:', path);
+-      return { 
+-        ok: false, 
+-        status: 408, 
+-        data: { 
+-          error: 'Request timeout', 
++      return {
++        ok: false,
++        status: 408,
++        data: {
++          error: 'Request timeout',
+           code: 'TIMEOUT',
+           details: { path, timeoutMs }
+-        } 
++        }
+       };
+     }
+-    
++
+     logger.error('API request failed:', path, error);
+-    return { 
+-      ok: false, 
+-      status: 0, 
+-      data: { 
+-        error: 'Network error', 
++    return {
++      ok: false,
++      status: 0,
++      data: {
++        error: 'Network error',
+         code: 'NETWORK_ERROR',
+         details: error instanceof Error ? error.message : error
+-      } 
++      }
+     };
+   } finally {
+     clearTimeout(id);
+diff --git a/mobile/src/services/routineService.ts b/mobile/src/services/routineService.ts
+index 202ff5d..448947b 100644
+--- a/mobile/src/services/routineService.ts
++++ b/mobile/src/services/routineService.ts
+@@ -13,6 +13,7 @@ export interface Routine {
+     is_active: boolean;
+     reminder_enabled: boolean;
+     reminder_time?: string;
++    timezone: string;
+     current_streak: number;
+     longest_streak: number;
+     total_completions: number;
+@@ -35,6 +36,7 @@ export interface CreateRoutinePayload {
+     color?: string;
+     reminder_enabled?: boolean;
+     reminder_time?: string;
++    timezone?: string;
+ }
+ 
+ export const routineService = {
+@@ -67,6 +69,11 @@ export const routineService = {
+         return response.data as { routine: Routine; celebration?: any };
+     },
+ 
++    async undoCompletion(id: string): Promise<void> {
++        const response = await apiService.post(`/routines/${id}/undo`, {});
++        if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to undo routine completion');
++    },
++
+     async removeCompletion(id: string, completionId: string): Promise<void> {
+         const response = await apiService.delete(`/routines/${id}/completions/${completionId}`);
+         if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to undo completion');
+diff --git a/mobile/src/themes/colors.ts b/mobile/src/themes/colors.ts
+index f56cc64..47b7e4b 100644
+--- a/mobile/src/themes/colors.ts
++++ b/mobile/src/themes/colors.ts
+@@ -6,7 +6,7 @@ export const colors = {
+   surface: '#F9F9F9',
+   // Shadow color used in some components
+   shadow: '#000000',
+-  
++
+   // Background colors
+   background: {
+     primary: '#FFFFFF',
+@@ -19,29 +19,29 @@ export const colors = {
+     secondary: '#444444',
+     disabled: '#888888',
+   },
+-  
++
+   // Border colors
+   border: {
+     light: '#EEEEEE',
+     medium: '#DDDDDD',
+     dark: '#CCCCCC',
+   },
+-  
++
+   // Status colors
+   success: '#10B981',
+   warning: '#F59E0B',
+   error: '#EF4444',
+   info: '#3B82F6',
+-  
++
+   // Feedback colors for UI states
+   feedback: {
+     errorBg: '#FEF2F2',
+     errorBorder: '#FECACA',
+   },
+-  
++
+   // AI specific colors
+   aiMessage: '#F1F1F1',
+-  
++
+   // Accent colors
+   accent: {
+     gold: '#D4AF37',
+@@ -51,4 +51,20 @@ export const colors = {
+ 
+   // Overlay colors
+   overlay: 'rgba(0, 0, 0, 0.5)',
++
++  // Shades
++  shades: {
++    black: '#000000',
++    white: '#FFFFFF',
++  },
++
++  // Helper for translucent colors
++  rgba: (hex: string, alpha: number) => {
++    const r = parseInt(hex.slice(1, 3), 16);
++    const g = parseInt(hex.slice(3, 5), 16);
++    const b = parseInt(hex.slice(5, 7), 16);
++    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
++  },
+ };
++
++export const useTheme = () => colors;

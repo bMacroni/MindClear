@@ -8,6 +8,7 @@ import {
   Flag01Icon,
   Task01Icon,
   Calendar01Icon,
+  RepeatIcon,
   ArrowDown01Icon,
   AiBrain02Icon
 } from '@hugeicons/core-free-icons';
@@ -45,7 +46,7 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
       case 'Tasks':
         return Task01Icon;
       case 'Routines':
-        return Calendar01Icon; // Using Calendar/Schedule icon for Routines temporarily or choose a better one if available
+        return RepeatIcon;
       case 'Calendar':
         return Calendar01Icon;
       default:

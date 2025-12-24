@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Add01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { PlusSignIcon } from '@hugeicons/core-free-icons';
 import { useRoutines } from '../../contexts/RoutineContext';
 import { RoutineCard } from '../../components/routines/RoutineCard';
 import { colors } from '../../themes/colors';
@@ -10,17 +10,21 @@ import { useNavigation } from '@react-navigation/native';
 import { RoutineQuickAdd } from '../../components/routines/RoutineQuickAdd';
 
 export default function RoutinesScreen() {
-    const { routines, isLoading, isRefreshing, refreshRoutines, logCompletion } = useRoutines();
+    const { routines, isLoading, isRefreshing, error, refreshRoutines, logCompletion, undoCompletion } = useRoutines();
     const insets = useSafeAreaInsets();
     const navigation = useNavigation<any>();
     const [showQuickAdd, setShowQuickAdd] = useState(false);
 
-    const handleComplete = async (id: string) => {
+    const handleComplete = async (routine: any) => {
+        const isComplete = routine.period_status?.is_complete;
         try {
-            await logCompletion(id);
-            // Optional: Trigger celebration animation here
+            if (isComplete) {
+                await undoCompletion(routine.id);
+            } else {
+                await logCompletion(routine.id);
+            }
         } catch (error) {
-            // Error handled in context (toast)
+            // Error handled in context
         }
     };
 
@@ -43,11 +47,30 @@ export default function RoutinesScreen() {
         );
     }
 
+    if (error && routines.length === 0) {
+        return (
+            <View style={[styles.container, styles.center, { padding: 20 }]}>
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={refreshRoutines}>
+                    <Text style={styles.retryText}>Retry</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Routines</Text>
-                <Text style={styles.headerSubtitle}>Build better habits</Text>
+                <View>
+                    <Text style={styles.headerTitle}>Build better habits</Text>
+                    {/*<Text style={styles.headerSubtitle}>Build better habits</Text>*/}
+                </View>
+                <TouchableOpacity
+                    style={styles.headerButton}
+                    onPress={() => setShowQuickAdd(true)}
+                >
+                    <Icon icon={PlusSignIcon} size={28} color={colors.primary} />
+                </TouchableOpacity>
             </View>
 
             <FlatList
@@ -56,7 +79,7 @@ export default function RoutinesScreen() {
                 renderItem={({ item }) => (
                     <RoutineCard
                         routine={item}
-                        onPress={() => handleComplete(item.id)}
+                        onPress={() => handleComplete(item)}
                         onLongPress={() => navigation.navigate('RoutineDetail', { routineId: item.id })}
                     />
                 )}
@@ -71,13 +94,6 @@ export default function RoutinesScreen() {
                     </View>
                 }
             />
-
-            <TouchableOpacity
-                style={[styles.fab, { marginBottom: insets.bottom + 16 }]}
-                onPress={() => setShowQuickAdd(true)} // Or navigate to form
-            >
-                <Icon icon={Add01Icon} size={32} color="white" />
-            </TouchableOpacity>
 
             <RoutineQuickAdd visible={showQuickAdd} onClose={() => setShowQuickAdd(false)} />
         </View>
@@ -94,6 +110,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         paddingHorizontal: 20,
         paddingBottom: 16,
         borderBottomWidth: 1,
@@ -109,9 +128,14 @@ const styles = StyleSheet.create({
         color: colors.text.secondary,
         marginTop: 4,
     },
+    headerButton: {
+        padding: 8,
+        backgroundColor: colors.background.secondary,
+        borderRadius: 12,
+    },
     listContent: {
         padding: 16,
-        paddingBottom: 100, // Space for FAB
+        paddingBottom: 20,
     },
     emptyState: {
         padding: 24,
@@ -129,20 +153,21 @@ const styles = StyleSheet.create({
         color: colors.text.disabled,
         textAlign: 'center',
     },
-    fab: {
-        position: 'absolute',
-        right: 20,
-        bottom: 20,
-        width: 56,
-        height: 56,
-        borderRadius: 28,
+    errorText: {
+        fontSize: 16,
+        color: colors.error,
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    retryButton: {
+        paddingHorizontal: 24,
+        paddingVertical: 12,
         backgroundColor: colors.primary,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 8,
+        borderRadius: 12,
+    },
+    retryText: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+        fontSize: 16,
     }
 });

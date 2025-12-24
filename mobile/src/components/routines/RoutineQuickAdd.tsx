@@ -15,23 +15,39 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
     const [title, setTitle] = useState('');
     const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleCreate = async () => {
         if (!title.trim()) return;
 
         setLoading(true);
-        const success = await createRoutine({
-            title: title.trim(),
-            frequency_type: frequency,
-            // Smart defaults handled by backend/service fallback values
-        });
-        setLoading(false);
+        setError(null);
+        try {
+            const success = await createRoutine({
+                title: title.trim(),
+                frequency_type: frequency,
+            });
 
-        if (success) {
-            setTitle('');
-            setFrequency('daily');
-            onClose();
+            if (success) {
+                setTitle('');
+                setFrequency('daily');
+                onClose();
+            } else {
+                setError('Failed to create routine. Please try again.');
+            }
+        } catch (err) {
+            setError('An unexpected error occurred. Please try again.');
+            console.error('[RoutineQuickAdd] Create failed:', err);
+        } finally {
+            setLoading(false);
         }
+    };
+
+    const handleClose = () => {
+        setError(null);
+        setTitle('');
+        setFrequency('daily');
+        onClose();
     };
 
     return (
@@ -39,18 +55,23 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
             visible={visible}
             animationType="slide"
             transparent={true}
-            onRequestClose={onClose}
+            onRequestClose={handleClose}
         >
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.modalOverlay}
             >
-                <TouchableOpacity style={styles.backdrop} onPress={onClose} activeOpacity={1} />
+                <TouchableOpacity style={styles.backdrop} onPress={handleClose} activeOpacity={1} />
 
                 <View style={styles.container}>
                     <View style={styles.header}>
                         <Text style={styles.title}>New Routine</Text>
-                        <TouchableOpacity onPress={onClose}>
+                        <TouchableOpacity
+                            onPress={handleClose}
+                            accessibilityRole="button"
+                            accessibilityLabel="Close"
+                            accessibilityHint="Closes the new routine dialog"
+                        >
                             <Icon icon={Cancel01Icon} size={24} color={colors.text.secondary} />
                         </TouchableOpacity>
                     </View>
@@ -60,9 +81,18 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
                         placeholder="What habit do you want to build?"
                         placeholderTextColor={colors.text.disabled}
                         value={title}
-                        onChangeText={setTitle}
+                        onChangeText={(text) => {
+                            setTitle(text);
+                            if (error) setError(null);
+                        }}
                         autoFocus
+                        accessibilityLabel="Routine title"
+                        accessibilityHint="Enter a name for your new routine"
                     />
+
+                    {error && (
+                        <Text style={styles.errorText}>{error}</Text>
+                    )}
 
                     <View style={styles.frequencyContainer}>
                         {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
@@ -73,6 +103,10 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
                                     frequency === freq && styles.freqSelected
                                 ]}
                                 onPress={() => setFrequency(freq)}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: frequency === freq }}
+                                accessibilityLabel={`Frequency ${freq}`}
+                                accessibilityHint={`Sets frequency to ${freq}`}
                             >
                                 <Text style={[
                                     styles.freqText,
@@ -86,6 +120,9 @@ export const RoutineQuickAdd: React.FC<RoutineQuickAddProps> = ({ visible, onClo
                         style={[styles.createButton, (!title.trim() || loading) && styles.disabledButton]}
                         onPress={handleCreate}
                         disabled={!title.trim() || loading}
+                        accessibilityRole="button"
+                        accessibilityLabel={loading ? "Creating Routine" : "Create Routine"}
+                        accessibilityState={{ disabled: !title.trim() || loading, busy: loading }}
                     >
                         <Text style={styles.createButtonText}>
                             {loading ? 'Creating...' : 'Create Routine'}
@@ -136,6 +173,12 @@ const styles = StyleSheet.create({
         borderBottomColor: colors.border.light,
         paddingVertical: 12,
         marginBottom: 24,
+    },
+    errorText: {
+        color: colors.error || '#ef4444',
+        fontSize: 14,
+        marginBottom: 16,
+        marginTop: -16,
     },
     frequencyContainer: {
         flexDirection: 'row',

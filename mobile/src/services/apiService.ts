@@ -26,20 +26,21 @@ export interface ApiResponse<T = any> {
 }
 
 export async function apiFetch<T = any>(
-  path: string, 
-  init: RequestInit = {}, 
+  path: string,
+  init: RequestInit = {},
   timeoutMs = 15000
 ): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   const startTime = Date.now();
-  
+
   try {
     // Build headers: start with init.headers, then add our headers
     const headers: Record<string, string> = {
       'Accept': 'application/json',
+      'X-User-Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     };
-    
+
     // Merge existing headers from init.headers
     if (init.headers) {
       if (init.headers instanceof Headers) {
@@ -52,16 +53,16 @@ export async function apiFetch<T = any>(
         Object.assign(headers, init.headers);
       }
     }
-    
+
     // Check if Authorization is explicitly set to empty string (for public endpoints)
     const shouldSkipAuth = headers['Authorization'] === '';
-    
+
     // Get auth token if available and not explicitly skipped
     let token: string | null = null;
     if (!shouldSkipAuth) {
       token = await authService.getAuthToken();
     }
-    
+
     // Add Authorization header if token is available and not explicitly skipped
     if (token && !shouldSkipAuth) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -69,20 +70,20 @@ export async function apiFetch<T = any>(
       // Remove the empty Authorization header for public endpoints
       delete headers['Authorization'];
     }
-    
+
     // Add Content-Type only for non-GET requests or when body is present
     const method = init.method?.toUpperCase() || 'GET';
     const hasBody = init.body !== undefined && init.body !== null;
     if (method !== 'GET' || hasBody) {
       headers['Content-Type'] = 'application/json';
     }
-    
+
     let res = await fetch(`${getSecureApiBaseUrl()}${path}`, {
       ...init,
       signal: controller.signal,
       headers,
     });
-    
+
     // Handle 401 Unauthorized - attempt token refresh and retry (only once per request)
     // Skip retry for public endpoints (where auth was explicitly skipped)
     if (res.status === 401 && token && !shouldSkipAuth && !(init as any).retryAttempted) {
@@ -96,7 +97,7 @@ export async function apiFetch<T = any>(
           const newToken = await authService.getAuthToken();
           if (newToken) {
             headers['Authorization'] = `Bearer ${newToken}`;
-            
+
             // Create a new abort controller for retry with remaining time
             const retryController = new AbortController();
             const remainingTime = Math.max(1000, timeoutMs - (Date.now() - startTime));
@@ -132,64 +133,64 @@ export async function apiFetch<T = any>(
         // This ensures proper API error response path instead of throwing
       }
     }
-    
+
     const text = await res.text();
     let data: any = null;
-    
+
     // Parse JSON only if there's content and it's not a 204 No Content response
     if (text && res.status !== 204) {
       try {
         data = JSON.parse(text);
       } catch (parseError) {
         // If JSON parsing fails, treat as error
-        return { 
-          ok: false, 
-          status: res.status, 
-          data: { 
-            error: 'Invalid JSON response', 
+        return {
+          ok: false,
+          status: res.status,
+          data: {
+            error: 'Invalid JSON response',
             code: 'PARSE_ERROR',
-            details: parseError 
-          } 
+            details: parseError
+          }
         };
       }
     }
-    
+
     if (!res.ok) {
       // Ensure error responses use the standardized ApiError format
-      const errorData: ApiError = data && typeof data === 'object' && 'error' in data 
-        ? data 
-        : { 
-            error: data?.message || data?.error || 'Request failed', 
-            code: data?.code,
-            details: data 
-          };
+      const errorData: ApiError = data && typeof data === 'object' && 'error' in data
+        ? data
+        : {
+          error: data?.message || data?.error || 'Request failed',
+          code: data?.code,
+          details: data
+        };
       return { ok: false, status: res.status, data: errorData };
     }
-    
+
     return { ok: true, status: res.status, data };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       logger.error('API request timed out:', path);
-      return { 
-        ok: false, 
-        status: 408, 
-        data: { 
-          error: 'Request timeout', 
+      return {
+        ok: false,
+        status: 408,
+        data: {
+          error: 'Request timeout',
           code: 'TIMEOUT',
           details: { path, timeoutMs }
-        } 
+        }
       };
     }
-    
+
     logger.error('API request failed:', path, error);
-    return { 
-      ok: false, 
-      status: 0, 
-      data: { 
-        error: 'Network error', 
+    return {
+      ok: false,
+      status: 0,
+      data: {
+        error: 'Network error',
         code: 'NETWORK_ERROR',
         details: error instanceof Error ? error.message : error
-      } 
+      }
     };
   } finally {
     clearTimeout(id);

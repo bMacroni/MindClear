@@ -4,21 +4,29 @@ import { getPeriodBounds, getPreviousPeriodBounds } from '../services/routineStr
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
 
+if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing required Supabase environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY');
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 // Helper: Check subscription limit
 async function checkRoutineLimit(userId) {
-    // Get user subscription tier (mock logic if table doesn't have it, but PRD says it does)
-    // Assuming 'users' table has 'subscription_tier' or we check a separate table
-    // For safety, defaulting to free limit check
-
-    const { data: user } = await supabase
+    const { data: user, error: userError } = await supabase
         .from('users')
         .select('subscription_tier')
         .eq('id', userId)
         .single();
 
+    if (userError) {
+        logger.error('Error fetching user subscription tier:', userError);
+        throw userError;
+    }
+
     // If premium, unlimited
+    if (user?.subscription_tier === 'premium') {
+        return { allowed: true };
+    }    // If premium, unlimited
     if (user?.subscription_tier === 'premium') {
         return { allowed: true };
     }
@@ -42,7 +50,60 @@ async function checkRoutineLimit(userId) {
 
 export const createRoutine = async (req, res) => {
     const userId = req.user.id;
-    const { title, description, frequency_type, target_count, time_window, icon, color, reminder_enabled, reminder_time } = req.body;
+    const { title, description, frequency_type, target_count, time_window, icon, color, reminder_enabled, reminder_time, timezone } = req.body;
+
+    // 1. Validation
+    if (!title || typeof title !== 'string' || title.trim() === '') {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'Title is required'
+        });
+    }
+
+    if (title.length > 100) {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'Title must be 100 characters or less'
+        });
+    }
+
+    if (frequency_type && !['daily', 'weekly', 'monthly'].includes(frequency_type)) {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'Invalid frequency_type. Must be daily, weekly, or monthly'
+        });
+    }
+
+    if (target_count !== undefined) {
+        if (!Number.isInteger(target_count) || target_count < 1 || target_count > 10) {
+            return res.status(400).json({
+                error: 'VALIDATION_ERROR',
+                message: 'target_count must be an integer between 1 and 10'
+            });
+        }
+    }
+
+    if (time_window && !['morning', 'afternoon', 'evening', 'anytime'].includes(time_window)) {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'Invalid time_window. Must be morning, afternoon, evening, or anytime'
+        });
+    }
+
+    if (reminder_enabled !== undefined && typeof reminder_enabled !== 'boolean') {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'reminder_enabled must be a boolean'
+        });
+    }
+
+    // Simple HH:mm or HH:mm:ss validation
+    if (reminder_time && !/^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/.test(reminder_time)) {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'Invalid reminder_time format. Use HH:mm or HH:mm:ss'
+        });
+    }
 
     try {
         // Check limit
@@ -68,6 +129,7 @@ export const createRoutine = async (req, res) => {
                 color: color || '#6366F1',
                 reminder_enabled: reminder_enabled === undefined ? true : reminder_enabled,
                 reminder_time,
+                timezone: timezone || req.header('X-User-Timezone') || 'UTC',
                 is_active: true
             })
             .select()
@@ -121,13 +183,16 @@ export const getRoutines = async (req, res) => {
                     streakReset = true;
 
                     // Persist the reset
-                    // Fire and forget update
-                    supabase.from('routines')
+                    const { error: resetError } = await supabase.from('routines')
                         .update({ current_streak: 0 })
-                        .eq('id', routine.id)
-                        .then(({ error }) => {
-                            if (error) logger.error('Error resetting streak', error);
-                        });
+                        .eq('id', routine.id);
+
+                    if (resetError) {
+                        logger.error(`Error resetting streak for routine ${routine.id}:`, resetError);
+                        // We don't necessarily want to fail the whole GET request, 
+                        // but we definitely want to log it and perhaps use the stale value 
+                        // if we can't update. However, to stay safe and consistent:
+                    }
                 }
             }
 
@@ -174,7 +239,11 @@ export const getRoutineById = async (req, res) => {
         if (error) throw error;
         res.json(data);
     } catch (error) {
-        res.status(404).json({ error: 'Routine not found' });
+        if (error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Routine not found' });
+        }
+        logger.error('Error fetching routine by ID:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 };
 
@@ -188,6 +257,54 @@ export const updateRoutine = async (req, res) => {
     delete updates.id;
     delete updates.user_id;
 
+    // 1. Validation
+    if (updates.title !== undefined) {
+        if (typeof updates.title !== 'string' || updates.title.trim() === '') {
+            return res.status(400).json({
+                error: 'VALIDATION_ERROR',
+                message: 'Title cannot be empty'
+            });
+        }
+        if (updates.title.length > 100) {
+            return res.status(400).json({
+                error: 'VALIDATION_ERROR',
+                message: 'Title must be 100 characters or less'
+            });
+        }
+    }
+
+    if (updates.target_count !== undefined) {
+        if (!Number.isInteger(updates.target_count) || updates.target_count < 1 || updates.target_count > 10) {
+            return res.status(400).json({
+                error: 'VALIDATION_ERROR',
+                message: 'target_count must be an integer between 1 and 10'
+            });
+        }
+    }
+
+    if (updates.time_window !== undefined) {
+        if (!['morning', 'afternoon', 'evening', 'anytime'].includes(updates.time_window)) {
+            return res.status(400).json({
+                error: 'VALIDATION_ERROR',
+                message: 'Invalid time_window. Must be morning, afternoon, evening, or anytime'
+            });
+        }
+    }
+
+    if (updates.reminder_enabled !== undefined && typeof updates.reminder_enabled !== 'boolean') {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'reminder_enabled must be a boolean'
+        });
+    }
+
+    if (updates.reminder_time && !/^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/.test(updates.reminder_time)) {
+        return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: 'Invalid reminder_time format. Use HH:mm or HH:mm:ss'
+        });
+    }
+
     try {
         const { data, error } = await supabase
             .from('routines')
@@ -200,7 +317,11 @@ export const updateRoutine = async (req, res) => {
         if (error) throw error;
         res.json(data);
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        if (error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Routine not found' });
+        }
+        logger.error('Error updating routine:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 };
 
@@ -221,7 +342,11 @@ export const deleteRoutine = async (req, res) => {
         if (error) throw error;
         res.json({ message: 'Routine deleted successfully', routine: data });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        if (error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Routine not found' });
+        }
+        logger.error('Error deleting routine:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 };
 
@@ -232,7 +357,7 @@ export const logCompletion = async (req, res) => {
     const timezone = req.header('X-User-Timezone') || 'UTC';
 
     try {
-        // 1. Get Routine
+        // 1. Get Routine for metadata
         const { data: routine, error: routineError } = await supabase
             .from('routines')
             .select('*')
@@ -246,84 +371,94 @@ export const logCompletion = async (req, res) => {
         const bounds = getPeriodBounds(routine.frequency_type, new Date(), timezone);
         const periodDate = bounds.periodDate;
 
-        // 3. Create Completion
-        const { data: completion, error: completionError } = await supabase
-            .from('routine_completions')
-            .insert({
-                routine_id: id,
-                user_id: userId,
-                period_date: periodDate,
-                notes,
-                completed_at: new Date().toISOString()
-            })
-            .select()
-            .single();
+        // 3. Perform atomic log and streak update via RPC
+        const { data: result, error: rpcError } = await supabase
+            .rpc('log_routine_completion', {
+                p_routine_id: id,
+                p_user_id: userId,
+                p_period_date: periodDate,
+                p_notes: notes || '',
+                p_completed_at: new Date().toISOString()
+            });
 
-        if (completionError) throw completionError;
+        if (rpcError) throw rpcError;
 
-        // 4. Update Streak Logic (Simplified for MVP)
-        // In a full implementation, we'd check if this completion triggers a streak increment
-        // For now, we'll increment total_completions and check if we met the target for the first time this period
+        const { completion, routine: updatedRoutine, streak_incremented, completions_count } = result;
 
-        // Count completions for this period
-        const { count } = await supabase
-            .from('routine_completions')
-            .select('*', { count: 'exact', head: true })
-            .eq('routine_id', id)
-            .eq('period_date', periodDate);
+        // 4. Celebration Response
+        const isOverachiever = completions_count > routine.target_count;
 
-        let updates = {
-            total_completions: routine.total_completions + 1,
-            last_completed_at: new Date().toISOString()
-        };
-
-        // Increment streak logic
-        // Only increment if we JUST reached the target count
-        if (count === routine.target_count) {
-            const newStreak = routine.current_streak + 1;
-            updates.current_streak = newStreak;
-            // Update best streak
-            if (newStreak > routine.longest_streak) {
-                updates.longest_streak = newStreak;
+        // Re-construct enriched routine for the frontend
+        const enrichedRoutine = {
+            ...updatedRoutine,
+            period_status: {
+                completions_count: completions_count,
+                target_count: routine.target_count,
+                is_complete: completions_count >= routine.target_count,
+                period_date: periodDate
             }
-        }
-
-        const { data: updatedRoutine, error: updateError } = await supabase
-            .from('routines')
-            .update(updates)
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (updateError) throw updateError;
-
-        // 5. Celebration Response
-        const isOverachiever = count > routine.target_count;
+        };
 
         res.status(201).json({
             completion,
-            routine: updatedRoutine,
-            celebration: isOverachiever ? { type: 'overachiever', message: 'Extra credit!' } : (count === routine.target_count ? { type: 'streak_increment', message: 'Streak kept!' } : null)
+            routine: enrichedRoutine,
+            celebration: isOverachiever
+                ? { type: 'overachiever', message: 'Extra credit!' }
+                : (streak_incremented ? { type: 'streak_increment', message: 'Streak kept!' } : null)
         });
     } catch (error) {
         logger.error('Error logging completion:', error);
+        res.status(error.message === 'Routine not found' ? 404 : 500).json({ error: error.message });
+    }
+};
+
+// Undo completion: removes latest and reverts stats
+export const undoCompletion = async (req, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    try {
+        // Perform atomic undo via RPC
+        const { data: result, error: rpcError } = await supabase
+            .rpc('undo_routine_completion', {
+                p_routine_id: id,
+                p_user_id: userId
+            });
+
+        if (rpcError) throw rpcError;
+
+        const { routine: updatedRoutine, completions_count, period_date } = result;
+
+        // Return Enriched routine with calculated period status
+        const enrichedRoutine = {
+            ...updatedRoutine,
+            period_status: {
+                completions_count: completions_count,
+                target_count: updatedRoutine.target_count,
+                is_complete: completions_count >= updatedRoutine.target_count,
+                period_date: period_date
+            }
+        };
+
+        res.json({ routine: enrichedRoutine });
+    } catch (error) {
+        logger.error('Error undoing completion:', error);
         res.status(500).json({ error: error.message });
     }
 };
 
 export const removeCompletion = async (req, res) => {
+    // Keep existing implementation or deprecate
     const userId = req.user.id;
     const { id, completionId } = req.params;
 
     try {
-        // 1. Get Routine
         const { data: routine } = await supabase
             .from('routines')
             .select('*')
             .eq('id', id)
             .single();
 
-        // 2. Delete Completion
         const { error } = await supabase
             .from('routine_completions')
             .delete()
@@ -333,17 +468,10 @@ export const removeCompletion = async (req, res) => {
 
         if (error) throw error;
 
-        // 3. Re-calculate Streak (Naive Approach: Decrement if appropriate)
-        // Warning: Accurate rollback is hard without history reconstruction. 
-        // For MVP, we will simpler: just decrement total_completed. 
-        // If we dropped below target, we might need to decrement streak, but that's tricky if we don't know if it was *this* completion that added the streak.
-        // For now, let's just decrement total_completions.
-
-        await supabase.rpc('decrement_routine_counter', { row_id: id }); // Assuming we have an RPC or we use update
-        // Fallback standard update
+        // Simple decrement fallback for legacy/specific delete
         await supabase
             .from('routines')
-            .update({ total_completions: Math.max(0, (routine.total_completions || 1) - 1) }) // simple decrement
+            .update({ total_completions: Math.max(0, (routine.total_completions || 1) - 1) })
             .eq('id', id);
 
         res.json({ message: 'Completion removed' });

@@ -13,6 +13,7 @@ export interface Routine {
     is_active: boolean;
     reminder_enabled: boolean;
     reminder_time?: string;
+    timezone: string;
     current_streak: number;
     longest_streak: number;
     total_completions: number;
@@ -35,6 +36,7 @@ export interface CreateRoutinePayload {
     color?: string;
     reminder_enabled?: boolean;
     reminder_time?: string;
+    timezone?: string;
 }
 
 export const routineService = {
@@ -65,6 +67,11 @@ export const routineService = {
         const response = await apiService.post<{ routine: Routine; celebration?: any }>(`/routines/${id}/complete`, { notes });
         if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to complete routine');
         return response.data as { routine: Routine; celebration?: any };
+    },
+
+    async undoCompletion(id: string): Promise<void> {
+        const response = await apiService.post(`/routines/${id}/undo`, {});
+        if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to undo routine completion');
     },
 
     async removeCompletion(id: string, completionId: string): Promise<void> {

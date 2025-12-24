@@ -53,7 +53,7 @@ import routinesRouter from './routes/routines.js';
 import cron from 'node-cron';
 import { syncGoogleCalendarEvents } from './utils/syncService.js';
 import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
-import { sendNotification } from './services/notificationService.js';
+import { sendNotification, sendRoutineReminder } from './services/notificationService.js';
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
 import { toZonedTime } from 'date-fns-tz';
@@ -681,6 +681,133 @@ const sendDailyFocusReminders = async () => {
 // Schedule daily focus reminder check to run every 5 minutes (optimized frequency)
 // This reduces database load while maintaining reasonable notification precision
 cron.schedule('*/5 * * * *', sendDailyFocusReminders);
+
+// --- Routine Reminder Cron Job ---
+const sendRoutineReminders = async () => {
+  // Check if Supabase is initialized
+  if (!supabase) {
+    logger.warn('[CRON] Supabase client not initialized. Skipping routine reminders.');
+    return;
+  }
+
+  logger.cron('[CRON] Checking for routine reminders...');
+
+  try {
+    const now = new Date(); // Current server time (UTC usually)
+
+    // 1. Fetch all active routines with reminders enabled
+    const { data: routines, error } = await supabase
+      .from('routines')
+      .select('*, users!inner(timezone)')
+      .eq('is_active', true)
+      .eq('reminder_enabled', true);
+
+    if (error) {
+      logger.error('[CRON] Error fetching routines for reminders:', error);
+      return;
+    }
+
+    if (!routines || routines.length === 0) {
+      return;
+    }
+
+    let sentCount = 0;
+
+    // 2. Process each routine
+    for (const routine of routines) {
+      try {
+        const userTimezone = routine.timezone || routine.users?.timezone || 'UTC';
+
+        // Get user's current time
+        const userNow = toZonedTime(now, userTimezone);
+
+        // Parse reminder time (HH:mm)
+        if (!routine.reminder_time) continue;
+        const [rHour, rMin] = routine.reminder_time.split(':').map(Number);
+
+        // Get current user time components
+        // Using native methods on the zoned date object (which treats the date as if it is in that zone)
+        // BE CAREFUL: toZonedTime returns a Date which effectively holds the local time values. 
+        // We should use getHours/getMinutes directly.
+        const currentHour = userNow.getHours();
+        const currentMin = userNow.getMinutes();
+
+        // Calculate difference in minutes
+        // We handle day wrap-around edge cases simply by ignoring them for now (cron runs every 5 mins)
+        // If reminder is 23:59 and now is 00:02, we might miss it with simple math.
+        // Simple minute of day comparison:
+        const currentTotalMinutes = currentHour * 60 + currentMin;
+        const reminderTotalMinutes = rHour * 60 + rMin;
+
+        const diff = currentTotalMinutes - reminderTotalMinutes;
+
+        // Check if we are within the 5 minute window (0 to 4 minutes past the reminder time)
+        // This assumes cron runs every 5 minutes.
+        if (diff >= 0 && diff < 5) {
+
+          // 3. Check if already completed today (in user's timezone)
+          const todayString = userNow.toISOString().split('T')[0]; // YYYY-MM-DD
+
+          const { count: completionCount } = await supabase
+            .from('routine_completions')
+            .select('*', { count: 'exact', head: true })
+            .eq('routine_id', routine.id)
+            .eq('period_date', todayString); // Assuming period_date aligns with YYYY-MM-DD
+
+          if (completionCount && completionCount > 0) {
+            // Already completed today, skip
+            continue;
+          }
+
+          // 4. Check if we already sent a notification today
+          // We look for a notification of type 'routine_reminder' for this routine sent "today"
+          // We can use a rough check using server time for "last 24h" or strict "today"
+          // Let's use the 'details->>routine_id' query
+          const startOfUserDay = new Date(userNow);
+          startOfUserDay.setHours(0, 0, 0, 0);
+
+          // We need startOfUserDay in UTC for the query against created_at (which is UTC)
+          // Actually created_at is timestamptz.
+          // Simplest: Check if we sent one in the last 12 hours. Routines are daily.
+          const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+
+          const { data: existingNotifs } = await supabase
+            .from('user_notifications')
+            .select('id, details')
+            .eq('user_id', routine.user_id)
+            .eq('notification_type', 'routine_reminder')
+            .gt('created_at', twelveHoursAgo.toISOString());
+
+          const alreadySent = existingNotifs?.some(n => n.details?.routine_id === routine.id);
+
+          if (alreadySent) {
+            continue;
+          }
+
+          // 5. Send Reminder
+          const result = await sendRoutineReminder(routine.user_id, routine);
+          if (result.success) {
+            sentCount++;
+            logger.cron(`[CRON] Sent routine reminder for "${routine.title}" to user ${routine.user_id}`);
+          }
+        }
+
+      } catch (routineError) {
+        logger.error(`[CRON] Error processing routine ${routine.id}:`, routineError);
+      }
+    }
+
+    if (sentCount > 0) {
+      logger.cron(`[CRON] Routine reminders finished. Sent: ${sentCount}`);
+    }
+
+  } catch (err) {
+    logger.error('[CRON] Exception in sendRoutineReminders:', err);
+  }
+};
+
+// Schedule routine reminders every 5 minutes
+cron.schedule('*/5 * * * *', sendRoutineReminders);
 
 // Initialize Firebase Admin SDK
 try {

@@ -820,23 +820,29 @@ export async function sendDailyFocusReminder(userId, task, userName) {
  * @param {object} routine - Routine object
  */
 export async function sendRoutineReminder(userId, routine) {
+  if (!routine || !routine.id || !routine.title) {
+    logger.error(`Invalid routine object provided for user ${userId}`);
+    return { success: false, error: 'Invalid routine object' };
+  }
+
   const notification = {
     notification_type: 'routine_reminder',
     title: `Time for: ${routine.title}`,
-    message: getMotivationalMessage(routine.current_streak),
+    message: getMotivationalMessage(routine.current_streak || 0),
     details: {
       routine_id: routine.id,
       routine_title: routine.title,
-      current_streak: routine.current_streak
+      current_streak: routine.current_streak || 0
     }
   };
 
   return await sendNotification(userId, notification);
 }
-
 function getMotivationalMessage(streak) {
-  if (streak === 0) return "Start your streak today! 🌱";
-  if (streak < 7) return `Keep going! ${streak}-day streak 🔥`;
-  if (streak < 30) return `Amazing! ${streak}-day streak! 💪`;
-  return `Incredible ${streak}-day streak! You're unstoppable! 🏆`;
+  const validStreak = typeof streak === 'number' && !Number.isNaN(streak) ? streak : 0;
+
+  if (validStreak === 0) return "Start your streak today! 🌱";
+  if (validStreak < 7) return `Keep going! ${validStreak}-day streak 🔥`;
+  if (validStreak < 30) return `Amazing! ${validStreak}-day streak! 💪`;
+  return `Incredible ${validStreak}-day streak! You're unstoppable! 🏆`;
 }
