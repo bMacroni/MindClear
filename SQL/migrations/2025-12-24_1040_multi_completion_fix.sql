@@ -127,6 +127,7 @@ DECLARE
   v_new_streak integer;
   v_new_longest_streak integer;
   v_streak_reverted boolean := false;
+  v_prev_increment_period date;
 BEGIN
   -- 1. Lock the routine row for update and check ownership
   SELECT * INTO v_routine 
@@ -176,11 +177,21 @@ BEGIN
        v_new_longest_streak := v_routine.longest_streak - 1;
     END IF;
 
+    -- Find the most recent qualifying period before this one
+    SELECT period_date INTO v_prev_increment_period
+    FROM public.routine_completions
+    WHERE routine_id = p_routine_id
+      AND period_date < v_completion_to_delete.period_date
+    GROUP BY period_date
+    HAVING count(*) >= v_routine.target_count
+    ORDER BY period_date DESC
+    LIMIT 1;
+
     UPDATE public.routines
     SET 
       current_streak = v_new_streak,
       longest_streak = v_new_longest_streak,
-      last_streak_increment_period = NULL, 
+      last_streak_increment_period = v_prev_increment_period, 
       total_completions = GREATEST(0, total_completions - 1),
       last_completed_at = v_prev_completion.completed_at,
       updated_at = now()

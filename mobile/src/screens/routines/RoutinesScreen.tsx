@@ -2,8 +2,7 @@ import React, { useState, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, SectionList, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
 import { format } from 'date-fns';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
-import { PlusSignIcon } from '@hugeicons/core-free-icons';
-import { useRoutines } from '../../contexts/RoutineContext';
+import { PlusSignIcon } from '@hugeicons/react-native'; import { useRoutines } from '../../contexts/RoutineContext';
 import { RoutineCard } from '../../components/routines/RoutineCard';
 import { colors } from '../../themes/colors';
 import { useNavigation } from '@react-navigation/native';
@@ -155,13 +154,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     headerIconButton: {
-        padding: 8,
+        padding: 12,
         borderWidth: 1,
         borderColor: colors.border.light,
         borderRadius: 6,
         backgroundColor: colors.background.surface,
-    },
-    listContent: {
+    }, listContent: {
         padding: 16,
         paddingBottom: 20,
     },

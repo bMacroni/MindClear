@@ -42,10 +42,11 @@ BEGIN
   WHERE routine_id = p_routine_id AND period_date = p_period_date;
 
   -- 4. Find the most recent remaining completion to update last_completed_at
+  -- If no completions remain, v_prev_completion.completed_at will be NULL
   SELECT * INTO v_prev_completion
   FROM public.routine_completions
   WHERE routine_id = p_routine_id AND user_id = p_user_id
-  ORDER BY completed_at DESC, created_at DESC
+  ORDER BY completed_at DESC, occurrence_index DESC, created_at DESC
   LIMIT 1;
 
   -- 5. Rollback streak if it was incremented for this period
@@ -63,7 +64,7 @@ BEGIN
       longest_streak = v_new_longest_streak,
       last_streak_increment_period = NULL,
       total_completions = GREATEST(0, total_completions - v_completions_count),
-      last_completed_at = v_prev_completion.completed_at,
+      last_completed_at = COALESCE(v_prev_completion.completed_at, NULL),
       updated_at = now()
     WHERE id = p_routine_id;
   ELSE
@@ -71,7 +72,7 @@ BEGIN
     UPDATE public.routines
     SET 
       total_completions = GREATEST(0, total_completions - v_completions_count),
-      last_completed_at = v_prev_completion.completed_at,
+      last_completed_at = COALESCE(v_prev_completion.completed_at, NULL),
       updated_at = now()
     WHERE id = p_routine_id;
   END IF;
