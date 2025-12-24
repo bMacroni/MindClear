@@ -160,17 +160,23 @@ export default function RoutineDetailScreen() {
                     {isEditing ? (
                         <View style={styles.optionRow}>
                             {(['daily', 'weekly', 'monthly'] as const).map(f => (
-                                <TouchableOpacity
+                                <View
                                     key={f}
-                                    style={[styles.optionChip, formData.frequency_type === f && styles.optionChipSelected]}
-                                    onPress={() => setFormData(prev => ({ ...prev, frequency_type: f }))}
-                                    accessibilityRole="button"
+                                    style={[
+                                        styles.optionChip,
+                                        formData.frequency_type === f ? styles.optionChipSelected : styles.optionChipDisabled,
+                                        formData.frequency_type === f && { opacity: 0.7 } // Muted selected state
+                                    ]}
+                                    accessibilityRole="text"
                                     accessibilityState={{ selected: formData.frequency_type === f }}
-                                    accessibilityLabel={`Frequency ${f}`}
-                                    accessibilityHint={`Sets routine frequency to ${f}`}
+                                    accessibilityLabel={`Frequency: ${f} ${formData.frequency_type === f ? '(read-only)' : ''}`}
+                                    accessibilityHint="Frequency cannot be changed after creation"
                                 >
-                                    <Text style={[styles.optionText, formData.frequency_type === f && styles.optionTextSelected]}>{f}</Text>
-                                </TouchableOpacity>
+                                    <Text style={[
+                                        styles.optionText,
+                                        formData.frequency_type === f ? styles.optionTextSelected : styles.optionTextDisabled
+                                    ]}>{f}</Text>
+                                </View>
                             ))}
                         </View>
                     ) : (
@@ -406,6 +412,13 @@ const styles = StyleSheet.create({
     optionTextSelected: {
         color: 'white',
         fontWeight: '600',
+    },
+    optionChipDisabled: {
+        backgroundColor: colors.background.secondary,
+        opacity: 0.5,
+    },
+    optionTextDisabled: {
+        color: colors.text.secondary,
     },
     counterRow: {
         flexDirection: 'row',

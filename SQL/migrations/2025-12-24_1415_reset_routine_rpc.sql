@@ -17,6 +17,7 @@ DECLARE
   v_new_streak integer;
   v_new_longest_streak integer;
   v_prev_completion record;
+  v_last_completed_at timestamptz;
 BEGIN
   -- 1. Lock the routine row for update and check ownership
   SELECT * INTO v_routine 
@@ -42,12 +43,18 @@ BEGIN
   WHERE routine_id = p_routine_id AND period_date = p_period_date;
 
   -- 4. Find the most recent remaining completion to update last_completed_at
-  -- If no completions remain, v_prev_completion.completed_at will be NULL
   SELECT * INTO v_prev_completion
   FROM public.routine_completions
   WHERE routine_id = p_routine_id AND user_id = p_user_id
   ORDER BY completed_at DESC, occurrence_index DESC, created_at DESC
   LIMIT 1;
+
+  -- Set v_last_completed_at based on whether we found a previous completion
+  IF FOUND THEN
+    v_last_completed_at := v_prev_completion.completed_at;
+  ELSE
+    v_last_completed_at := NULL;
+  END IF;
 
   -- 5. Rollback streak if it was incremented for this period
   IF v_routine.last_streak_increment_period = p_period_date THEN
@@ -64,7 +71,7 @@ BEGIN
       longest_streak = v_new_longest_streak,
       last_streak_increment_period = NULL,
       total_completions = GREATEST(0, total_completions - v_completions_count),
-      last_completed_at = COALESCE(v_prev_completion.completed_at, NULL),
+      last_completed_at = v_last_completed_at,
       updated_at = now()
     WHERE id = p_routine_id;
   ELSE
@@ -72,7 +79,7 @@ BEGIN
     UPDATE public.routines
     SET 
       total_completions = GREATEST(0, total_completions - v_completions_count),
-      last_completed_at = COALESCE(v_prev_completion.completed_at, NULL),
+      last_completed_at = v_last_completed_at,
       updated_at = now()
     WHERE id = p_routine_id;
   END IF;

@@ -72,6 +72,7 @@ export function getPreviousPeriodBounds(frequency, date, timezone, weekStart) {
  * Calculate streak stats based on completion history
  * This is a simplified version for run-time checks.
  * For full history recalculation, we'd need a more complex algorithm.
+ */
 export function checkStreakStatus(routine, completions, timezone = 'UTC', weekStart = 1) {
     if (!routine || !routine.frequency_type) {
         throw new Error('Invalid routine: missing required properties');
