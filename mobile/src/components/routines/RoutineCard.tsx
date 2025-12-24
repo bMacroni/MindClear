@@ -2,7 +2,8 @@ import React, { useMemo, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Swipeable, RectButton } from 'react-native-gesture-handler';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
-import { CheckmarkCircle01Icon, RotateRightIcon } from '@hugeicons/react-native'; import { Routine } from '../../services/routineService';
+import { CheckmarkCircle01Icon, RotateRightIcon } from '@hugeicons/core-free-icons';
+import { Routine } from '../../services/routineService';
 import { colors as themeColors, useTheme } from '../../themes/colors';
 
 interface RoutineCardProps {
