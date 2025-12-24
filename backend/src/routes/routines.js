@@ -7,8 +7,8 @@ import {
     updateRoutine,
     deleteRoutine,
     logCompletion,
-    removeCompletion,
-    undoCompletion
+    undoCompletion,
+    resetCompletions
 } from '../controllers/routinesController.js';
 
 const router = express.Router();
@@ -26,6 +26,6 @@ router.delete('/:id', deleteRoutine);
 // Completions
 router.post('/:id/complete', logCompletion);
 router.post('/:id/undo', undoCompletion);
-router.delete('/:id/completions/:completionId', removeCompletion);
+router.post('/:id/reset', resetCompletions);
 
 export default router;

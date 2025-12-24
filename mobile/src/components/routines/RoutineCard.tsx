@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useMemo, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { Swipeable, RectButton } from 'react-native-gesture-handler';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
-import { CheckmarkCircle01Icon } from '@hugeicons/core-free-icons';
+import { CheckmarkCircle01Icon, RotateRightIcon } from '@hugeicons/core-free-icons';
 import { Routine } from '../../services/routineService';
 import { colors as themeColors, useTheme } from '../../themes/colors';
 
@@ -9,10 +10,13 @@ interface RoutineCardProps {
     routine: Routine;
     onPress: () => void;
     onLongPress: () => void;
+    onReset?: () => void;
 }
 
-export const RoutineCard: React.FC<RoutineCardProps> = ({ routine, onPress, onLongPress }) => {
+export const RoutineCard: React.FC<RoutineCardProps> = ({ routine, onPress, onLongPress, onReset }) => {
     const theme = useTheme();
+    const swipeableRef = useRef<Swipeable>(null);
+
     const isComplete = routine.period_status?.is_complete;
     const progress = routine.period_status?.completions_count || 0;
     const target = routine.target_count;
@@ -31,36 +35,75 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({ routine, onPress, onLo
 
     const styles = useMemo(() => getStyles(theme), [theme]);
 
+    const renderLeftActions = (
+        _progress: Animated.AnimatedInterpolation<number>,
+        dragX: Animated.AnimatedInterpolation<number>
+    ) => {
+        const trans = dragX.interpolate({
+            inputRange: [0, 50, 100],
+            outputRange: [-20, 0, 0],
+            extrapolate: 'clamp',
+        });
+
+        return (
+            <RectButton
+                style={styles.leftAction}
+                onPress={() => {
+                    swipeableRef.current?.close();
+                    onReset?.();
+                }}
+            >
+                <Animated.View style={[styles.actionIconContainer, { transform: [{ translateX: trans }] }]}>
+                    <Icon icon={RotateRightIcon} size={28} color="white" />
+                    <Text style={styles.actionText}>Reset</Text>
+                </Animated.View>
+            </RectButton>
+        );
+    };
+
     return (
-        <TouchableOpacity
-            style={[styles.container, { backgroundColor, borderColor, opacity }]}
-            onPress={onPress}
-            onLongPress={onLongPress}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={`${routine.title}. ${streakText}. ${isComplete ? 'Completed' : `Progress: ${progress} of ${target}`}`}
-            accessibilityState={{ disabled: false, checked: isComplete }}
-            accessibilityHint="Tap to view details, long press for options"
+        <Swipeable
+            ref={swipeableRef}
+            renderLeftActions={renderLeftActions}
+            onSwipeableLeftOpen={() => {
+                onReset?.();
+                swipeableRef.current?.close();
+            }}
+            friction={2}
+            leftThreshold={80}
+            overshootLeft={false}
         >
-            <View style={[styles.iconContainer, { backgroundColor: theme.rgba(theme.text.primary, 0.05) }]}>
-                <Text style={styles.icon}>{routine.icon}</Text>
-            </View>
+            <TouchableOpacity
+                style={[styles.container, { backgroundColor, borderColor, opacity }]}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`${routine.title}. ${streakText}. ${isComplete ? 'Completed' : `Progress: ${progress} of ${target}`}`}
+                accessibilityState={{ disabled: false, checked: isComplete }}
+                accessibilityHint="Tap to complete, swipe right to reset, long press for details"
+            >
+                <View style={[styles.iconContainer, { backgroundColor: theme.rgba(theme.text.primary, 0.05) }]}>
+                    <Text style={styles.icon}>{routine.icon}</Text>
+                </View>
 
-            <View style={styles.contentContainer}>
-                <Text style={[styles.title, isComplete && styles.completedText]}>{routine.title}</Text>
-                <Text style={styles.streak}>
-                    {routine.current_streak > 0 ? '🔥 ' : '🌱 '}{streakText}
-                </Text>
-            </View>
+                <View style={styles.contentContainer}>
+                    <Text style={[styles.title, isComplete && styles.completedText]}>{routine.title}</Text>
+                    <Text style={styles.streak}>
+                        {routine.current_streak > 0 ? '🔥 ' : '🌱 '}{streakText}
+                    </Text>
+                </View>
 
-            <View style={styles.statusContainer}>
-                {isComplete ? (
-                    <Icon icon={CheckmarkCircle01Icon} size={24} color={theme.primary} />
-                ) : (
-                    <Text style={styles.progress}>{progress}/{target}</Text>
-                )}
-            </View>
-        </TouchableOpacity>);
+                <View style={styles.statusContainer}>
+                    {isComplete ? (
+                        <Icon icon={CheckmarkCircle01Icon} size={24} color={theme.primary} />
+                    ) : (
+                        <Text style={styles.progress}>{progress}/{target}</Text>
+                    )}
+                </View>
+            </TouchableOpacity>
+        </Swipeable>
+    );
 };
 
 const getStyles = (theme: typeof themeColors) => StyleSheet.create({
@@ -114,5 +157,23 @@ const getStyles = (theme: typeof themeColors) => StyleSheet.create({
         fontSize: 14,
         fontWeight: 'bold',
         color: theme.text.disabled,
+    },
+    leftAction: {
+        flex: 1,
+        backgroundColor: theme.info,
+        justifyContent: 'center',
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    actionIconContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingLeft: 20,
+    },
+    actionText: {
+        color: 'white',
+        fontWeight: 'bold',
+        marginLeft: 10,
+        fontSize: 16,
     }
 });

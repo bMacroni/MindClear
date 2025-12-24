@@ -11,13 +11,14 @@ interface RoutineContextType {
     routines: Routine[];
     isLoading: boolean;
     isRefreshing: boolean;
+    error: string | null;
     refreshRoutines: () => Promise<void>;
     createRoutine: (payload: CreateRoutinePayload) => Promise<Routine | null>;
     updateRoutine: (id: string, payload: Partial<CreateRoutinePayload>) => Promise<Routine | null>;
     deleteRoutine: (id: string) => Promise<boolean>;
     logCompletion: (id: string, notes?: string) => Promise<LogCompletionResult>;
     undoCompletion: (id: string) => Promise<void>;
-    removeCompletion: (id: string, completionId: string) => Promise<void>;
+    resetCompletions: (id: string) => Promise<void>;
 }
 
 const RoutineContext = createContext<RoutineContextType | undefined>(undefined);
@@ -93,7 +94,6 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         try {
             const newRoutine = await routineService.createRoutine(payload);
             setRoutines(prev => [newRoutine, ...prev]);
-            showToast('success', 'Routine created successfully!');
             return newRoutine;
         } catch (error: any) {
             console.error('Error creating routine:', error);
@@ -107,7 +107,6 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         try {
             const updatedRoutine = await routineService.updateRoutine(id, payload);
             setRoutines(prev => prev.map(r => r.id === id ? updatedRoutine : r));
-            showToast('success', 'Routine updated');
             return updatedRoutine;
         } catch (error: any) {
             console.error('Error updating routine:', error);
@@ -190,7 +189,6 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     const isComplete = newCount >= (r.target_count || 0);
 
                     let newStreak = r.current_streak || 0;
-                    // Initial heuristic: if we drop from complete -> incomplete, decrement streak if valid
                     if (wasComplete && !isComplete && newStreak > 0) {
                         newStreak -= 1;
                     }
@@ -209,16 +207,8 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 return r;
             }));
 
-            const response = await routineService.undoCompletion(id);
-            // Ideally we'd get the enriched routine back from undoCompletion too, to confirm state.
-            // My backend implementation returns { routine: enrichedRoutine }, checking service..
-            // The service returns void right now in the interface, need to update if I want to use the return value.
-            // For now, I'll rely on the optimistic update + background refresh if needed or update service to return it.
-            // The controller implementation DOES return the routine. 
-            // I'll stick to refresh for safety or update service separately. 
-            // Let's just trigger a silent refresh to ensure sync.
-            // Actually, for better UX, I should just trust my optimistic logic and maybe fetch in background.
-            refreshRoutines();
+            const updatedRoutine = await routineService.undoCompletion(id);
+            setRoutines(prev => prev.map(r => r.id === id ? updatedRoutine : r));
         } catch (error) {
             console.error('Error undoing completion:', error);
             showToast('error', 'Failed to undo completion');
@@ -226,13 +216,43 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
     };
 
-    const removeCompletion = async (id: string, completionId: string) => {
+    const resetCompletions = async (id: string) => {
         try {
-            await routineService.removeCompletion(id, completionId);
-            refreshRoutines(); // Refresh to get correct stats
+            // Optimistic update
+            setRoutines(prev => prev.map(r => {
+                if (r.id === id) {
+                    const prevStatus = r.period_status;
+                    if (!prevStatus) return r;
+
+                    const countRemoved = prevStatus.completions_count || 0;
+                    const wasComplete = prevStatus.is_complete;
+
+                    let newStreak = r.current_streak || 0;
+                    if (wasComplete && newStreak > 0) {
+                        newStreak -= 1;
+                    }
+
+                    return {
+                        ...r,
+                        total_completions: Math.max(0, (r.total_completions || 0) - countRemoved),
+                        current_streak: newStreak,
+                        period_status: {
+                            ...prevStatus,
+                            completions_count: 0,
+                            is_complete: false
+                        }
+                    };
+                }
+                return r;
+            }));
+
+            const updatedRoutine = await routineService.resetCompletions(id);
+            setRoutines(prev => prev.map(r => r.id === id ? updatedRoutine : r));
+            showToast('success', 'Routine progress reset for this period');
         } catch (error) {
-            console.error('Error removing completion:', error);
-            showToast('error', 'Failed to undo completion');
+            console.error('Error resetting completions:', error);
+            showToast('error', 'Failed to reset routine progress');
+            refreshRoutines();
         }
     };
 
@@ -248,7 +268,7 @@ export const RoutineProvider: React.FC<{ children: React.ReactNode }> = ({ child
             deleteRoutine,
             logCompletion,
             undoCompletion,
-            removeCompletion
+            resetCompletions
         }}>
             {children}
         </RoutineContext.Provider>

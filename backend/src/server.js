@@ -57,6 +57,7 @@ import { sendNotification, sendRoutineReminder } from './services/notificationSe
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
 import { toZonedTime } from 'date-fns-tz';
+import { format } from 'date-fns';
 
 
 const app = express();
@@ -746,8 +747,7 @@ const sendRoutineReminders = async () => {
         if (diff >= 0 && diff < 5) {
 
           // 3. Check if already completed today (in user's timezone)
-          const todayString = userNow.toISOString().split('T')[0]; // YYYY-MM-DD
-
+          const todayString = format(userNow, 'yyyy-MM-dd'); // YYYY-MM-DD in user's timezone
           const { count: completionCount } = await supabase
             .from('routine_completions')
             .select('*', { count: 'exact', head: true })

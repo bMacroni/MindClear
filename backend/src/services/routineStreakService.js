@@ -80,8 +80,7 @@ export function checkStreakStatus(routine, completions, timezone = 'UTC', weekSt
         throw new Error('Completions must be an array');
     }
 
-    const now = new Date();    const now = new Date();
-
+    const now = new Date();
     // 1. Check current period status
     const currentPeriod = getPeriodBounds(routine.frequency_type, now, timezone, weekStart);
 

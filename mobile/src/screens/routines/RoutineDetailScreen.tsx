@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { PencilEdit01Icon, FloppyDiskIcon, Cancel01Icon, Delete01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { useRoutines } from '../../contexts/RoutineContext';
@@ -11,8 +11,10 @@ type RoutineDetailScreenParams = {
     routineId: string;
 };
 
+type RoutineDetailRouteProp = RouteProp<{ RoutineDetail: RoutineDetailScreenParams }, 'RoutineDetail'>;
+
 export default function RoutineDetailScreen() {
-    const route = useRoute<{ params: RoutineDetailScreenParams }>();
+    const route = useRoute<RoutineDetailRouteProp>();
     const navigation = useNavigation();
     const { routineId } = route.params;
     const { routines, updateRoutine, deleteRoutine } = useRoutines();
@@ -113,6 +115,8 @@ export default function RoutineDetailScreen() {
                             value={formData.title}
                             onChangeText={t => setFormData(prev => ({ ...prev, title: t }))}
                             placeholder="Routine Name"
+                            accessibilityLabel="Routine title"
+                            accessibilityHint="Enter the name of your routine"
                         />
                         <TextInput
                             style={styles.editDescription}
@@ -120,9 +124,10 @@ export default function RoutineDetailScreen() {
                             onChangeText={t => setFormData(prev => ({ ...prev, description: t }))}
                             placeholder="Description (optional)"
                             multiline
+                            accessibilityLabel="Routine description"
+                            accessibilityHint="Enter an optional description for your routine"
                         />
-                    </View>
-                ) : (
+                    </View>) : (
                     <>
                         <Text style={styles.title}>{routine.title}</Text>
                         <Text style={styles.subtitle}>{routine.description || 'No description'}</Text>
@@ -159,6 +164,10 @@ export default function RoutineDetailScreen() {
                                     key={f}
                                     style={[styles.optionChip, formData.frequency_type === f && styles.optionChipSelected]}
                                     onPress={() => setFormData(prev => ({ ...prev, frequency_type: f }))}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: formData.frequency_type === f }}
+                                    accessibilityLabel={`Frequency ${f}`}
+                                    accessibilityHint={`Sets routine frequency to ${f}`}
                                 >
                                     <Text style={[styles.optionText, formData.frequency_type === f && styles.optionTextSelected]}>{f}</Text>
                                 </TouchableOpacity>
@@ -169,14 +178,16 @@ export default function RoutineDetailScreen() {
                     )}
                 </View>
 
-                {/* Target */}
+                {/* Target Count */}
                 <View style={styles.row}>
-                    <Text style={styles.label}>Target count</Text>
+                    <Text style={styles.label}>Target Count</Text>
                     {isEditing ? (
                         <View style={styles.counterRow}>
                             <TouchableOpacity
                                 onPress={() => setFormData(prev => ({ ...prev, target_count: Math.max(1, (prev.target_count || 1) - 1) }))}
                                 style={styles.counterButton}
+                                accessibilityRole="button"
+                                accessibilityLabel="Decrease target count"
                             >
                                 <Text style={styles.counterButtonText}>-</Text>
                             </TouchableOpacity>
@@ -184,6 +195,8 @@ export default function RoutineDetailScreen() {
                             <TouchableOpacity
                                 onPress={() => setFormData(prev => ({ ...prev, target_count: Math.min(10, (prev.target_count || 1) + 1) }))}
                                 style={styles.counterButton}
+                                accessibilityRole="button"
+                                accessibilityLabel="Increase target count"
                             >
                                 <Text style={styles.counterButtonText}>+</Text>
                             </TouchableOpacity>
@@ -235,9 +248,8 @@ export default function RoutineDetailScreen() {
                 </View>
             </TouchableOpacity>
 
-            {/* Bottom padding */}
             <View style={{ height: 40 }} />
-        </ScrollView>
+        </ScrollView >
     );
 }
 

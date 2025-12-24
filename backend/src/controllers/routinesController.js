@@ -24,13 +24,15 @@ async function checkRoutineLimit(userId) {
     }
 
     // If premium, unlimited
-    if (user?.subscription_tier === 'premium') {
-        return { allowed: true };
-    }    // If premium, unlimited
+    if (userError) {
+        logger.error('Error fetching user subscription tier:', userError);
+        throw userError;
+    }
+
+    // If premium, unlimited
     if (user?.subscription_tier === 'premium') {
         return { allowed: true };
     }
-
     // Count active routines
     const { count, error } = await supabase
         .from('routines')
@@ -447,35 +449,56 @@ export const undoCompletion = async (req, res) => {
     }
 };
 
-export const removeCompletion = async (req, res) => {
-    // Keep existing implementation or deprecate
+// Reset completions for the current period
+export const resetCompletions = async (req, res) => {
     const userId = req.user.id;
-    const { id, completionId } = req.params;
+    const { id } = req.params;
+    const timezone = req.header('X-User-Timezone') || 'UTC';
 
     try {
-        const { data: routine } = await supabase
+        // 1. Get Routine for metadata (to determine current period)
+        const { data: routine, error: routineError } = await supabase
             .from('routines')
             .select('*')
             .eq('id', id)
+            .eq('user_id', userId)
             .single();
 
-        const { error } = await supabase
-            .from('routine_completions')
-            .delete()
-            .eq('id', completionId)
-            .eq('routine_id', id)
-            .eq('user_id', userId);
+        if (routineError || !routine) throw new Error('Routine not found');
 
-        if (error) throw error;
+        // 2. Determine Period Date
+        const bounds = getPeriodBounds(routine.frequency_type, new Date(), timezone);
+        const periodDate = bounds.periodDate;
 
-        // Simple decrement fallback for legacy/specific delete
-        await supabase
-            .from('routines')
-            .update({ total_completions: Math.max(0, (routine.total_completions || 1) - 1) })
-            .eq('id', id);
+        // 3. Perform atomic reset via RPC
+        const { data: result, error: rpcError } = await supabase
+            .rpc('reset_routine_period', {
+                p_routine_id: id,
+                p_user_id: userId,
+                p_period_date: periodDate
+            });
 
-        res.json({ message: 'Completion removed' });
+        if (rpcError) throw rpcError;
+
+        const { routine: updatedRoutine, completions_removed } = result;
+
+        // Re-construct enriched routine
+        const enrichedRoutine = {
+            ...updatedRoutine,
+            period_status: {
+                completions_count: 0,
+                target_count: updatedRoutine.target_count,
+                is_complete: false,
+                period_date: periodDate
+            }
+        };
+
+        res.json({
+            routine: enrichedRoutine,
+            message: `Successfully removed ${completions_removed} completions.`
+        });
     } catch (error) {
+        logger.error('Error resetting completions:', error);
         res.status(500).json({ error: error.message });
     }
 };

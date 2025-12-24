@@ -69,13 +69,15 @@ export const routineService = {
         return response.data as { routine: Routine; celebration?: any };
     },
 
-    async undoCompletion(id: string): Promise<void> {
-        const response = await apiService.post(`/routines/${id}/undo`, {});
+    async undoCompletion(id: string): Promise<Routine> {
+        const response = await apiService.post<{ routine: Routine }>(`/routines/${id}/undo`, {});
         if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to undo routine completion');
+        return (response.data as { routine: Routine }).routine;
     },
 
-    async removeCompletion(id: string, completionId: string): Promise<void> {
-        const response = await apiService.delete(`/routines/${id}/completions/${completionId}`);
-        if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to undo completion');
+    async resetCompletions(id: string): Promise<Routine> {
+        const response = await apiService.post<{ routine: Routine }>(`/routines/${id}/reset`, {});
+        if (!response.ok) throw new Error((response.data as any)?.error || 'Failed to reset routine completions');
+        return (response.data as { routine: Routine }).routine;
     }
 };

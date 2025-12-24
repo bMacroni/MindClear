@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useState, useLayoutEffect } from 'react';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
+import { format } from 'date-fns';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { PlusSignIcon } from '@hugeicons/core-free-icons';
 import { useRoutines } from '../../contexts/RoutineContext';
@@ -10,10 +10,25 @@ import { useNavigation } from '@react-navigation/native';
 import { RoutineQuickAdd } from '../../components/routines/RoutineQuickAdd';
 
 export default function RoutinesScreen() {
-    const { routines, isLoading, isRefreshing, error, refreshRoutines, logCompletion, undoCompletion } = useRoutines();
-    const insets = useSafeAreaInsets();
+    const { routines, isLoading, isRefreshing, error, refreshRoutines, logCompletion, undoCompletion, resetCompletions } = useRoutines();
     const navigation = useNavigation<any>();
     const [showQuickAdd, setShowQuickAdd] = useState(false);
+
+    React.useLayoutEffect(() => {
+        navigation.setOptions({
+            headerRight: () => (
+                <TouchableOpacity
+                    style={styles.headerIconButton}
+                    onPress={() => setShowQuickAdd(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add new routine"
+                    accessibilityHint="Opens the quick add routine dialog"
+                >
+                    <Icon icon={PlusSignIcon} size={20} color={colors.text.secondary} />
+                </TouchableOpacity>
+            ),
+        });
+    }, [navigation]);
 
     const handleComplete = async (routine: any) => {
         const isComplete = routine.period_status?.is_complete;
@@ -28,16 +43,40 @@ export default function RoutinesScreen() {
         }
     };
 
+    const handleReset = (routine: any) => {
+        if (!routine.period_status || routine.period_status.completions_count === 0) return;
+
+        Alert.alert(
+            "Reset Progress",
+            `Are you sure you want to reset all progress for "${routine.title}" for this period?`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Reset",
+                    style: "destructive",
+                    onPress: () => resetCompletions(routine.id)
+                }
+            ]
+        );
+    };
+
     const activeRoutines = routines.filter(r => r.is_active);
-    // Sort: Incomplete first, then by time window (morning > afternoon > evening > anytime)
-    const sortedRoutines = [...activeRoutines].sort((a, b) => {
+
+    // Sort logic within each group: Incomplete first, then by time window
+    const sortRoutines = (list: any[]) => [...list].sort((a, b) => {
         const aComplete = a.period_status?.is_complete ? 1 : 0;
         const bComplete = b.period_status?.is_complete ? 1 : 0;
         if (aComplete !== bComplete) return aComplete - bComplete;
 
         const windowOrder = { morning: 0, afternoon: 1, evening: 2, anytime: 3 };
-        return (windowOrder[a.time_window] || 3) - (windowOrder[b.time_window] || 3);
+        return (windowOrder[a.time_window as keyof typeof windowOrder] || 3) - (windowOrder[b.time_window as keyof typeof windowOrder] || 3);
     });
+
+    const sections = [
+        { title: 'Daily', data: sortRoutines(activeRoutines.filter(r => r.frequency_type === 'daily')) },
+        { title: 'Weekly', data: sortRoutines(activeRoutines.filter(r => r.frequency_type === 'weekly')) },
+        { title: 'Monthly', data: sortRoutines(activeRoutines.filter(r => r.frequency_type === 'monthly')) },
+    ].filter(section => section.data.length > 0);
 
     if (isLoading && routines.length === 0) {
         return (
@@ -51,42 +90,48 @@ export default function RoutinesScreen() {
         return (
             <View style={[styles.container, styles.center, { padding: 20 }]}>
                 <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={refreshRoutines}>
+                <TouchableOpacity
+                    style={styles.retryButton}
+                    onPress={refreshRoutines}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry loading routines"
+                >
                     <Text style={styles.retryText}>Retry</Text>
                 </TouchableOpacity>
             </View>
         );
     }
+    const todayDate = format(new Date(), 'MMM dd').toUpperCase();
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
-            <View style={styles.header}>
-                <View>
-                    <Text style={styles.headerTitle}>Build better habits</Text>
-                    {/*<Text style={styles.headerSubtitle}>Build better habits</Text>*/}
-                </View>
-                <TouchableOpacity
-                    style={styles.headerButton}
-                    onPress={() => setShowQuickAdd(true)}
-                >
-                    <Icon icon={PlusSignIcon} size={28} color={colors.primary} />
-                </TouchableOpacity>
-            </View>
-
-            <FlatList
-                data={sortedRoutines}
+        <View style={styles.container}>
+            <SectionList
+                sections={sections}
                 keyExtractor={item => item.id}
+                ListHeaderComponent={
+                    <View style={styles.listHeader}>
+                        <Text style={styles.dateText}>{todayDate}</Text>
+                        <Text style={styles.headerTitle}>Build better habits</Text>
+                    </View>
+                }
                 renderItem={({ item }) => (
                     <RoutineCard
                         routine={item}
                         onPress={() => handleComplete(item)}
                         onLongPress={() => navigation.navigate('RoutineDetail', { routineId: item.id })}
+                        onReset={() => handleReset(item)}
                     />
+                )}
+                renderSectionHeader={({ section: { title } }) => (
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>{title}</Text>
+                    </View>
                 )}
                 contentContainerStyle={styles.listContent}
                 refreshControl={
                     <RefreshControl refreshing={isRefreshing} onRefresh={refreshRoutines} />
                 }
+                stickySectionHeadersEnabled={false}
                 ListEmptyComponent={
                     <View style={styles.emptyState}>
                         <Text style={styles.emptyText}>No routines yet. Start small!</Text>
@@ -109,33 +154,45 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingBottom: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border.light,
-    },
-    headerTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: colors.text.primary,
-    },
-    headerSubtitle: {
-        fontSize: 14,
-        color: colors.text.secondary,
-        marginTop: 4,
-    },
-    headerButton: {
+    headerIconButton: {
         padding: 8,
-        backgroundColor: colors.background.secondary,
-        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border.light,
+        borderRadius: 6,
+        backgroundColor: colors.background.surface,
     },
     listContent: {
         padding: 16,
         paddingBottom: 20,
+    },
+    listHeader: {
+        marginBottom: 24,
+        marginTop: 8,
+    },
+    dateText: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: colors.primary,
+        letterSpacing: 1.5,
+        marginBottom: 4,
+    },
+    headerTitle: {
+        fontSize: 32,
+        fontWeight: '800',
+        color: colors.text.primary,
+    },
+    sectionHeader: {
+        backgroundColor: colors.background.primary,
+        paddingVertical: 12,
+        paddingHorizontal: 4,
+        marginTop: 8,
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: colors.text.primary,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
     },
     emptyState: {
         padding: 24,

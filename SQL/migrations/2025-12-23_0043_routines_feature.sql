@@ -101,4 +101,4 @@ CREATE POLICY "Users can delete own completions" ON public.routine_completions
 UPDATE public.routines r
 SET timezone = u.timezone
 FROM public.users u
-WHERE r.user_id = u.id AND (r.timezone IS NULL OR r.timezone = 'UTC');
+WHERE r.user_id = u.id AND r.timezone IS NULL;
