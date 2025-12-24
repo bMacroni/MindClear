@@ -17,7 +17,7 @@ function getTransporter() {
     if (!process.env.FEEDBACK_EMAIL_USER || !process.env.FEEDBACK_EMAIL_PASS) {
       throw new Error('Email credentials not configured');
     }
-    
+
     cachedTransporter = nodemailer.createTransport({
       service: process.env.EMAIL_SERVICE || 'gmail',
       auth: {
@@ -130,14 +130,14 @@ export async function sendNotification(userId, notification) {
 
     // Always store In-App Notification if the channel is enabled or not configured
     if (shouldSend('in_app')) {
-        deliveryPromises.push(storeInAppNotification(userId, {
-            notification_type,
-            title,
-            message,
-            details,
-            read: false,
-            created_at: new Date().toISOString()
-        }));
+      deliveryPromises.push(storeInAppNotification(userId, {
+        notification_type,
+        title,
+        message,
+        details,
+        read: false,
+        created_at: new Date().toISOString()
+      }));
     }
 
     await Promise.all(deliveryPromises);
@@ -276,12 +276,12 @@ async function sendPushNotification(tokens, title, body, data = {}) {
   try {
     const response = await firebaseAdminInstance.messaging().sendEachForMulticast(message);
     logger.info(`Push notifications sent: ${response.successCount}, failed: ${response.failureCount}`);
-    
+
     // Handle failed tokens and clean up invalid ones
     if (response.failureCount > 0) {
       await handleFailedTokens(response.responses, tokens);
     }
-    
+
     return response;
   } catch (error) {
     logger.error('Error sending push notification:', error);
@@ -294,22 +294,22 @@ async function sendPushNotification(tokens, title, body, data = {}) {
  */
 async function handleFailedTokens(responses, tokens) {
   const invalidTokens = [];
-  
+
   responses.forEach((response, index) => {
     if (!response.success && response.error) {
       const errorCode = response.error.code;
       const token = tokens[index];
-      
+
       // Check for token errors that indicate the token should be removed
       if (errorCode === 'messaging/invalid-registration-token' ||
-          errorCode === 'messaging/registration-token-not-registered' ||
-          errorCode === 'messaging/invalid-argument') {
+        errorCode === 'messaging/registration-token-not-registered' ||
+        errorCode === 'messaging/invalid-argument') {
         invalidTokens.push(token);
         logger.warn(`Invalid FCM token detected: ${errorCode}`, { token: token.substring(0, 20) + '...' });
       }
     }
   });
-  
+
   // Remove invalid tokens from database
   if (invalidTokens.length > 0) {
     try {
@@ -318,7 +318,7 @@ async function handleFailedTokens(responses, tokens) {
         .from('user_device_tokens')
         .delete()
         .in('device_token', invalidTokens);
-      
+
       if (error) {
         logger.error('Failed to remove invalid device tokens:', error);
       } else {
@@ -332,7 +332,7 @@ async function handleFailedTokens(responses, tokens) {
 
 async function sendEmailNotification(user, notification) {
   const { title, message, details } = notification;
-  
+
   try {
     const transporter = getTransporter();
     const emailBody = createGenericNotificationEmail(user.full_name, message, details);
@@ -361,10 +361,10 @@ async function sendEmailNotification(user, notification) {
  * @deprecated Use sendNotification instead.
  */
 export async function sendAutoSchedulingNotification(userId, notificationData) {
-    const { type, ...rest } = notificationData;
-    // This function is now a wrapper around the new generic service.
-    // It helps maintain backward compatibility where it's currently used.
-    return sendNotification(userId, { notification_type: type, ...rest });
+  const { type, ...rest } = notificationData;
+  // This function is now a wrapper around the new generic service.
+  // It helps maintain backward compatibility where it's currently used.
+  return sendNotification(userId, { notification_type: type, ...rest });
 }
 
 /**
@@ -372,7 +372,7 @@ export async function sendAutoSchedulingNotification(userId, notificationData) {
  */
 function createAutoSchedulingCompletedEmail(userName, scheduledTasks, failedTasks) {
   const escapedUserName = escapeHtml(userName);
-  
+
   let html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #2563eb;">Hello ${escapedUserName},</h2>
@@ -436,7 +436,7 @@ function createAutoSchedulingCompletedEmail(userName, scheduledTasks, failedTask
 function createAutoSchedulingErrorEmail(userName, details, failedTasks) {
   const escapedUserName = escapeHtml(userName);
   const escapedDetails = escapeHtml(details);
-  
+
   let html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #dc2626;">Hello ${escapedUserName},</h2>
@@ -485,7 +485,7 @@ function createAutoSchedulingErrorEmail(userName, details, failedTasks) {
 function createWeatherConflictEmail(userName, details) {
   const escapedUserName = escapeHtml(userName);
   const escapedDetails = escapeHtml(details);
-  
+
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #f59e0b;">Hello ${escapedUserName},</h2>
@@ -511,7 +511,7 @@ function createWeatherConflictEmail(userName, details) {
 function createCalendarConflictEmail(userName, details) {
   const escapedUserName = escapeHtml(userName);
   const escapedDetails = escapeHtml(details);
-  
+
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #7c3aed;">Hello ${escapedUserName},</h2>
@@ -538,7 +538,7 @@ function createGenericNotificationEmail(userName, message, details) {
   const escapedUserName = escapeHtml(userName);
   const escapedMessage = escapeHtml(message);
   const escapedDetails = details ? escapeHtml(details) : '';
-  
+
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #2563eb;">Hello ${escapedUserName},</h2>
@@ -559,218 +559,218 @@ function createGenericNotificationEmail(userName, message, details) {
  * Store in-app notification in database
  */
 async function storeInAppNotification(userId, notification) {
-    try {
-        const supabaseClient = await getSupabaseClient();
-        const { data, error: insertError } = await supabaseClient
-            .from('user_notifications')
-            .insert([{
-                user_id: userId,
-                notification_type: notification.notification_type,
-                title: notification.title,
-                message: notification.message,
-                details: notification.details,
-                read: notification.read,
-                created_at: notification.created_at
-            }])
-            .select()
-            .single();
+  try {
+    const supabaseClient = await getSupabaseClient();
+    const { data, error: insertError } = await supabaseClient
+      .from('user_notifications')
+      .insert([{
+        user_id: userId,
+        notification_type: notification.notification_type,
+        title: notification.title,
+        message: notification.message,
+        details: notification.details,
+        read: notification.read,
+        created_at: notification.created_at
+      }])
+      .select()
+      .single();
 
-        if (insertError) {
-            logger.error(`Failed to store in-app notification for user ${userId}:`, insertError);
-        } else if (data) {
-            // Send real-time update
-            webSocketManager.sendMessage(userId, {
-                type: 'new_notification',
-                payload: data
-            });
-        }
-    } catch (error) {
-        logger.error(`Exception in storeInAppNotification for user ${userId}:`, error);
+    if (insertError) {
+      logger.error(`Failed to store in-app notification for user ${userId}:`, insertError);
+    } else if (data) {
+      // Send real-time update
+      webSocketManager.sendMessage(userId, {
+        type: 'new_notification',
+        payload: data
+      });
     }
+  } catch (error) {
+    logger.error(`Exception in storeInAppNotification for user ${userId}:`, error);
+  }
 }
 
 /**
  * Get user's notifications with status filter.
  */
 export async function getUserNotifications(userId, status = 'unread', limit = 20) {
-    try {
-        // Validate and sanitize the limit parameter
-        const sanitizedLimit = Math.max(1, Math.min(100, 
-            Number.isNaN(parseInt(limit)) || parseInt(limit) <= 0 ? 20 : parseInt(limit)
-        ));
+  try {
+    // Validate and sanitize the limit parameter
+    const sanitizedLimit = Math.max(1, Math.min(100,
+      Number.isNaN(parseInt(limit)) || parseInt(limit) <= 0 ? 20 : parseInt(limit)
+    ));
 
-        const supabaseClient = await getSupabaseClient();
-        let query = supabaseClient
-            .from('user_notifications')
-            .select('*')
-            .eq('user_id', userId);
+    const supabaseClient = await getSupabaseClient();
+    let query = supabaseClient
+      .from('user_notifications')
+      .select('*')
+      .eq('user_id', userId);
 
-        if (status === 'unread') {
-            query = query.eq('read', false);
-        } else if (status === 'read') {
-            query = query.eq('read', true);
-        }
-        // 'all' status doesn't need a read filter
-
-        const { data, error } = await query
-            .order('created_at', { ascending: false })
-            .limit(sanitizedLimit);
-
-        if (error) {
-            logger.error(`Failed to get notifications for user ${userId}:`, error);
-            return [];
-        }
-
-        return data || [];
-    } catch (error) {
-        logger.error(`Exception in getUserNotifications for user ${userId}:`, error);
-        return [];
+    if (status === 'unread') {
+      query = query.eq('read', false);
+    } else if (status === 'read') {
+      query = query.eq('read', true);
     }
+    // 'all' status doesn't need a read filter
+
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .limit(sanitizedLimit);
+
+    if (error) {
+      logger.error(`Failed to get notifications for user ${userId}:`, error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    logger.error(`Exception in getUserNotifications for user ${userId}:`, error);
+    return [];
+  }
 }
 
 /**
  * Mark notification as read
  */
 export async function markNotificationAsRead(notificationId, userId) {
-    try {
-        const supabaseClient = await getSupabaseClient();
-        const { data, error } = await supabaseClient
-            .from('user_notifications')
-            .update({ read: true })
-            .eq('id', notificationId)
-            .eq('user_id', userId)
-            .select('id')
-            .single();
+  try {
+    const supabaseClient = await getSupabaseClient();
+    const { data, error } = await supabaseClient
+      .from('user_notifications')
+      .update({ read: true })
+      .eq('id', notificationId)
+      .eq('user_id', userId)
+      .select('id')
+      .single();
 
-        if (error) {
-            logger.error(`Failed to mark notification as read for user ${userId}:`, error);
-            return { success: false, error: error.message };
-        }
-
-        if (data) {
-            webSocketManager.sendMessage(userId, {
-                type: 'notification_read',
-                payload: { id: notificationId }
-            });
-        }
-
-        return { success: true };
-    } catch (error) {
-        logger.error(`Exception in markNotificationAsRead for user ${userId}:`, error);
-        return { success: false, error: error.message };
+    if (error) {
+      logger.error(`Failed to mark notification as read for user ${userId}:`, error);
+      return { success: false, error: error.message };
     }
+
+    if (data) {
+      webSocketManager.sendMessage(userId, {
+        type: 'notification_read',
+        payload: { id: notificationId }
+      });
+    }
+
+    return { success: true };
+  } catch (error) {
+    logger.error(`Exception in markNotificationAsRead for user ${userId}:`, error);
+    return { success: false, error: error.message };
+  }
 }
 
 export async function markAllNotificationsAsReadAndArchive(userId) {
-    try {
-        // First, mark all as read
-        await markAllNotificationsAsRead(userId);
+  try {
+    // First, mark all as read
+    await markAllNotificationsAsRead(userId);
 
-        // Get all read notifications
-        const supabaseClient = await getSupabaseClient();
-        const { data: readNotifications, error: fetchError } = await supabaseClient
-            .from('user_notifications')
-            .select('*')
-            .eq('user_id', userId)
-            .eq('read', true);
+    // Get all read notifications
+    const supabaseClient = await getSupabaseClient();
+    const { data: readNotifications, error: fetchError } = await supabaseClient
+      .from('user_notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('read', true);
 
-        if (fetchError) {
-            logger.error(`Failed to fetch read notifications for archiving for user ${userId}:`, fetchError);
-            return { success: false, error: fetchError.message };
-        }
-
-        if (readNotifications && readNotifications.length > 0) {
-            const archiveData = readNotifications.map(n => ({
-                id: n.id,
-                user_id: n.user_id,
-                notification_type: n.notification_type,
-                title: n.title,
-                message: n.message,
-                details: n.details,
-                created_at: n.created_at,
-            }));
-
-            // Insert into archive table
-            const { error: archiveError } = await supabaseClient
-                .from('archived_user_notifications')
-                .insert(archiveData);
-
-            if (archiveError) {
-                logger.error(`Failed to archive notifications for user ${userId}:`, archiveError);
-                return { success: false, error: archiveError.message };
-            }
-
-            // Delete from original table
-            const idsToDelete = readNotifications.map(n => n.id);
-            const { error: deleteError } = await supabaseClient
-                .from('user_notifications')
-                .delete()
-                .in('id', idsToDelete);
-
-            if (deleteError) {
-                logger.error(`Failed to delete archived notifications for user ${userId}:`, deleteError);
-                // Don't fail the whole operation, as the main goal was to archive.
-            }
-        }
-
-        return { success: true };
-    } catch (error) {
-        logger.error(`Exception in markAllNotificationsAsReadAndArchive for user ${userId}:`, error);
-        return { success: false, error: error.message };
+    if (fetchError) {
+      logger.error(`Failed to fetch read notifications for archiving for user ${userId}:`, fetchError);
+      return { success: false, error: fetchError.message };
     }
+
+    if (readNotifications && readNotifications.length > 0) {
+      const archiveData = readNotifications.map(n => ({
+        id: n.id,
+        user_id: n.user_id,
+        notification_type: n.notification_type,
+        title: n.title,
+        message: n.message,
+        details: n.details,
+        created_at: n.created_at,
+      }));
+
+      // Insert into archive table
+      const { error: archiveError } = await supabaseClient
+        .from('archived_user_notifications')
+        .insert(archiveData);
+
+      if (archiveError) {
+        logger.error(`Failed to archive notifications for user ${userId}:`, archiveError);
+        return { success: false, error: archiveError.message };
+      }
+
+      // Delete from original table
+      const idsToDelete = readNotifications.map(n => n.id);
+      const { error: deleteError } = await supabaseClient
+        .from('user_notifications')
+        .delete()
+        .in('id', idsToDelete);
+
+      if (deleteError) {
+        logger.error(`Failed to delete archived notifications for user ${userId}:`, deleteError);
+        // Don't fail the whole operation, as the main goal was to archive.
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    logger.error(`Exception in markAllNotificationsAsReadAndArchive for user ${userId}:`, error);
+    return { success: false, error: error.message };
+  }
 }
 
 export async function getUnreadNotificationsCount(userId) {
-    try {
-        const supabaseClient = await getSupabaseClient();
-        const { count, error } = await supabaseClient
-            .from('user_notifications')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .eq('read', false);
+  try {
+    const supabaseClient = await getSupabaseClient();
+    const { count, error } = await supabaseClient
+      .from('user_notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('read', false);
 
-        if (error) {
-            logger.error(`Failed to get unread notifications count for user ${userId}:`, error);
-            return 0;
-        }
-
-        return Number(count) || 0;
-    } catch (error) {
-        logger.error(`Exception in getUnreadNotificationsCount for user ${userId}:`, error);
-        return 0;
+    if (error) {
+      logger.error(`Failed to get unread notifications count for user ${userId}:`, error);
+      return 0;
     }
+
+    return Number(count) || 0;
+  } catch (error) {
+    logger.error(`Exception in getUnreadNotificationsCount for user ${userId}:`, error);
+    return 0;
+  }
 }
 
 /**
  * Mark all notifications as read for a user
  */
 export async function markAllNotificationsAsRead(userId) {
-    try {
-        const supabaseClient = await getSupabaseClient();
-        const { data, error } = await supabaseClient
-            .from('user_notifications')
-            .update({ read: true })
-            .eq('user_id', userId)
-            .eq('read', false)
-            .select('id');
+  try {
+    const supabaseClient = await getSupabaseClient();
+    const { data, error } = await supabaseClient
+      .from('user_notifications')
+      .update({ read: true })
+      .eq('user_id', userId)
+      .eq('read', false)
+      .select('id');
 
-        if (error) {
-            logger.error(`Failed to mark all notifications as read for user ${userId}:`, error);
-            return { success: false, error: error.message };
-        }
-
-        if (data && data.length > 0) {
-            webSocketManager.sendMessage(userId, {
-                type: 'all_notifications_read',
-                payload: { ids: data.map(n => n.id) }
-            });
-        }
-
-        return { success: true };
-    } catch (error) {
-        logger.error(`Exception in markAllNotificationsAsRead for user ${userId}:`, error);
-        return { success: false, error: error.message };
+    if (error) {
+      logger.error(`Failed to mark all notifications as read for user ${userId}:`, error);
+      return { success: false, error: error.message };
     }
+
+    if (data && data.length > 0) {
+      webSocketManager.sendMessage(userId, {
+        type: 'all_notifications_read',
+        payload: { ids: data.map(n => n.id) }
+      });
+    }
+
+    return { success: true };
+  } catch (error) {
+    logger.error(`Exception in markAllNotificationsAsRead for user ${userId}:`, error);
+    return { success: false, error: error.message };
+  }
 }
 
 /**
@@ -781,35 +781,62 @@ export async function markAllNotificationsAsRead(userId) {
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 export async function sendDailyFocusReminder(userId, task, userName) {
-    try {
-        const hasFocusTask = task && task.title;
-        const title = getFocusNotificationTitle(hasFocusTask);
-        const message = hasFocusTask 
-            ? generateFocusNotificationMessage(userName, task.title)
-            : generateNoFocusTaskMessage();
+  try {
+    const hasFocusTask = task && task.title;
+    const title = getFocusNotificationTitle(hasFocusTask);
+    const message = hasFocusTask
+      ? generateFocusNotificationMessage(userName, task.title)
+      : generateNoFocusTaskMessage();
 
-        const notification = {
-            notification_type: 'daily_focus_reminder',
-            title,
-            message,
-            details: hasFocusTask ? { 
-                taskId: task.id, 
-                taskTitle: task.title,
-                hasFocusTask: true 
-            } : { 
-                hasFocusTask: false 
-            }
-        };
+    const notification = {
+      notification_type: 'daily_focus_reminder',
+      title,
+      message,
+      details: hasFocusTask ? {
+        taskId: task.id,
+        taskTitle: task.title,
+        hasFocusTask: true
+      } : {
+        hasFocusTask: false
+      }
+    };
 
-        const result = await sendNotification(userId, notification);
-        
-        if (result.success) {
-            logger.info(`Daily focus reminder sent to user ${userId}${hasFocusTask ? ` for task: ${task.title}` : ' (no focus task set)'}`);
-        }
-        
-        return result;
-    } catch (error) {
-        logger.error(`Failed to send daily focus reminder to user ${userId}:`, error);
-        return { success: false, error: error.message };
+    const result = await sendNotification(userId, notification);
+
+    if (result.success) {
+      logger.info(`Daily focus reminder sent to user ${userId}${hasFocusTask ? ` for task: ${task.title}` : ' (no focus task set)'}`);
     }
+
+    return result;
+  } catch (error) {
+    logger.error(`Failed to send daily focus reminder to user ${userId}:`, error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send routine reminder notification
+ * @param {string} userId - User ID
+ * @param {object} routine - Routine object
+ */
+export async function sendRoutineReminder(userId, routine) {
+  const notification = {
+    notification_type: 'routine_reminder',
+    title: `Time for: ${routine.title}`,
+    message: getMotivationalMessage(routine.current_streak),
+    details: {
+      routine_id: routine.id,
+      routine_title: routine.title,
+      current_streak: routine.current_streak
+    }
+  };
+
+  return await sendNotification(userId, notification);
+}
+
+function getMotivationalMessage(streak) {
+  if (streak === 0) return "Start your streak today! 🌱";
+  if (streak < 7) return `Keep going! ${streak}-day streak 🔥`;
+  if (streak < 30) return `Amazing! ${streak}-day streak! 💪`;
+  return `Incredible ${streak}-day streak! You're unstoppable! 🏆`;
 }

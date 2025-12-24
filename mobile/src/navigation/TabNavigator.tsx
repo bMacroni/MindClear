@@ -8,7 +8,6 @@ import { BrainDumpProvider } from '../contexts/BrainDumpContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import screens directly for now to fix lazy loading issues
-import AIChatScreen from '../screens/ai/AIChatScreen';
 import BrainDumpInputScreen from '../screens/brain/BrainDumpInputScreen';
 import BrainDumpRefinementScreen from '../screens/brain/BrainDumpRefinementScreen';
 import BrainDumpOnboardingScreen from '../screens/brain/BrainDumpOnboardingScreen';
@@ -17,6 +16,7 @@ import BrainDumpEntryScreen from '../screens/brain/BrainDumpEntryScreen';
 import FocusTaskGuidanceScreen from '../screens/tasks/FocusTaskGuidanceScreen';
 import GoalsScreen from '../screens/goals/GoalsScreen';
 import TasksScreen from '../screens/tasks/TasksScreen';
+import RoutinesScreen from '../screens/routines/RoutinesScreen';
 import CalendarScreen from '../screens/calendar/CalendarScreen';
 
 import { MainHeader } from './MainHeader';
@@ -81,9 +81,9 @@ export default function TabNavigator() {
         )}
       </Tab.Screen>
       <Tab.Screen
-        name="AIChat"
-        component={AIChatScreen}
-        options={{ title: 'AI Chat', tabBarLabel: 'AI Chat' }}
+        name="Routines"
+        component={RoutinesScreen}
+        options={{ title: 'Routines', tabBarLabel: 'Routines' }}
       />
       <Tab.Screen
         name="Goals"

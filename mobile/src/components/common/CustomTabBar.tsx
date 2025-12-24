@@ -44,6 +44,8 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
         return Flag01Icon;
       case 'Tasks':
         return Task01Icon;
+      case 'Routines':
+        return Calendar01Icon; // Using Calendar/Schedule icon for Routines temporarily or choose a better one if available
       case 'Calendar':
         return Calendar01Icon;
       default:
@@ -51,13 +53,28 @@ export const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, 
     }
   };
 
-  // Reorder: Goals, Tasks, BrainDump (center), AIChat, Calendar
+  // Reorder: Routines, Goals, BrainDump (center), Tasks, Calendar
+  // OR Logic: Left tabs: Routines, Goals. Right tabs: Tasks, Calendar.
+  // Original was: Goals, Tasks, [Center], AIChat, Calendar
+  // New desired: Routines, Goals, [Center], Tasks, Calendar (replacing AIChat with Routines effectively)
+  // Let's check user request: "replace the AI Chat in the nav with routines"
+  // Assuming 4 tabs + center: 
+  // Left: Routines, Goals 
+  // Center: BrainDump
+  // Right: Tasks, Calendar 
+  // Wait, original Right was AIChat, Calendar.
+  // So replacing AIChat means: RightSide: Routines, Calendar? 
+  // Let's stick to a logical flow. 
+  // Let's put Routines on the Left or Right? 
+  // User said "replace AI Chat", AI Chat was on Right (index 3).
+  // So: Goals, Tasks, [Center], Routines, Calendar.
+
   const orderedRoutes = state.routes;
   const reorderedRoutes = [
     orderedRoutes.find((r: any) => r.name === 'Goals'),
     orderedRoutes.find((r: any) => r.name === 'Tasks'),
     orderedRoutes.find((r: any) => r.name === 'BrainDump'),
-    orderedRoutes.find((r: any) => r.name === 'AIChat'),
+    orderedRoutes.find((r: any) => r.name === 'Routines'),
     orderedRoutes.find((r: any) => r.name === 'Calendar'),
   ].filter(Boolean);
 
