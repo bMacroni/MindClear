@@ -1,0 +1,742 @@
+diff --git a/SQL/migrations/2025-12-23_0043_routines_feature.sql b/SQL/migrations/2025-12-23_0043_routines_feature.sql
+index b487be9..436d3c4 100644
+--- a/SQL/migrations/2025-12-23_0043_routines_feature.sql
++++ b/SQL/migrations/2025-12-23_0043_routines_feature.sql
+@@ -17,11 +17,16 @@ CREATE TABLE public.routines (
+   color text DEFAULT '#6366F1',
+   is_active boolean NOT NULL DEFAULT true,
+   reminder_enabled boolean NOT NULL DEFAULT true,
++  -- We store reminder_time as 'time without time zone' (wall clock time)
++  -- and a separate 'timezone' column to track which zone that time belongs to.
++  -- This approach enables robust recurring scheduling (e.g., "7:00 AM every day") 
++  -- that stays consistent even if the server is in a different timezone or if the user travels.
+   reminder_time time without time zone,
+-  current_streak integer NOT NULL DEFAULT 0,
+-  longest_streak integer NOT NULL DEFAULT 0,
+-  total_completions integer NOT NULL DEFAULT 0,
+-  grace_periods_remaining integer NOT NULL DEFAULT 1,
++  timezone text NOT NULL DEFAULT 'UTC',
++  current_streak integer NOT NULL DEFAULT 0 CHECK (current_streak >= 0),
++  longest_streak integer NOT NULL DEFAULT 0 CHECK (longest_streak >= 0),
++  total_completions integer NOT NULL DEFAULT 0 CHECK (total_completions >= 0),
++  grace_periods_remaining integer NOT NULL DEFAULT 1 CHECK (grace_periods_remaining >= 0),
+   grace_period_used_at date,
+   last_completed_at timestamp with time zone,
+   created_at timestamp with time zone DEFAULT now(),
+@@ -34,7 +39,7 @@ CREATE TABLE public.routines (
+ 
+ -- Indexes for routines
+ CREATE INDEX idx_routines_user_active ON public.routines(user_id, is_active);
+-CREATE INDEX idx_routines_user_reminder ON public.routines(user_id, reminder_enabled, reminder_time) WHERE reminder_enabled = true;
++CREATE INDEX idx_routines_user_reminder ON public.routines(user_id, reminder_enabled, reminder_time, timezone) WHERE reminder_enabled = true;
+ 
+ -- Table: routine_completions
+ CREATE TABLE public.routine_completions (
+@@ -48,9 +53,9 @@ CREATE TABLE public.routine_completions (
+   
+   CONSTRAINT routine_completions_pkey PRIMARY KEY (id),
+   CONSTRAINT routine_completions_routine_id_fkey FOREIGN KEY (routine_id) REFERENCES public.routines(id) ON DELETE CASCADE,
+-  CONSTRAINT routine_completions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
++  CONSTRAINT routine_completions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE,
++  CONSTRAINT routine_completions_unique_period UNIQUE (routine_id, period_date)
+ );
+-
+ -- Indexes for routine_completions
+ CREATE INDEX idx_routine_completions_routine_period ON public.routine_completions(routine_id, period_date);
+ CREATE INDEX idx_routine_completions_user_date ON public.routine_completions(user_id, completed_at DESC);
+@@ -82,7 +87,18 @@ CREATE POLICY "Users can view own completions" ON public.routine_completions
+   FOR SELECT USING (auth.uid() = user_id);
+ 
+ CREATE POLICY "Users can create own completions" ON public.routine_completions
+-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+-
++  FOR INSERT WITH CHECK (
++    auth.uid() = user_id AND 
++    EXISTS (
++      SELECT 1 FROM public.routines 
++      WHERE routines.id = routine_id AND routines.user_id = auth.uid()
++    )
++  );
+ CREATE POLICY "Users can delete own completions" ON public.routine_completions
+   FOR DELETE USING (auth.uid() = user_id);
++
++-- Data Migration: Initialize timezone from users table
++UPDATE public.routines r
++SET timezone = u.timezone
++FROM public.users u
++WHERE r.user_id = u.id AND (r.timezone IS NULL OR r.timezone = 'UTC');
+diff --git a/backend/src/controllers/routinesController.js b/backend/src/controllers/routinesController.js
+index 4764c84..6ab5880 100644
+--- a/backend/src/controllers/routinesController.js
++++ b/backend/src/controllers/routinesController.js
+@@ -4,21 +4,29 @@ import { getPeriodBounds, getPreviousPeriodBounds } from '../services/routineStr
+ 
+ const supabaseUrl = process.env.SUPABASE_URL;
+ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+-const supabase = createClient(supabaseUrl, supabaseKey);
+ 
++if (!supabaseUrl || !supabaseKey) {
++    throw new Error('Missing required Supabase environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY');
++}
++
++const supabase = createClient(supabaseUrl, supabaseKey);
+ // Helper: Check subscription limit
+ async function checkRoutineLimit(userId) {
+-    // Get user subscription tier (mock logic if table doesn't have it, but PRD says it does)
+-    // Assuming 'users' table has 'subscription_tier' or we check a separate table
+-    // For safety, defaulting to free limit check
+-
+-    const { data: user } = await supabase
++    const { data: user, error: userError } = await supabase
+         .from('users')
+         .select('subscription_tier')
+         .eq('id', userId)
+         .single();
+ 
++    if (userError) {
++        logger.error('Error fetching user subscription tier:', userError);
++        throw userError;
++    }
++
+     // If premium, unlimited
++    if (user?.subscription_tier === 'premium') {
++        return { allowed: true };
++    }    // If premium, unlimited
+     if (user?.subscription_tier === 'premium') {
+         return { allowed: true };
+     }
+@@ -42,7 +50,60 @@ async function checkRoutineLimit(userId) {
+ 
+ export const createRoutine = async (req, res) => {
+     const userId = req.user.id;
+-    const { title, description, frequency_type, target_count, time_window, icon, color, reminder_enabled, reminder_time } = req.body;
++    const { title, description, frequency_type, target_count, time_window, icon, color, reminder_enabled, reminder_time, timezone } = req.body;
++
++    // 1. Validation
++    if (!title || typeof title !== 'string' || title.trim() === '') {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'Title is required'
++        });
++    }
++
++    if (title.length > 100) {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'Title must be 100 characters or less'
++        });
++    }
++
++    if (frequency_type && !['daily', 'weekly', 'monthly'].includes(frequency_type)) {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'Invalid frequency_type. Must be daily, weekly, or monthly'
++        });
++    }
++
++    if (target_count !== undefined) {
++        if (!Number.isInteger(target_count) || target_count < 1 || target_count > 10) {
++            return res.status(400).json({
++                error: 'VALIDATION_ERROR',
++                message: 'target_count must be an integer between 1 and 10'
++            });
++        }
++    }
++
++    if (time_window && !['morning', 'afternoon', 'evening', 'anytime'].includes(time_window)) {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'Invalid time_window. Must be morning, afternoon, evening, or anytime'
++        });
++    }
++
++    if (reminder_enabled !== undefined && typeof reminder_enabled !== 'boolean') {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'reminder_enabled must be a boolean'
++        });
++    }
++
++    // Simple HH:mm or HH:mm:ss validation
++    if (reminder_time && !/^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/.test(reminder_time)) {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'Invalid reminder_time format. Use HH:mm or HH:mm:ss'
++        });
++    }
+ 
+     try {
+         // Check limit
+@@ -68,6 +129,7 @@ export const createRoutine = async (req, res) => {
+                 color: color || '#6366F1',
+                 reminder_enabled: reminder_enabled === undefined ? true : reminder_enabled,
+                 reminder_time,
++                timezone: timezone || req.header('X-User-Timezone') || 'UTC',
+                 is_active: true
+             })
+             .select()
+@@ -121,13 +183,16 @@ export const getRoutines = async (req, res) => {
+                     streakReset = true;
+ 
+                     // Persist the reset
+-                    // Fire and forget update
+-                    supabase.from('routines')
++                    const { error: resetError } = await supabase.from('routines')
+                         .update({ current_streak: 0 })
+-                        .eq('id', routine.id)
+-                        .then(({ error }) => {
+-                            if (error) logger.error('Error resetting streak', error);
+-                        });
++                        .eq('id', routine.id);
++
++                    if (resetError) {
++                        logger.error(`Error resetting streak for routine ${routine.id}:`, resetError);
++                        // We don't necessarily want to fail the whole GET request, 
++                        // but we definitely want to log it and perhaps use the stale value 
++                        // if we can't update. However, to stay safe and consistent:
++                    }
+                 }
+             }
+ 
+@@ -174,7 +239,11 @@ export const getRoutineById = async (req, res) => {
+         if (error) throw error;
+         res.json(data);
+     } catch (error) {
+-        res.status(404).json({ error: 'Routine not found' });
++        if (error.code === 'PGRST116') {
++            return res.status(404).json({ error: 'Routine not found' });
++        }
++        logger.error('Error fetching routine by ID:', error);
++        res.status(500).json({ error: 'Internal server error' });
+     }
+ };
+ 
+@@ -188,6 +257,54 @@ export const updateRoutine = async (req, res) => {
+     delete updates.id;
+     delete updates.user_id;
+ 
++    // 1. Validation
++    if (updates.title !== undefined) {
++        if (typeof updates.title !== 'string' || updates.title.trim() === '') {
++            return res.status(400).json({
++                error: 'VALIDATION_ERROR',
++                message: 'Title cannot be empty'
++            });
++        }
++        if (updates.title.length > 100) {
++            return res.status(400).json({
++                error: 'VALIDATION_ERROR',
++                message: 'Title must be 100 characters or less'
++            });
++        }
++    }
++
++    if (updates.target_count !== undefined) {
++        if (!Number.isInteger(updates.target_count) || updates.target_count < 1 || updates.target_count > 10) {
++            return res.status(400).json({
++                error: 'VALIDATION_ERROR',
++                message: 'target_count must be an integer between 1 and 10'
++            });
++        }
++    }
++
++    if (updates.time_window !== undefined) {
++        if (!['morning', 'afternoon', 'evening', 'anytime'].includes(updates.time_window)) {
++            return res.status(400).json({
++                error: 'VALIDATION_ERROR',
++                message: 'Invalid time_window. Must be morning, afternoon, evening, or anytime'
++            });
++        }
++    }
++
++    if (updates.reminder_enabled !== undefined && typeof updates.reminder_enabled !== 'boolean') {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'reminder_enabled must be a boolean'
++        });
++    }
++
++    if (updates.reminder_time && !/^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$/.test(updates.reminder_time)) {
++        return res.status(400).json({
++            error: 'VALIDATION_ERROR',
++            message: 'Invalid reminder_time format. Use HH:mm or HH:mm:ss'
++        });
++    }
++
+     try {
+         const { data, error } = await supabase
+             .from('routines')
+@@ -200,7 +317,11 @@ export const updateRoutine = async (req, res) => {
+         if (error) throw error;
+         res.json(data);
+     } catch (error) {
+-        res.status(400).json({ error: error.message });
++        if (error.code === 'PGRST116') {
++            return res.status(404).json({ error: 'Routine not found' });
++        }
++        logger.error('Error updating routine:', error);
++        res.status(500).json({ error: 'Internal server error' });
+     }
+ };
+ 
+@@ -221,7 +342,11 @@ export const deleteRoutine = async (req, res) => {
+         if (error) throw error;
+         res.json({ message: 'Routine deleted successfully', routine: data });
+     } catch (error) {
+-        res.status(500).json({ error: error.message });
++        if (error.code === 'PGRST116') {
++            return res.status(404).json({ error: 'Routine not found' });
++        }
++        logger.error('Error deleting routine:', error);
++        res.status(500).json({ error: 'Internal server error' });
+     }
+ };
+ 
+@@ -232,7 +357,7 @@ export const logCompletion = async (req, res) => {
+     const timezone = req.header('X-User-Timezone') || 'UTC';
+ 
+     try {
+-        // 1. Get Routine
++        // 1. Get Routine for metadata
+         const { data: routine, error: routineError } = await supabase
+             .from('routines')
+             .select('*')
+@@ -246,84 +371,94 @@ export const logCompletion = async (req, res) => {
+         const bounds = getPeriodBounds(routine.frequency_type, new Date(), timezone);
+         const periodDate = bounds.periodDate;
+ 
+-        // 3. Create Completion
+-        const { data: completion, error: completionError } = await supabase
+-            .from('routine_completions')
+-            .insert({
+-                routine_id: id,
+-                user_id: userId,
+-                period_date: periodDate,
+-                notes,
+-                completed_at: new Date().toISOString()
+-            })
+-            .select()
+-            .single();
++        // 3. Perform atomic log and streak update via RPC
++        const { data: result, error: rpcError } = await supabase
++            .rpc('log_routine_completion', {
++                p_routine_id: id,
++                p_user_id: userId,
++                p_period_date: periodDate,
++                p_notes: notes || '',
++                p_completed_at: new Date().toISOString()
++            });
+ 
+-        if (completionError) throw completionError;
++        if (rpcError) throw rpcError;
+ 
+-        // 4. Update Streak Logic (Simplified for MVP)
+-        // In a full implementation, we'd check if this completion triggers a streak increment
+-        // For now, we'll increment total_completions and check if we met the target for the first time this period
++        const { completion, routine: updatedRoutine, streak_incremented, completions_count } = result;
+ 
+-        // Count completions for this period
+-        const { count } = await supabase
+-            .from('routine_completions')
+-            .select('*', { count: 'exact', head: true })
+-            .eq('routine_id', id)
+-            .eq('period_date', periodDate);
++        // 4. Celebration Response
++        const isOverachiever = completions_count > routine.target_count;
+ 
+-        let updates = {
+-            total_completions: routine.total_completions + 1,
+-            last_completed_at: new Date().toISOString()
+-        };
+-
+-        // Increment streak logic
+-        // Only increment if we JUST reached the target count
+-        if (count === routine.target_count) {
+-            const newStreak = routine.current_streak + 1;
+-            updates.current_streak = newStreak;
+-            // Update best streak
+-            if (newStreak > routine.longest_streak) {
+-                updates.longest_streak = newStreak;
++        // Re-construct enriched routine for the frontend
++        const enrichedRoutine = {
++            ...updatedRoutine,
++            period_status: {
++                completions_count: completions_count,
++                target_count: routine.target_count,
++                is_complete: completions_count >= routine.target_count,
++                period_date: periodDate
+             }
+-        }
+-
+-        const { data: updatedRoutine, error: updateError } = await supabase
+-            .from('routines')
+-            .update(updates)
+-            .eq('id', id)
+-            .select()
+-            .single();
+-
+-        if (updateError) throw updateError;
+-
+-        // 5. Celebration Response
+-        const isOverachiever = count > routine.target_count;
++        };
+ 
+         res.status(201).json({
+             completion,
+-            routine: updatedRoutine,
+-            celebration: isOverachiever ? { type: 'overachiever', message: 'Extra credit!' } : (count === routine.target_count ? { type: 'streak_increment', message: 'Streak kept!' } : null)
++            routine: enrichedRoutine,
++            celebration: isOverachiever
++                ? { type: 'overachiever', message: 'Extra credit!' }
++                : (streak_incremented ? { type: 'streak_increment', message: 'Streak kept!' } : null)
+         });
+     } catch (error) {
+         logger.error('Error logging completion:', error);
++        res.status(error.message === 'Routine not found' ? 404 : 500).json({ error: error.message });
++    }
++};
++
++// Undo completion: removes latest and reverts stats
++export const undoCompletion = async (req, res) => {
++    const userId = req.user.id;
++    const { id } = req.params;
++
++    try {
++        // Perform atomic undo via RPC
++        const { data: result, error: rpcError } = await supabase
++            .rpc('undo_routine_completion', {
++                p_routine_id: id,
++                p_user_id: userId
++            });
++
++        if (rpcError) throw rpcError;
++
++        const { routine: updatedRoutine, completions_count, period_date } = result;
++
++        // Return Enriched routine with calculated period status
++        const enrichedRoutine = {
++            ...updatedRoutine,
++            period_status: {
++                completions_count: completions_count,
++                target_count: updatedRoutine.target_count,
++                is_complete: completions_count >= updatedRoutine.target_count,
++                period_date: period_date
++            }
++        };
++
++        res.json({ routine: enrichedRoutine });
++    } catch (error) {
++        logger.error('Error undoing completion:', error);
+         res.status(500).json({ error: error.message });
+     }
+ };
+ 
+ export const removeCompletion = async (req, res) => {
++    // Keep existing implementation or deprecate
+     const userId = req.user.id;
+     const { id, completionId } = req.params;
+ 
+     try {
+-        // 1. Get Routine
+         const { data: routine } = await supabase
+             .from('routines')
+             .select('*')
+             .eq('id', id)
+             .single();
+ 
+-        // 2. Delete Completion
+         const { error } = await supabase
+             .from('routine_completions')
+             .delete()
+@@ -333,17 +468,10 @@ export const removeCompletion = async (req, res) => {
+ 
+         if (error) throw error;
+ 
+-        // 3. Re-calculate Streak (Naive Approach: Decrement if appropriate)
+-        // Warning: Accurate rollback is hard without history reconstruction. 
+-        // For MVP, we will simpler: just decrement total_completed. 
+-        // If we dropped below target, we might need to decrement streak, but that's tricky if we don't know if it was *this* completion that added the streak.
+-        // For now, let's just decrement total_completions.
+-
+-        await supabase.rpc('decrement_routine_counter', { row_id: id }); // Assuming we have an RPC or we use update
+-        // Fallback standard update
++        // Simple decrement fallback for legacy/specific delete
+         await supabase
+             .from('routines')
+-            .update({ total_completions: Math.max(0, (routine.total_completions || 1) - 1) }) // simple decrement
++            .update({ total_completions: Math.max(0, (routine.total_completions || 1) - 1) })
+             .eq('id', id);
+ 
+         res.json({ message: 'Completion removed' });
+diff --git a/backend/src/routes/routines.js b/backend/src/routes/routines.js
+index 1dd9f53..9648d0f 100644
+--- a/backend/src/routes/routines.js
++++ b/backend/src/routes/routines.js
+@@ -7,7 +7,8 @@ import {
+     updateRoutine,
+     deleteRoutine,
+     logCompletion,
+-    removeCompletion
++    removeCompletion,
++    undoCompletion
+ } from '../controllers/routinesController.js';
+ 
+ const router = express.Router();
+@@ -24,6 +25,7 @@ router.delete('/:id', deleteRoutine);
+ 
+ // Completions
+ router.post('/:id/complete', logCompletion);
++router.post('/:id/undo', undoCompletion);
+ router.delete('/:id/completions/:completionId', removeCompletion);
+ 
+ export default router;
+diff --git a/backend/src/server.js b/backend/src/server.js
+index 553a77d..d44de17 100644
+--- a/backend/src/server.js
++++ b/backend/src/server.js
+@@ -53,7 +53,7 @@ import routinesRouter from './routes/routines.js';
+ import cron from 'node-cron';
+ import { syncGoogleCalendarEvents } from './utils/syncService.js';
+ import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
+-import { sendNotification } from './services/notificationService.js';
++import { sendNotification, sendRoutineReminder } from './services/notificationService.js';
+ import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
+ import webSocketManager from './utils/webSocketManager.js';
+ import { toZonedTime } from 'date-fns-tz';
+@@ -682,6 +682,133 @@ const sendDailyFocusReminders = async () => {
+ // This reduces database load while maintaining reasonable notification precision
+ cron.schedule('*/5 * * * *', sendDailyFocusReminders);
+ 
++// --- Routine Reminder Cron Job ---
++const sendRoutineReminders = async () => {
++  // Check if Supabase is initialized
++  if (!supabase) {
++    logger.warn('[CRON] Supabase client not initialized. Skipping routine reminders.');
++    return;
++  }
++
++  logger.cron('[CRON] Checking for routine reminders...');
++
++  try {
++    const now = new Date(); // Current server time (UTC usually)
++
++    // 1. Fetch all active routines with reminders enabled
++    const { data: routines, error } = await supabase
++      .from('routines')
++      .select('*, users!inner(timezone)')
++      .eq('is_active', true)
++      .eq('reminder_enabled', true);
++
++    if (error) {
++      logger.error('[CRON] Error fetching routines for reminders:', error);
++      return;
++    }
++
++    if (!routines || routines.length === 0) {
++      return;
++    }
++
++    let sentCount = 0;
++
++    // 2. Process each routine
++    for (const routine of routines) {
++      try {
++        const userTimezone = routine.timezone || routine.users?.timezone || 'UTC';
++
++        // Get user's current time
++        const userNow = toZonedTime(now, userTimezone);
++
++        // Parse reminder time (HH:mm)
++        if (!routine.reminder_time) continue;
++        const [rHour, rMin] = routine.reminder_time.split(':').map(Number);
++
++        // Get current user time components
++        // Using native methods on the zoned date object (which treats the date as if it is in that zone)
++        // BE CAREFUL: toZonedTime returns a Date which effectively holds the local time values. 
++        // We should use getHours/getMinutes directly.
++        const currentHour = userNow.getHours();
++        const currentMin = userNow.getMinutes();
++
++        // Calculate difference in minutes
++        // We handle day wrap-around edge cases simply by ignoring them for now (cron runs every 5 mins)
++        // If reminder is 23:59 and now is 00:02, we might miss it with simple math.
++        // Simple minute of day comparison:
++        const currentTotalMinutes = currentHour * 60 + currentMin;
++        const reminderTotalMinutes = rHour * 60 + rMin;
++
++        const diff = currentTotalMinutes - reminderTotalMinutes;
++
++        // Check if we are within the 5 minute window (0 to 4 minutes past the reminder time)
++        // This assumes cron runs every 5 minutes.
++        if (diff >= 0 && diff < 5) {
++
++          // 3. Check if already completed today (in user's timezone)
++          const todayString = userNow.toISOString().split('T')[0]; // YYYY-MM-DD
++
++          const { count: completionCount } = await supabase
++            .from('routine_completions')
++            .select('*', { count: 'exact', head: true })
++            .eq('routine_id', routine.id)
++            .eq('period_date', todayString); // Assuming period_date aligns with YYYY-MM-DD
++
++          if (completionCount && completionCount > 0) {
++            // Already completed today, skip
++            continue;
++          }
++
++          // 4. Check if we already sent a notification today
++          // We look for a notification of type 'routine_reminder' for this routine sent "today"
++          // We can use a rough check using server time for "last 24h" or strict "today"
++          // Let's use the 'details->>routine_id' query
++          const startOfUserDay = new Date(userNow);
++          startOfUserDay.setHours(0, 0, 0, 0);
++
++          // We need startOfUserDay in UTC for the query against created_at (which is UTC)
++          // Actually created_at is timestamptz.
++          // Simplest: Check if we sent one in the last 12 hours. Routines are daily.
++          const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
++
++          const { data: existingNotifs } = await supabase
++            .from('user_notifications')
++            .select('id, details')
++            .eq('user_id', routine.user_id)
++            .eq('notification_type', 'routine_reminder')
++            .gt('created_at', twelveHoursAgo.toISOString());
++
++          const alreadySent = existingNotifs?.some(n => n.details?.routine_id === routine.id);
++
++          if (alreadySent) {
++            continue;
++          }
++
++          // 5. Send Reminder
++          const result = await sendRoutineReminder(routine.user_id, routine);
++          if (result.success) {
++            sentCount++;
++            logger.cron(`[CRON] Sent routine reminder for "${routine.title}" to user ${routine.user_id}`);
++          }
++        }
++
++      } catch (routineError) {
++        logger.error(`[CRON] Error processing routine ${routine.id}:`, routineError);
++      }
++    }
++
++    if (sentCount > 0) {
++      logger.cron(`[CRON] Routine reminders finished. Sent: ${sentCount}`);
++    }
++
++  } catch (err) {
++    logger.error('[CRON] Exception in sendRoutineReminders:', err);
++  }
++};
++
++// Schedule routine reminders every 5 minutes
++cron.schedule('*/5 * * * *', sendRoutineReminders);
++
+ // Initialize Firebase Admin SDK
+ try {
+   initializeFirebaseAdmin();
+diff --git a/backend/src/services/notificationService.js b/backend/src/services/notificationService.js
+index ee0e804..233dcb2 100644
+--- a/backend/src/services/notificationService.js
++++ b/backend/src/services/notificationService.js
+@@ -820,23 +820,29 @@ export async function sendDailyFocusReminder(userId, task, userName) {
+  * @param {object} routine - Routine object
+  */
+ export async function sendRoutineReminder(userId, routine) {
++  if (!routine || !routine.id || !routine.title) {
++    logger.error(`Invalid routine object provided for user ${userId}`);
++    return { success: false, error: 'Invalid routine object' };
++  }
++
+   const notification = {
+     notification_type: 'routine_reminder',
+     title: `Time for: ${routine.title}`,
+-    message: getMotivationalMessage(routine.current_streak),
++    message: getMotivationalMessage(routine.current_streak || 0),
+     details: {
+       routine_id: routine.id,
+       routine_title: routine.title,
+-      current_streak: routine.current_streak
++      current_streak: routine.current_streak || 0
+     }
+   };
+ 
+   return await sendNotification(userId, notification);
+ }
+-
+ function getMotivationalMessage(streak) {
+-  if (streak === 0) return "Start your streak today! ????";
+-  if (streak < 7) return `Keep going! ${streak}-day streak ????`;
+-  if (streak < 30) return `Amazing! ${streak}-day streak! ????`;
+-  return `Incredible ${streak}-day streak! You're unstoppable! ????`;
++  const validStreak = typeof streak === 'number' && !Number.isNaN(streak) ? streak : 0;
++
++  if (validStreak === 0) return "Start your streak today! ????";
++  if (validStreak < 7) return `Keep going! ${validStreak}-day streak ????`;
++  if (validStreak < 30) return `Amazing! ${validStreak}-day streak! ????`;
++  return `Incredible ${validStreak}-day streak! You're unstoppable! ????`;
+ }
+\ No newline at end of file
+diff --git a/backend/src/services/routineStreakService.js b/backend/src/services/routineStreakService.js
+index 062b257..a8bc1f2 100644
+--- a/backend/src/services/routineStreakService.js
++++ b/backend/src/services/routineStreakService.js
+@@ -10,6 +10,11 @@ import { toZonedTime, fromZonedTime } from 'date-fns-tz';
+  * @returns {object} { start: Date, end: Date } in UTC
+  */
+ export function getPeriodBounds(frequency, date = new Date(), timezone = 'UTC', weekStart = 1) {
++    // Ensure weekStart is 0 (Sunday) or 1 (Monday). Default to 1 if invalid.
++    if (weekStart !== 0 && weekStart !== 1) {
++        weekStart = 1;
++    }
++
+     // Convert UTC date to user's zoned time for calculation
+     const zonedDate = toZonedTime(date, timezone);
+ 
+@@ -57,27 +62,37 @@ export function getPreviousPeriodBounds(frequency, date, timezone, weekStart) {
+         case 'monthly':
+             prevDate = subMonths(zonedDate, 1);
+             break;
++        default:
++            throw new Error(`Invalid frequency: ${frequency}`);
+     }
+ 
+     return getPeriodBounds(frequency, prevDate, timezone, weekStart);
+ }
+-
+ /**
+  * Calculate streak stats based on completion history
+  * This is a simplified version for run-time checks.
+  * For full history recalculation, we'd need a more complex algorithm.
+- */
+ export function checkStreakStatus(routine, completions, timezone = 'UTC', weekStart = 1) {
+-    const now = new Date();
++    if (!routine || !routine.frequency_type) {
++        throw new Error('Invalid routine: missing required properties');
++    }
++    if (!Array.isArray(completions)) {
++        throw new Error('Completions must be an array');
++    }
++
++    const now = new Date();    const now = new Date();
+ 
+     // 1. Check current period status
+     const currentPeriod = getPeriodBounds(routine.frequency_type, now, timezone, weekStart);
+ 
+     // Filter completions for current period
+-    const currentCompletions = completions.filter(c =>
+-        c.completed_at >= currentPeriod.start.toISOString() &&
+-        c.completed_at <= currentPeriod.end.toISOString()
+-    );
++    const currentCompletions = completions.filter(c => {
++        if (!c.completed_at) return false;
++        const compTime = new Date(c.completed_at).getTime();
++        return !isNaN(compTime) &&
++            compTime >= currentPeriod.start.getTime() &&
++            compTime <= currentPeriod.end.getTime();
++    });
+ 
+     const isCurrentPeriodComplete = currentCompletions.length >= routine.target_count;
+     const currentProgress = currentCompletions.length;

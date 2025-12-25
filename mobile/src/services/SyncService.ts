@@ -1,6 +1,6 @@
-import {getDatabase} from '../db';
-import {Q, Database} from '@nozbe/watermelondb';
-import {enhancedAPI} from './enhancedApi';
+import { getDatabase } from '../db';
+import { Q, Database } from '@nozbe/watermelondb';
+import { enhancedAPI } from './enhancedApi';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CalendarEvent from '../db/models/CalendarEvent';
 import Task from '../db/models/Task';
@@ -109,7 +109,7 @@ class SyncService {
     let milestone: Milestone | null = null;
     try {
       milestone = await database.get<Milestone>('milestones').find(localMilestoneId);
-    } catch {}
+    } catch { }
     if (!milestone) {
       return localMilestoneId;
     }
@@ -299,11 +299,11 @@ class SyncService {
           };
 
           // Check if this is a delete operation (pending_delete or sync_failed_delete)
-          const isDeleteOperation = syncStatus === 'pending_delete' || 
-                                   syncStatus === 'sync_failed_delete' ||
-                                   (typeof record.status === 'string' && record.status.includes('pending_delete')) ||
-                                   (typeof record.status === 'string' && record.status === 'sync_failed_delete');
-          
+          const isDeleteOperation = syncStatus === 'pending_delete' ||
+            syncStatus === 'sync_failed_delete' ||
+            (typeof record.status === 'string' && record.status.includes('pending_delete')) ||
+            (typeof record.status === 'string' && record.status === 'sync_failed_delete');
+
           if (isDeleteOperation) {
             // If task ID is not a UUID, it was never synced to server
             // Just delete it locally without attempting server deletion
@@ -330,7 +330,7 @@ class SyncService {
               throw deleteError;
             }
           }
-          
+
           switch (normalizedSyncStatus) {
             case 'pending_create':
             case 'sync_failed_create':
@@ -497,7 +497,7 @@ class SyncService {
               break;
             case 'pending_update':
             case 'sync_failed_update':
-              // Fallback for legacy sync_failed, assume update
+            // Fallback for legacy sync_failed, assume update
             case 'sync_failed':
               // Check if the record exists on the server before attempting an update
               try {
@@ -613,8 +613,8 @@ class SyncService {
           // Skip the generic update logic below
         } else {
           await database.write(async () => {
-            if (record.status === 'pending_delete' || 
-                (typeof record.status === 'string' && record.status.includes('pending_delete'))) {
+            if (record.status === 'pending_delete' ||
+              (typeof record.status === 'string' && record.status.includes('pending_delete'))) {
               await record.destroyPermanently();
             } else {
               // For tasks, preserve lifecycle status from server response if provided
@@ -635,7 +635,7 @@ class SyncService {
                 // Non-task records use 'synced' status
                 finalStatus = 'synced';
               }
-              
+
               await record.update(r => {
                 r.status = finalStatus;
                 if (serverResponse && serverResponse.updated_at) {
@@ -657,9 +657,9 @@ class SyncService {
           const isPendingDelete = (record as any).status === 'pending_delete' ||
             (typeof (record as any).status === 'string' && (record as any).status.includes('pending_delete'));
           const statusCode = error?.response?.status;
-          const isTimeout = statusCode === 408 || error?.data?.code === 'TIMEOUT' || 
-                           (error instanceof Error && error.message?.toLowerCase().includes('timeout'));
-          
+          const isTimeout = statusCode === 408 || error?.data?.code === 'TIMEOUT' ||
+            (error instanceof Error && error.message?.toLowerCase().includes('timeout'));
+
           if (isPendingDelete && (statusCode === 404 || statusCode === 410)) {
             await database.write(async () => {
               await (record as any).destroyPermanently();
@@ -667,7 +667,7 @@ class SyncService {
             // Skip error tracking for idempotent delete
             continue;
           }
-          
+
           // Handle timeout errors for pending_delete: check if thread was already deleted
           if (isPendingDelete && isTimeout && record instanceof ConversationThread) {
             try {
@@ -703,7 +703,7 @@ class SyncService {
             const parsedStartTime = serverRecord.start_time ? safeParseDate(serverRecord.start_time) : undefined;
             const parsedEndTime = serverRecord.end_time ? safeParseDate(serverRecord.end_time) : undefined;
             const parsedUpdatedAt = serverRecord.updated_at ? safeParseDate(serverRecord.updated_at) : undefined;
-            
+
             // Check if any critical dates failed to parse
             if (!parsedStartTime || !parsedEndTime || !parsedUpdatedAt) {
               console.error(`Push: Failed to parse dates for record ${record.id} during conflict resolution:`, {
@@ -714,15 +714,15 @@ class SyncService {
                 parsedEndTime: parsedEndTime?.toISOString() || 'FAILED',
                 parsedUpdatedAt: parsedUpdatedAt?.toISOString() || 'FAILED'
               });
-              
+
               // Add to pushErrors instead of corrupting the local record
-              pushErrors.push({ 
-                recordId: record.id, 
-                error: new Error(`Date parsing failed during conflict resolution for record ${record.id}`) 
+              pushErrors.push({
+                recordId: record.id,
+                error: new Error(`Date parsing failed during conflict resolution for record ${record.id}`)
               });
               continue;
             }
-            
+
             await database.write(async () => {
               await record.update(r => {
                 // Only update fields that exist on the specific record type
@@ -749,7 +749,7 @@ class SyncService {
         // like a failed queue or marking the record as sync_failed.
         // For now, we'll just log the error and continue.
       }
-      
+
       // Yield to event loop to allow user operations (like delete) to process
       // This prevents sync from monopolizing the write queue
       await this.yieldToEventLoop();
@@ -766,7 +766,7 @@ class SyncService {
         console.error(`Push: Failed to sync message ${message.id}`, JSON.stringify(error, null, 2));
         messagePushErrors.push({ recordId: message.id, error });
       }
-      
+
       // Yield to event loop to allow user operations to process
       await this.yieldToEventLoop();
     }
@@ -851,7 +851,7 @@ class SyncService {
   ): Promise<ConversationThread> {
     // Ensure thread exists - try original threadId first
     let thread = await conversationRepository.getThreadById(message.threadId);
-    
+
     // If thread not found, it might have been migrated to a new ID during sync
     // Try to find it by checking all synced threads and matching by userId and timestamp
     if (!thread) {
@@ -863,7 +863,7 @@ class SyncService {
             Q.where('status', 'synced')
           )
           .fetch();
-        
+
         // Try to find thread by checking messages in synced threads
         for (const candidateThread of allSyncedThreads) {
           const threadMessages = await conversationRepository.getMessagesByThreadId(candidateThread.id);
@@ -880,7 +880,7 @@ class SyncService {
           }
         }
       }
-      
+
       if (!thread) {
         console.warn(`Push: Thread ${message.threadId} not found for message ${message.id} after migration check`);
         throw new Error('Thread not found');
@@ -908,7 +908,7 @@ class SyncService {
         title: thread.title,
         summary: thread.summary,
       };
-      
+
       let serverResponse: any;
       if (thread.status === 'pending_create') {
         serverResponse = await conversationService.createThread(thread.title, thread.summary);
@@ -939,7 +939,7 @@ class SyncService {
           updatedAt: serverResponse?.updated_at ? safeParseDate(serverResponse.updated_at) : undefined,
         });
       }
-      
+
       // Re-fetch thread to get updated status (use server ID if it changed)
       const finalThreadId = serverResponse?.id || message.threadId;
       const refetchedThread = await conversationRepository.getThreadById(finalThreadId);
@@ -947,7 +947,7 @@ class SyncService {
         throw new Error(`Thread ${finalThreadId} still not synced after sync attempt`);
       }
       thread = refetchedThread;
-      
+
       // Update message's threadId if it changed
       if (serverResponse?.id && serverResponse.id !== message.threadId) {
         await database.write(async () => {
@@ -982,7 +982,7 @@ class SyncService {
 
     // Call AI chat endpoint with the user message
     const chatResponse = await conversationService.syncSendMessage(finalThreadId, message.content, 'fast');
-    
+
     // Handle user message ID migration if server assigned a different ID
     let finalUserMessageId = message.id;
     if (chatResponse.userMessage.id !== message.id) {
@@ -1022,13 +1022,13 @@ class SyncService {
               m.createdAt = safeParseDate(chatResponse.userMessage.created_at) || message.createdAt;
               m.updatedAt = safeParseDate(chatResponse.userMessage.updated_at) || message.updatedAt;
             });
-            
+
             // Delete old message record
             await message.destroyPermanently();
             finalUserMessageId = newMessage.id;
           }
         });
-        
+
         // After successful migration, call markMessageAsSynced with server ID for consistency
         // (even though status is already 'synced', this ensures timestamps are correct)
         await conversationRepository.markMessageAsSynced(finalUserMessageId, {
@@ -1038,17 +1038,17 @@ class SyncService {
       } catch (migrationError: any) {
         // Handle unique-constraint/duplicate-ID races
         const errorMessage = migrationError?.message || String(migrationError || '');
-        const isDuplicateError = 
+        const isDuplicateError =
           errorMessage.toLowerCase().includes('duplicate') ||
           errorMessage.toLowerCase().includes('unique constraint') ||
           errorMessage.toLowerCase().includes('already exists');
-        
+
         if (isDuplicateError) {
           // Race condition: message with server ID was created concurrently, fetch and mark synced
           try {
             const existingServerMessage = await database.get<ConversationMessage>('conversation_messages')
               .find(chatResponse.userMessage.id);
-            
+
             if (existingServerMessage.status !== 'synced') {
               await conversationRepository.markMessageAsSynced(existingServerMessage.id, {
                 createdAt: safeParseDate(chatResponse.userMessage.created_at) || existingServerMessage.createdAt,
@@ -1092,7 +1092,7 @@ class SyncService {
         }
         // Message doesn't exist, will create it below
       }
-      
+
       if (!existingMessage) {
         // Create message with server ID - handle duplicate-ID race conditions
         try {
@@ -1104,8 +1104,8 @@ class SyncService {
               message.role = 'assistant';
               message.content = chatResponse.assistantMessage.content;
               if (chatResponse.assistantMessage.metadata) {
-                message.metadata = typeof chatResponse.assistantMessage.metadata === 'string' 
-                  ? chatResponse.assistantMessage.metadata 
+                message.metadata = typeof chatResponse.assistantMessage.metadata === 'string'
+                  ? chatResponse.assistantMessage.metadata
                   : JSON.stringify(chatResponse.assistantMessage.metadata);
               }
               message.status = 'synced'; // Already synced since it came from server
@@ -1116,17 +1116,17 @@ class SyncService {
         } catch (createError: any) {
           // Handle duplicate-ID errors or unique constraint violations
           const errorMessage = createError?.message || String(createError || '');
-          const isDuplicateError = 
+          const isDuplicateError =
             errorMessage.toLowerCase().includes('duplicate') ||
             errorMessage.toLowerCase().includes('unique constraint') ||
             errorMessage.toLowerCase().includes('already exists');
-          
+
           if (isDuplicateError) {
             // Race condition: message was created by another operation, fetch and update it
             try {
               existingMessage = await database.get<ConversationMessage>('conversation_messages')
                 .find(chatResponse.assistantMessage.id);
-              
+
               // Mark existing message as synced and update timestamps
               if (existingMessage.status !== 'synced') {
                 await conversationRepository.markMessageAsSynced(existingMessage.id, {
@@ -1210,7 +1210,7 @@ class SyncService {
       const threadsResponse = threadsResult.status === 'fulfilled' ? threadsResult.value : [];
 
       const { changed: changedEvents, deleted: deletedEventIds } = syncResponseValue;
-      
+
       // Handle tasks response - could be array (full sync) or object with changed/deleted (incremental sync)
       let changedTasks = [];
       let deletedTaskIds = [];
@@ -1222,7 +1222,7 @@ class SyncService {
         changedTasks = tasksResponseValue.changed || [];
         deletedTaskIds = tasksResponseValue.deleted || [];
       }
-      
+
       // Handle goals response - could be array (full sync) or object with changed/deleted (incremental sync)
       let changedGoals = [];
       let deletedGoalIds = [];
@@ -1280,7 +1280,7 @@ class SyncService {
 
       // Handle threads response - convert to change format
       const changedThreads = Array.isArray(threadsResponse) ? threadsResponse : [];
-      
+
       // Skip fetching thread messages during sync for performance
       // Messages are loaded on-demand when users open threads (AIChatScreen)
       // This significantly speeds up sync operations, especially during workflows like brain dump
@@ -1311,17 +1311,17 @@ class SyncService {
       }
 
       console.log(`Pull: Processing ${allChanges.length} changed records and ${allDeletedIds.length} deleted records`);
-      
+
       // Separate goals from other records to process them first
-      const goalRecords = allChanges.filter(changeData => 
+      const goalRecords = allChanges.filter(changeData =>
         changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined
       );
-      const otherRecords = allChanges.filter(changeData => 
+      const otherRecords = allChanges.filter(changeData =>
         !(changeData.target_completion_date !== undefined || changeData.progress_percentage !== undefined)
       );
-      
+
       console.log(`Pull: Found ${goalRecords.length} goals and ${otherRecords.length} other records`);
-      
+
       await database.write(async () => {
         // Process deletions first
         if (allDeletedIds.length > 0) {
@@ -1333,7 +1333,7 @@ class SyncService {
               await record.destroyPermanently();
             }
           }
-          
+
           // Process task deletions
           if (deletedTaskIds && deletedTaskIds.length > 0) {
             const taskCollection = database.get<Task>('tasks');
@@ -1342,7 +1342,7 @@ class SyncService {
               await record.destroyPermanently();
             }
           }
-          
+
           // Process goal deletions
           if (deletedGoalIds && deletedGoalIds.length > 0) {
             const goalCollection = database.get<Goal>('goals');
@@ -1383,7 +1383,7 @@ class SyncService {
         let threadsProcessed = 0;
         let messagesProcessed = 0;
         let unknownProcessed = 0;
-        
+
         // Process goals first
         console.log(`Pull: Processing ${goalRecords.length} goals first...`);
         for (const changeData of goalRecords) {
@@ -1396,7 +1396,7 @@ class SyncService {
           }
         }
         console.log(`Pull: Completed processing ${goalsProcessed} goals`);
-        
+
         // Then process other records
         console.log(`Pull: Processing ${otherRecords.length} other records...`);
         for (const changeData of otherRecords) {
@@ -1440,7 +1440,7 @@ class SyncService {
             // Don't re-throw - continue with next record to avoid failing entire sync
           }
         }
-        
+
         console.log(`Pull: Processed ${goalsProcessed} goals, ${tasksProcessed} tasks, ${eventsProcessed} events, ${milestonesProcessed} milestones, ${stepsProcessed} steps, ${threadsProcessed} threads, ${messagesProcessed} messages, ${unknownProcessed} unknown`);
       });
 
@@ -1492,17 +1492,13 @@ class SyncService {
     }
 
     if (this.isSyncing) {
-      if (!silent) {
-        notificationService.showInAppNotification('Sync in Progress', 'A sync is already running.');
-      }
+
       return;
     }
 
     this.isSyncing = true;
     try {
-      if (!silent) {
-        notificationService.showInAppNotification('Sync Started', 'Syncing your data...');
-      }
+
       await this.pushData();
       await this.pullData();
     } catch (error) {
@@ -1553,14 +1549,14 @@ class SyncService {
       // Update existing event
       const parsedStartTime = eventData.start?.dateTime ? safeParseDate(eventData.start.dateTime) : undefined;
       const parsedEndTime = eventData.end?.dateTime ? safeParseDate(eventData.end.dateTime) : undefined;
-      
+
       if (eventData.start?.dateTime && !parsedStartTime) {
         console.error(`Pull: Failed to parse start time for event ${eventData.id}:`, eventData.start.dateTime);
       }
       if (eventData.end?.dateTime && !parsedEndTime) {
         console.error(`Pull: Failed to parse end time for event ${eventData.id}:`, eventData.end.dateTime);
       }
-      
+
       await localEvent.update((record: CalendarEvent) => {
         record.title = eventData.summary;
         record.description = eventData.description;
@@ -1579,7 +1575,7 @@ class SyncService {
       if (eventData.start?.dateTime && eventData.end?.dateTime) {
         const parsedStartTime = safeParseDate(eventData.start.dateTime);
         const parsedEndTime = safeParseDate(eventData.end.dateTime);
-        
+
         if (!parsedStartTime || !parsedEndTime) {
           console.error(`Pull: Failed to parse dates for new event ${eventData.id}:`, {
             start_time: eventData.start.dateTime,
@@ -1590,7 +1586,7 @@ class SyncService {
           console.warn(`Pull: Skipping event creation for ID ${eventData.id} due to invalid date parsing.`);
           return;
         }
-        
+
         await eventCollection.create((record: CalendarEvent) => {
           record._raw.id = eventData.id;
           record.title = eventData.summary;
@@ -1665,7 +1661,7 @@ class SyncService {
 
   private async processTaskChange(taskData: TaskPayload, database: Database) {
     const taskCollection = database.get<Task>('tasks');
-    
+
     // Parse due_date once and validate
     const parsedDueDate = taskData.due_date ? safeParseDate(taskData.due_date) : undefined;
     if (taskData.due_date && !parsedDueDate) {
@@ -1676,25 +1672,25 @@ class SyncService {
     // Valid lifecycle statuses: 'not_started', 'in_progress', 'completed'
     // Sync statuses: 'pending_create', 'pending_update', 'pending_delete', 'synced'
     // Extract lifecycle status from combined format if needed
-    const serverStatusInfo = taskData.status 
+    const serverStatusInfo = taskData.status
       ? this.extractLifecycleStatus(taskData.status)
       : null;
     const serverLifecycleStatus = serverStatusInfo?.lifecycleStatus ?? null;
-    
+
     // First, try to find task by exact ID match
     const existingTasks = await taskCollection.query(Q.where('id', taskData.id)).fetch();
     let localTask = existingTasks.length > 0 ? existingTasks[0] : null;
-    
-    const localStatusInfo = localTask 
+
+    const localStatusInfo = localTask
       ? this.extractLifecycleStatus(localTask.status as string)
       : null;
     const localLifecycleStatus = localStatusInfo?.lifecycleStatus ?? null;
-    
+
     // Prefer server status if provided, otherwise preserve local lifecycle status, default to 'not_started'
     const lifecycleStatus = serverLifecycleStatus !== null
       ? serverLifecycleStatus
       : (localLifecycleStatus !== null ? localLifecycleStatus : 'not_started');
-    
+
     // If no exact ID match, check for potential duplicate by title and content
     // This handles the case where a local task was created and synced, but the ID migration
     // hasn't completed yet, or there's a race condition between push and pull
@@ -1706,43 +1702,43 @@ class SyncService {
         const statusStr = task.status as string;
         // Check if task has pending_create status OR is a pure lifecycle status (was just synced)
         // Pure lifecycle statuses indicate the task was just pushed and is waiting for ID migration
-        const hasPendingCreate = statusStr === 'pending_create' || 
-                                 statusStr?.startsWith('pending_create:') ||
-                                 statusStr === 'sync_failed_create' ||
-                                 statusStr?.startsWith('sync_failed_create:');
-        
+        const hasPendingCreate = statusStr === 'pending_create' ||
+          statusStr?.startsWith('pending_create:') ||
+          statusStr === 'sync_failed_create' ||
+          statusStr?.startsWith('sync_failed_create:');
+
         // Also check for pure lifecycle status (not_started, in_progress, completed)
         // These indicate the task was just synced but hasn't been migrated to server ID yet
-        const isPureLifecycleStatus = statusStr === 'not_started' || 
-                                      statusStr === 'in_progress' || 
-                                      statusStr === 'completed';
-        
+        const isPureLifecycleStatus = statusStr === 'not_started' ||
+          statusStr === 'in_progress' ||
+          statusStr === 'completed';
+
         // Match by title (exact match)
         const titleMatch = task.title === taskData.title;
-        
+
         // Also check if descriptions match (if both exist)
-        const descriptionMatch = !taskData.description || !task.description || 
-                                 task.description === taskData.description;
-        
+        const descriptionMatch = !taskData.description || !task.description ||
+          task.description === taskData.description;
+
         // Match if it's a pending create OR a pure lifecycle status (recently synced)
         // AND the IDs don't match (local ID vs server ID)
         const idMismatch = task.id !== taskData.id;
-        
+
         return idMismatch && (hasPendingCreate || isPureLifecycleStatus) && titleMatch && descriptionMatch;
       });
-      
+
       if (potentialDuplicate) {
         // This is likely the same task - migrate it to use the server ID instead of creating a duplicate
-        
+
         // Find any calendar events that reference the old task ID
         const calendarEvents = await database.get('calendar_events')
           .query(Q.where('task_id', potentialDuplicate.id))
           .fetch();
-        
+
         // Migrate the task: create new task with server ID, update calendar events, delete old task
         // NOTE: This method is called from within a database.write() block in pullData,
         // so we must NOT wrap these operations in another database.write() (would cause deadlock)
-        
+
         // Create new task with server ID and server data
         const newTask = await taskCollection.create((record: Task) => {
           record._raw.id = taskData.id;
@@ -1766,17 +1762,17 @@ class SyncService {
           record.location = potentialDuplicate.location;
           record.calendarEventId = potentialDuplicate.calendarEventId;
         });
-        
+
         // Update all calendar events to point to new task ID
         for (const event of calendarEvents) {
           await event.update((e: any) => {
             e.taskId = taskData.id;
           });
         }
-        
+
         // Delete old task record with local ID
         await potentialDuplicate.destroyPermanently();
-        
+
         // Return early since we've already processed this task
         return;
       }
@@ -1877,7 +1873,7 @@ class SyncService {
     if (Array.isArray(goalData.milestones)) {
       for (const ms of goalData.milestones) {
         // Ensure the milestone has the required identifiers
-        if (!ms || !ms.id) {continue;}
+        if (!ms || !ms.id) { continue; }
 
         const milestonePayload = {
           id: ms.id,
@@ -1893,7 +1889,7 @@ class SyncService {
 
         if (Array.isArray(ms.steps)) {
           for (const st of ms.steps) {
-            if (!st || !st.id) {continue;}
+            if (!st || !st.id) { continue; }
             const stepPayload = {
               id: st.id,
               milestone_id: ms.id,
@@ -2083,8 +2079,8 @@ class SyncService {
         record.content = messageData.content;
         record.role = messageData.role;
         if (messageData.metadata) {
-          record.metadata = typeof messageData.metadata === 'string' 
-            ? messageData.metadata 
+          record.metadata = typeof messageData.metadata === 'string'
+            ? messageData.metadata
             : JSON.stringify(messageData.metadata);
         }
         record.status = 'synced';
@@ -2100,8 +2096,8 @@ class SyncService {
         record.content = messageData.content;
         record.role = messageData.role;
         if (messageData.metadata) {
-          record.metadata = typeof messageData.metadata === 'string' 
-            ? messageData.metadata 
+          record.metadata = typeof messageData.metadata === 'string'
+            ? messageData.metadata
             : JSON.stringify(messageData.metadata);
         }
         record.status = 'synced';

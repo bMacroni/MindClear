@@ -26,16 +26,16 @@ import http from 'http';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from './middleware/auth.js';
-import { 
-  helmetConfig, 
-  globalRateLimit, 
-  authRateLimit, 
+import {
+  helmetConfig,
+  globalRateLimit,
+  authRateLimit,
   chatRateLimit,
-  slowDownConfig, 
-  compressionConfig, 
-  requestSizeLimit, 
-  securityHeaders, 
-  securityLogging 
+  slowDownConfig,
+  compressionConfig,
+  requestSizeLimit,
+  securityHeaders,
+  securityLogging
 } from './middleware/security.js';
 import { requestTracking, errorTracking } from './middleware/requestTracking.js';
 import goalsRouter from './routes/goals.js';
@@ -49,13 +49,15 @@ import conversationsRouter from './routes/conversations.js';
 import assistantChatRouter from './routes/assistantChat.js';
 import userRouter from './routes/user.js';
 import analyticsRouter from './routes/analytics.js';
+import routinesRouter from './routes/routines.js';
 import cron from 'node-cron';
 import { syncGoogleCalendarEvents } from './utils/syncService.js';
 import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
-import { sendNotification } from './services/notificationService.js';
+import { sendNotification, sendRoutineReminder } from './services/notificationService.js';
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
 import { toZonedTime } from 'date-fns-tz';
+import { format } from 'date-fns';
 
 
 const app = express();
@@ -63,14 +65,14 @@ const app = express();
 // Secure proxy trust configuration - only trust Railway's ingress
 const configureTrustProxy = () => {
   const railwayIngressCIDR = process.env.RAILWAY_INGRESS_CIDR;
-  
+
   if (!railwayIngressCIDR) {
     // No CIDR configured - don't trust any proxies (secure default)
     logger.warn('RAILWAY_INGRESS_CIDR not configured. Not trusting any proxies.');
     app.set('trust proxy', false);
     return;
   }
-  
+
   // Parse and validate CIDR strings
   const cidrs = parseCIDRString(railwayIngressCIDR);
   const validCIDRs = cidrs.filter(cidr => {
@@ -80,25 +82,25 @@ const configureTrustProxy = () => {
     }
     return true;
   });
-  
+
   if (validCIDRs.length === 0) {
     logger.warn('No valid CIDRs found in RAILWAY_INGRESS_CIDR. Not trusting any proxies.');
     app.set('trust proxy', false);
     return;
   }
-  
+
   logger.info(`Trusting proxies from CIDRs: ${validCIDRs.join(', ')}`);
-  
+
   // Set up trust proxy callback that validates against configured CIDRs
   app.set('trust proxy', (ip, hopIndex) => {
     // Only trust the first hop (immediate upstream)
     if (hopIndex !== 0) {
       return false;
     }
-    
+
     const isTrusted = isIPInAnyCIDR(ip, validCIDRs);
-    
-    
+
+
     return isTrusted;
   });
 };
@@ -120,7 +122,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    
+
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:5173',
@@ -128,7 +130,7 @@ const corsOptions = {
       process.env.FRONTEND_URL,
       process.env.CORS_ORIGIN
     ].filter(Boolean); // Remove undefined values
-    
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -183,8 +185,8 @@ logger.info('Environment variables loaded:', Object.keys(process.env).filter(key
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -204,7 +206,7 @@ app.get('/api/security/summary', requireAuth, async (req, res) => {
 
 // Basic API routes
 app.get('/api', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Welcome to Mind Clear API',
     version: '1.0.0',
     endpoints: {
@@ -245,6 +247,7 @@ app.use('/api/conversations', conversationsRouter);
 app.use('/api/user', userRouter);
 
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/routines', routinesRouter);
 
 // Assistant UI streaming chat route (additive, does not affect mobile)
 if (process.env.DEBUG_LOGS === 'true') logger.info('Registering assistant chat router...');
@@ -326,14 +329,14 @@ cron.schedule('0 5 * * *', async () => {
 
   logger.cron('[CRON] Starting auto-scheduling for all enabled users at 5:00 AM CST');
   const userIds = await getUsersWithAutoSchedulingEnabled();
-  
+
   if (userIds.length === 0) {
     logger.cron('[CRON] No users with auto-scheduling enabled found');
     return;
   }
-  
+
   logger.cron(`[CRON] Found ${userIds.length} users with auto-scheduling enabled`);
-  
+
   for (const userId of userIds) {
     try {
       // Get user's JWT token for API calls
@@ -342,15 +345,15 @@ cron.schedule('0 5 * * *', async () => {
         .select('access_token')
         .eq('user_id', userId)
         .single();
-      
+
       if (tokenError || !tokenData?.access_token) {
         logger.cron(`[CRON] No valid token found for user: ${userId}, skipping auto-scheduling`);
         continue;
       }
-      
+
       const token = tokenData.access_token;
       const result = await autoScheduleTasks(userId, token);
-      
+
       if (result.error) {
         logger.error(`[CRON] Error auto-scheduling for user ${userId}:`, result.error);
       } else {
@@ -377,14 +380,14 @@ cron.schedule('0 */6 * * *', async () => {
 
   logger.cron('[CRON] Starting periodic auto-scheduling check (every 6 hours)');
   const userIds = await getUsersWithAutoSchedulingEnabled();
-  
+
   if (userIds.length === 0) {
     logger.cron('[CRON] No users with auto-scheduling enabled found for periodic check');
     return;
   }
-  
+
   logger.cron(`[CRON] Found ${userIds.length} users for periodic auto-scheduling check`);
-  
+
   for (const userId of userIds) {
     try {
       // Get user's JWT token for API calls
@@ -393,15 +396,15 @@ cron.schedule('0 */6 * * *', async () => {
         .select('access_token')
         .eq('user_id', userId)
         .single();
-      
+
       if (tokenError || !tokenData?.access_token) {
         logger.cron(`[CRON] No valid token found for user: ${userId}, skipping periodic auto-scheduling`);
         continue;
       }
-      
+
       const token = tokenData.access_token;
       const result = await autoScheduleTasks(userId, token);
-      
+
       if (result.error) {
         logger.error(`[CRON] Error in periodic auto-scheduling for user ${userId}:`, result.error);
       } else if (result.successful > 0) {
@@ -444,10 +447,10 @@ const sendTaskReminders = async () => {
 
     if (tasks && tasks.length > 0) {
       logger.cron(`[CRON] Found ${tasks.length} tasks needing reminders.`);
-      
+
       // Get unique user IDs from tasks
       const userIds = [...new Set(tasks.map(task => task.user_id))];
-      
+
       // Batch load user notification preferences for all users
       const { data: preferences, error: prefsError } = await supabase
         .from('user_notification_preferences')
@@ -473,32 +476,32 @@ const sendTaskReminders = async () => {
         const taskReminderInApp = userPrefsMap.get(`${userId}_task_reminder_in_app`);
         const taskReminderPush = userPrefsMap.get(`${userId}_task_reminder_push`);
         const taskReminderEmail = userPrefsMap.get(`${userId}_task_reminder_email`);
-        
+
         // If any channel is enabled for task_reminder, send notification
         if (taskReminderInApp === true || taskReminderPush === true || taskReminderEmail === true) {
           return true;
         }
-        
+
         // If task_reminder is explicitly disabled for all channels, don't send
         if (taskReminderInApp === false && taskReminderPush === false && taskReminderEmail === false) {
           return false;
         }
-        
+
         // Check for general notification preferences as fallback
         const generalInApp = userPrefsMap.get(`${userId}_general_in_app`);
         const generalPush = userPrefsMap.get(`${userId}_general_push`);
         const generalEmail = userPrefsMap.get(`${userId}_general_email`);
-        
+
         // If any channel is enabled for general notifications, send notification
         if (generalInApp === true || generalPush === true || generalEmail === true) {
           return true;
         }
-        
+
         // If general is explicitly disabled for all channels, don't send
         if (generalInApp === false && generalPush === false && generalEmail === false) {
           return false;
         }
-        
+
         // Default behavior: treat missing preferences as opt-out (conservative approach)
         return false;
       };
@@ -521,14 +524,14 @@ const sendTaskReminders = async () => {
 
           // Send notification and handle result
           const result = await sendNotification(task.user_id, notification);
-          
+
           if (result.success) {
             // Only mark reminder as sent if notification was successfully sent
             const { error: updateError } = await supabase
               .from('tasks')
               .update({ reminder_sent_at: new Date().toISOString() })
               .eq('id', task.id);
-              
+
             if (updateError) {
               logger.error(`[CRON] Failed to mark reminder as sent for task ${task.id}:`, updateError);
             } else {
@@ -557,7 +560,7 @@ cron.schedule('*/5 * * * *', sendTaskReminders);
 // --- Daily Focus Reminder Cron Job (Optimized) ---
 const sendDailyFocusReminders = async () => {
   const startTime = Date.now();
-  
+
   // Check if Supabase is initialized
   if (!supabase) {
     logger.warn('[CRON] Supabase client not initialized. Skipping daily focus reminders.');
@@ -574,7 +577,7 @@ const sendDailyFocusReminders = async () => {
     // Optimized SQL query: Use database-level filtering to find users who need notifications
     // This replaces the in-memory scan with a targeted SQL query
     const queryStartTime = Date.now();
-    
+
     const { data: users, error: usersError } = await supabase
       .rpc('get_users_for_focus_notifications', {
         current_utc_time: now.toISOString(),
@@ -603,11 +606,11 @@ const sendDailyFocusReminders = async () => {
 
     // Import the notification service
     const { sendDailyFocusReminder } = await import('./services/notificationService.js');
-    
+
     let notificationsSent = 0;
     let notificationsSkipped = 0;
     let notificationsFailed = 0;
-    
+
     // Process each user
     for (const user of users) {
       try {
@@ -637,14 +640,14 @@ const sendDailyFocusReminders = async () => {
 
         // Send the notification
         const result = await sendDailyFocusReminder(user.id, focusTask, user.full_name);
-        
+
         if (result.success) {
           // Update last_focus_notification_sent timestamp
           const { error: updateError } = await supabase
             .from('users')
             .update({ last_focus_notification_sent: now.toISOString() })
             .eq('id', user.id);
-            
+
           if (updateError) {
             logger.error(`[CRON] Failed to update last_focus_notification_sent for user ${user.id}:`, updateError);
             notificationsFailed++;
@@ -665,12 +668,12 @@ const sendDailyFocusReminders = async () => {
     // Log performance metrics
     const totalDuration = Date.now() - startTime;
     logger.cron(`[CRON] Focus reminder job completed in ${totalDuration}ms - Sent: ${notificationsSent}, Skipped: ${notificationsSkipped}, Failed: ${notificationsFailed}`);
-    
+
     // Alert if total job takes too long (> 30 seconds)
     if (totalDuration > 30000) {
       logger.warn(`[CRON] SLOW JOB ALERT: Focus reminder job took ${totalDuration}ms (> 30s threshold)`);
     }
-    
+
   } catch (err) {
     logger.error('[CRON] Exception in sendDailyFocusReminders:', err);
   }
@@ -679,6 +682,132 @@ const sendDailyFocusReminders = async () => {
 // Schedule daily focus reminder check to run every 5 minutes (optimized frequency)
 // This reduces database load while maintaining reasonable notification precision
 cron.schedule('*/5 * * * *', sendDailyFocusReminders);
+
+// --- Routine Reminder Cron Job ---
+const sendRoutineReminders = async () => {
+  // Check if Supabase is initialized
+  if (!supabase) {
+    logger.warn('[CRON] Supabase client not initialized. Skipping routine reminders.');
+    return;
+  }
+
+  logger.cron('[CRON] Checking for routine reminders...');
+
+  try {
+    const now = new Date(); // Current server time (UTC usually)
+
+    // 1. Fetch all active routines with reminders enabled
+    const { data: routines, error } = await supabase
+      .from('routines')
+      .select('*, users!inner(timezone)')
+      .eq('is_active', true)
+      .eq('reminder_enabled', true);
+
+    if (error) {
+      logger.error('[CRON] Error fetching routines for reminders:', error);
+      return;
+    }
+
+    if (!routines || routines.length === 0) {
+      return;
+    }
+
+    let sentCount = 0;
+
+    // 2. Process each routine
+    for (const routine of routines) {
+      try {
+        const userTimezone = routine.timezone || routine.users?.timezone || 'UTC';
+
+        // Get user's current time
+        const userNow = toZonedTime(now, userTimezone);
+
+        // Parse reminder time (HH:mm)
+        if (!routine.reminder_time) continue;
+        const [rHour, rMin] = routine.reminder_time.split(':').map(Number);
+
+        // Get current user time components
+        // Using native methods on the zoned date object (which treats the date as if it is in that zone)
+        // BE CAREFUL: toZonedTime returns a Date which effectively holds the local time values. 
+        // We should use getHours/getMinutes directly.
+        const currentHour = userNow.getHours();
+        const currentMin = userNow.getMinutes();
+
+        // Calculate difference in minutes
+        // We handle day wrap-around edge cases simply by ignoring them for now (cron runs every 5 mins)
+        // If reminder is 23:59 and now is 00:02, we might miss it with simple math.
+        // Simple minute of day comparison:
+        const currentTotalMinutes = currentHour * 60 + currentMin;
+        const reminderTotalMinutes = rHour * 60 + rMin;
+
+        const diff = currentTotalMinutes - reminderTotalMinutes;
+
+        // Check if we are within the 5 minute window (0 to 4 minutes past the reminder time)
+        // This assumes cron runs every 5 minutes.
+        if (diff >= 0 && diff < 5) {
+
+          // 3. Check if already completed today (in user's timezone)
+          const todayString = format(userNow, 'yyyy-MM-dd'); // YYYY-MM-DD in user's timezone
+          const { count: completionCount } = await supabase
+            .from('routine_completions')
+            .select('*', { count: 'exact', head: true })
+            .eq('routine_id', routine.id)
+            .eq('period_date', todayString); // Assuming period_date aligns with YYYY-MM-DD
+
+          if (completionCount && completionCount > 0) {
+            // Already completed today, skip
+            continue;
+          }
+
+          // 4. Check if we already sent a notification today
+          // We look for a notification of type 'routine_reminder' for this routine sent "today"
+          // We can use a rough check using server time for "last 24h" or strict "today"
+          // Let's use the 'details->>routine_id' query
+          const startOfUserDay = new Date(userNow);
+          startOfUserDay.setHours(0, 0, 0, 0);
+
+          // We need startOfUserDay in UTC for the query against created_at (which is UTC)
+          // Actually created_at is timestamptz.
+          // Simplest: Check if we sent one in the last 12 hours. Routines are daily.
+          const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+
+          const { data: existingNotifs } = await supabase
+            .from('user_notifications')
+            .select('id, details')
+            .eq('user_id', routine.user_id)
+            .eq('notification_type', 'routine_reminder')
+            .gt('created_at', twelveHoursAgo.toISOString());
+
+          const alreadySent = existingNotifs?.some(n => n.details?.routine_id === routine.id);
+
+          if (alreadySent) {
+            continue;
+          }
+
+          // 5. Send Reminder
+          const result = await sendRoutineReminder(routine.user_id, routine);
+          if (result.success) {
+            sentCount++;
+            logger.cron(`[CRON] Sent routine reminder for "${routine.title}" to user ${routine.user_id}`);
+          }
+        }
+
+      } catch (routineError) {
+        logger.error(`[CRON] Error processing routine ${routine.id}:`, routineError);
+      }
+    }
+
+    if (sentCount > 0) {
+      logger.cron(`[CRON] Routine reminders finished. Sent: ${sentCount}`);
+    }
+
+  } catch (err) {
+    logger.error('[CRON] Exception in sendRoutineReminders:', err);
+  }
+};
+
+// Schedule routine reminders every 5 minutes
+cron.schedule('*/5 * * * *', sendRoutineReminders);
 
 // Initialize Firebase Admin SDK
 try {
@@ -696,13 +825,13 @@ webSocketManager.init(server);
 if (process.env.NODE_ENV !== 'test') {
   server.listen(PORT, '0.0.0.0', () => {
     logger.info(`🚀 Mind Clear API server running on port ${PORT}`);
-    
+
     // Use environment-based URLs for logging
     const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
     const host = process.env.API_HOST || 'localhost';
-    
+
     logger.info(`📊 Health check: ${protocol}://${host}:${PORT}/api/health`);
-    
+
     // Only log network access in development
     if (process.env.NODE_ENV !== 'production') {
       logger.info(`🌐 Network access: ${protocol}://192.168.1.66:${PORT}/api/health`);

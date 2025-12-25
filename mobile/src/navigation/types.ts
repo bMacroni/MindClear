@@ -17,6 +17,7 @@ export type RootStackParamList = {
     error_description?: string;
   } | undefined;
   Profile: undefined;
+  RoutineDetail: { routineId: string };
 };
 
 export type MainTabParamList = {
@@ -24,5 +25,6 @@ export type MainTabParamList = {
   AIChat: { initialMessage?: string; threadId?: string; taskTitle?: string } | undefined;
   Goals: undefined;
   Tasks: undefined;
+  Routines: undefined;
   Calendar: undefined;
 };

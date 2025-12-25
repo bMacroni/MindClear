@@ -26,6 +26,8 @@ import TaskDetailScreen from '../screens/tasks/TaskDetailScreen';
 import NotificationScreen from '../screens/notifications/NotificationScreen';
 import MobileAnalyticsDashboard from '../components/analytics/MobileAnalyticsDashboard';
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import RoutineDetailScreen from '../screens/routines/RoutineDetailScreen';
+import { RoutineProvider } from '../contexts/RoutineContext';
 import { parseAccessTokenFromUrl } from '@src/utils/deeplink';
 
 const BETA_SCREEN_SEEN_KEY = 'beta_thank_you_seen';
@@ -327,77 +329,83 @@ export default function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef} linking={linking} onReady={handleNavigatorReady}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.secondary} animated />
-      <Stack.Navigator
-        initialRouteName={isAuthenticated ? "Main" : "Login"}
-        screenOptions={{
-          headerShown: true,
-          header: (props) => <MainHeader {...props} />
-        }}
-      >
-        <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Signup"
-          component={SignupScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="ForgotPassword"
-          component={ForgotPasswordScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="ResetPassword"
-          component={ResetPasswordScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="EmailConfirmation"
-          component={EmailConfirmationScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="BetaThankYou"
-          component={BetaThankYouScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Main"
-          component={TabNavigator}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="GoalForm"
-          component={GoalFormScreen}
-        />
-        <Stack.Screen
-          name="GoalDetail"
-          component={GoalDetailScreen}
-        />
-        <Stack.Screen
-          name="TaskForm"
-          component={TaskFormScreen}
-        />
-        <Stack.Screen
-          name="TaskDetail"
-          component={TaskDetailScreen}
-        />
-        <Stack.Screen
-          name="Notifications"
-          component={NotificationScreen}
-        />
-        <Stack.Screen
-          name="AnalyticsDashboard"
-          component={MobileAnalyticsDashboard}
-        />
-        <Stack.Screen
-          name="Profile"
-          component={ProfileScreen}
-        />
-      </Stack.Navigator>
+      <RoutineProvider>
+        <Stack.Navigator
+          initialRouteName={isAuthenticated ? "Main" : "Login"}
+          screenOptions={{
+            headerShown: true,
+            header: (props) => <MainHeader {...props} />
+          }}
+        >
+          <Stack.Screen
+            name="Login"
+            component={LoginScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Signup"
+            component={SignupScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ForgotPassword"
+            component={ForgotPasswordScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ResetPassword"
+            component={ResetPasswordScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="EmailConfirmation"
+            component={EmailConfirmationScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="BetaThankYou"
+            component={BetaThankYouScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Main"
+            component={TabNavigator}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="GoalForm"
+            component={GoalFormScreen}
+          />
+          <Stack.Screen
+            name="GoalDetail"
+            component={GoalDetailScreen}
+          />
+          <Stack.Screen
+            name="TaskForm"
+            component={TaskFormScreen}
+          />
+          <Stack.Screen
+            name="TaskDetail"
+            component={TaskDetailScreen}
+          />
+          <Stack.Screen
+            name="Notifications"
+            component={NotificationScreen}
+          />
+          <Stack.Screen
+            name="AnalyticsDashboard"
+            component={MobileAnalyticsDashboard}
+          />
+          <Stack.Screen
+            name="Profile"
+            component={ProfileScreen}
+          />
+          <Stack.Screen
+            name="RoutineDetail"
+            component={RoutineDetailScreen}
+          />
+        </Stack.Navigator>
+      </RoutineProvider>
     </NavigationContainer>
   );
 }
