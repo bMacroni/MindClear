@@ -66,7 +66,8 @@ export function getPreviousPeriodBounds(frequency, date, timezone, weekStart) {
             throw new Error(`Invalid frequency: ${frequency}`);
     }
 
-    return getPeriodBounds(frequency, prevDate, timezone, weekStart);
+    // Convert back to UTC before passing to getPeriodBounds to avoid double conversion
+    return getPeriodBounds(frequency, fromZonedTime(prevDate, timezone), timezone, weekStart);
 }
 /**
  * Calculate streak stats based on completion history
