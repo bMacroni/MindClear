@@ -45,12 +45,15 @@ export default function RoutineDetailScreen() {
         if (!routine) return;
         setSaving(true);
         try {
-            const success = await updateRoutine(routine.id, formData);
-            if (success) {
-                setIsEditing(false);
-            } else {
+            const updatedRoutine = await updateRoutine(routine.id, formData);
+
+            if (!updatedRoutine || !updatedRoutine.id) {
                 Alert.alert('Error', 'Failed to update routine. Please try again.');
+                return;
             }
+
+            setRoutine(updatedRoutine);
+            setIsEditing(false);
         } catch (error) {
             console.error('Error updating routine:', error);
             Alert.alert('Error', 'An unexpected error occurred.');
@@ -425,9 +428,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     counterButton: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: colors.background.secondary,
         justifyContent: 'center',
         alignItems: 'center',

@@ -77,6 +77,17 @@ export function checkStreakStatus(routine, completions, timezone = 'UTC', weekSt
     if (!routine || !routine.frequency_type) {
         throw new Error('Invalid routine: missing required properties');
     }
+
+    // Validate and coerce target_count
+    if (
+        typeof routine.target_count !== 'number' ||
+        !Number.isFinite(routine.target_count) ||
+        routine.target_count < 1
+    ) {
+        throw new Error('Invalid routine: target_count must be a finite positive integer (>= 1)');
+    }
+    const validatedTargetCount = Math.floor(routine.target_count);
+
     if (!Array.isArray(completions)) {
         throw new Error('Completions must be an array');
     }
@@ -94,7 +105,7 @@ export function checkStreakStatus(routine, completions, timezone = 'UTC', weekSt
             compTime <= currentPeriod.end.getTime();
     });
 
-    const isCurrentPeriodComplete = currentCompletions.length >= routine.target_count;
+    const isCurrentPeriodComplete = currentCompletions.length >= validatedTargetCount;
     const currentProgress = currentCompletions.length;
 
     // 2. Check previous period (to see if streak is broken)
