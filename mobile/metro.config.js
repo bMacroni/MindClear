@@ -1,6 +1,6 @@
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+const path = require('path');
 
-// Start from the full default config and mutate, so we don't drop built-in asset settings
 const defaultConfig = getDefaultConfig(__dirname);
 
 // Enable SVG imports using react-native-svg-transformer
@@ -14,10 +14,14 @@ defaultConfig.resolver = {
   ...defaultConfig.resolver,
   assetExts: assetExts.filter(ext => ext !== 'svg'),
   sourceExts: [...sourceExts, 'svg'],
-  alias: {
-    '@assets': './assets',
-    '@src': './src',
-  },
+  extraNodeModules: new Proxy({}, {
+    get: (target, name) => {
+      if (name === 'react-native/Libraries/Image/resolveAssetSource') {
+        return path.resolve(__dirname, 'src/utils/resolveAssetSourceShim.js');
+      }
+      return path.resolve(__dirname, 'node_modules', name);
+    },
+  }),
 };
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), defaultConfig);
+module.exports = defaultConfig;

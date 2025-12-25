@@ -1,7 +1,7 @@
 module.exports = {
   presets: ['module:@react-native/babel-preset'],
   plugins: [
-    ['@babel/plugin-proposal-decorators', {legacy: true}],
+    ['@babel/plugin-proposal-decorators', { legacy: true }],
     [
       'module-resolver',
       {
@@ -9,6 +9,7 @@ module.exports = {
         alias: {
           '@assets': './assets',
           '@src': './src',
+          'react-native/Libraries/Image/resolveAssetSource': './src/utils/resolveAssetSourceShim',
         },
       },
     ],
