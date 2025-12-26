@@ -531,8 +531,17 @@ class SecureConfigService {
       } else if (devHost) {
         // Construct URL from host - avoids hardcoding specific IPs in source
         const protocol = devHost.includes('://') ? '' : 'http://';
-        // Append /api if not present in host (though ideally should be constructed cleanly)
-        finalFallback = `${protocol}${devHost.trim()}:${devPort}/api`;
+        // Construct basic URL without /api first, let sanitizer handle path
+        const constructedUrl = `${protocol}${devHost.trim()}:${devPort}`;
+
+        // Validate and sanitize the constructed URL
+        const validatedUrl = this.validateAndSanitizeApiUrl(constructedUrl, environment);
+
+        if (validatedUrl) {
+          finalFallback = validatedUrl;
+        } else {
+          logger.warn('Constructed development URL failed validation:', constructedUrl);
+        }
       }
     } else {
       // Production: Check for Prod API Base or generic API Base
