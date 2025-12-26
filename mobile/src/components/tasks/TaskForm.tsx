@@ -26,6 +26,8 @@ import {
   Cancel01Icon,
   Tick01Icon
 } from '@hugeicons/core-free-icons';
+import { RecurrencePatternPicker } from './RecurrencePatternPicker';
+import { RecurrencePattern } from '../../utils/recurrenceUtils';
 
 interface Task {
   id?: string;
@@ -46,7 +48,7 @@ interface Task {
   // Required backend fields
   preferred_time_of_day?: 'morning' | 'afternoon' | 'evening';
   deadline_type?: 'soft' | 'hard';
-  recurrence_pattern?: 'none' | 'daily' | 'weekly' | 'monthly';
+  recurrence_pattern?: RecurrencePattern | null;
   scheduling_preferences?: any;
   max_daily_tasks?: number;
   buffer_time_minutes?: number;
@@ -106,7 +108,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
     // Required backend fields with defaults
     preferred_time_of_day: 'morning',
     deadline_type: 'soft',
-    recurrence_pattern: 'none',
+    recurrence_pattern: null,
     scheduling_preferences: null,
     max_daily_tasks: 10,
     buffer_time_minutes: 15,
@@ -134,7 +136,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
         // Ensure required backend fields have defaults
         preferred_time_of_day: task.preferred_time_of_day ?? 'morning',
         deadline_type: task.deadline_type ?? 'soft',
-        recurrence_pattern: task.recurrence_pattern ?? 'none',
+        recurrence_pattern: task.recurrence_pattern ?? null,
         scheduling_preferences: task.scheduling_preferences ?? null,
         max_daily_tasks: task.max_daily_tasks ?? 10,
         buffer_time_minutes: task.buffer_time_minutes ?? 15,
@@ -518,6 +520,12 @@ export const TaskForm: React.FC<TaskFormProps> = ({
               keyboardType="numeric"
             />
           </View>
+
+          {/* Recurrence Pattern */}
+          <RecurrencePatternPicker
+            value={formData.recurrence_pattern || null}
+            onChange={(pattern) => handleInputChange('recurrence_pattern', pattern)}
+          />
 
           {/* Auto-Scheduling Section */}
           <View style={styles.autoScheduleSection}>

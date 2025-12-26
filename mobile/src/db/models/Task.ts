@@ -1,11 +1,26 @@
-import {Model} from '@nozbe/watermelondb';
+import { Model } from '@nozbe/watermelondb';
 import {
   field,
   date,
   text,
   relation,
 } from '@nozbe/watermelondb/decorators';
-import {GoalType} from './Goal';
+import { GoalType } from './Goal';
+
+// RecurrencePattern interface (matches mobile/src/utils/recurrenceUtils.ts)
+export interface RecurrencePattern {
+  type: 'daily' | 'weekly' | 'monthly';
+  interval: number;
+  daysOfWeek?: number[];
+  endCondition?: {
+    type: 'never' | 'count' | 'date';
+    value?: number | string;
+  };
+  completedCount?: number;
+  is_paused?: boolean;
+  paused_at?: string;
+  createdAt?: string;
+}
 
 // TypeScript interface for Task
 export interface TaskType {
@@ -25,13 +40,14 @@ export interface TaskType {
   location?: string;
   autoScheduleEnabled?: boolean;
   category?: string;
+  recurrencePatternJson?: string | null;
   goal?: GoalType;
 }
 
 export default class Task extends Model {
   static table = 'tasks';
   static associations = {
-    goals: {type: 'belongs_to', key: 'goal_id'},
+    goals: { type: 'belongs_to', key: 'goal_id' },
   } as const;
 
   @text('title') title!: string;
@@ -49,6 +65,7 @@ export default class Task extends Model {
   @text('location') location?: string;
   @field('auto_schedule_enabled') autoScheduleEnabled?: boolean;
   @text('category') category?: string;
+  @text('recurrence_pattern') recurrencePatternJson?: string | null;
 
   @relation('goals', 'goal_id') goal?: GoalType;
 
@@ -57,4 +74,14 @@ export default class Task extends Model {
     return this.autoScheduleEnabled ?? false;
   }
 
+  // Getter for parsed recurrence_pattern
+  get recurrence_pattern(): RecurrencePattern | null {
+    if (!this.recurrencePatternJson) return null;
+    try {
+      return JSON.parse(this.recurrencePatternJson) as RecurrencePattern;
+    } catch {
+      return null;
+    }
+  }
 }
+

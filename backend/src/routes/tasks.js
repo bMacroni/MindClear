@@ -72,7 +72,21 @@ const taskValidation = [
   commonValidations.enum('deadline_type', ['soft', 'hard']),
   commonValidations.integer('travel_time_minutes', 0, 480),
   commonValidations.boolean('auto_schedule_enabled'),
-  commonValidations.enum('recurrence_pattern', ['none', 'daily', 'weekly', 'monthly']),
+  body('recurrence_pattern').optional().custom(value => {
+    if (value === null) {
+      return true; // Allow null to clear recurrence
+    }
+    // If it's a string, it must be the string 'none' (backward compatibility or simple case)
+    if (typeof value === 'string') {
+      return value === 'none';
+    }
+    // If it's an object, it must have a valid type
+    if (typeof value === 'object') {
+      if (!value.type) return false; // Reject objects without a type property
+      return ['daily', 'weekly', 'monthly'].includes(value.type);
+    }
+    return false;
+  }).withMessage('recurrence_pattern must be a valid recurrence object or "none"'),
   commonValidations.json('scheduling_preferences'),
   commonValidations.boolean('weather_dependent'),
   commonValidations.string('location', 0, 500),
@@ -91,6 +105,15 @@ const bulkTaskValidation = [
   body('tasks.*.due_date').optional().isISO8601(),
   body('tasks.*.priority').optional().isIn(['low', 'medium', 'high']),
   body('tasks.*.goal_id').optional().isUUID(),
+  body('tasks.*.recurrence_pattern').optional().custom(value => {
+    if (value === null) return true;
+    if (typeof value === 'string') return value === 'none';
+    if (typeof value === 'object') {
+      if (!value.type) return false; // Reject objects without a type property
+      return ['daily', 'weekly', 'monthly'].includes(value.type);
+    }
+    return false;
+  }).withMessage('recurrence_pattern must be a valid recurrence object or "none"'),
   body('tasks.*.category').optional().isLength({ max: 100 }).trim().escape()
 ];
 
@@ -129,11 +152,11 @@ router.get('/notifications', requireAuth, [
     const validStatuses = ['all', 'read', 'unread'];
     const statusRaw = (req.query.status || 'unread').toString().toLowerCase();
     const normalizedStatus = validStatuses.includes(statusRaw) ? statusRaw : 'unread';
-    
+
     // Parse limit parameter if provided
     const requested = req.query.limit ? parseInt(req.query.limit, 10) : undefined;
     const limit = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 100) : undefined;
-    
+
     const notifications = await getUserNotifications(req.user.id, normalizedStatus, limit);
     res.json(notifications);
   } catch (error) {
@@ -266,5 +289,56 @@ router.post(
   validateInput,
   triggerAutoScheduling
 );
+
+// ============================================================================
+// RECURRING TASK ROUTES
+// ============================================================================
+import {
+  pauseRecurringTask,
+  resumeRecurringTask,
+  getRecurrenceHistory
+} from '../services/recurringTaskService.js';
+
+// Pause a recurring task (stop regeneration)
+router.put('/:id/pause-recurrence', requireAuth, [
+  param('id').isUUID().withMessage('Task ID must be a valid UUID')
+], validateInput, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const result = await pauseRecurringTask(req.params.id, req.user.id, token);
+    res.json({ success: true, task: result });
+  } catch (error) {
+    logger.error('Error pausing recurring task:', error);
+    res.status(error.message === 'Task not found' ? 404 : 400).json({ error: error.message });
+  }
+});
+
+// Resume a paused recurring task
+router.put('/:id/resume-recurrence', requireAuth, [
+  param('id').isUUID().withMessage('Task ID must be a valid UUID')
+], validateInput, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const result = await resumeRecurringTask(req.params.id, req.user.id, token);
+    res.json({ success: true, task: result });
+  } catch (error) {
+    logger.error('Error resuming recurring task:', error);
+    res.status(error.message === 'Task not found' ? 404 : 400).json({ error: error.message });
+  }
+});
+
+// Get completion history for a recurring task
+router.get('/:id/recurrence-history', requireAuth, [
+  param('id').isUUID().withMessage('Task ID must be a valid UUID')
+], validateInput, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const result = await getRecurrenceHistory(req.params.id, req.user.id, token);
+    res.json(result);
+  } catch (error) {
+    logger.error('Error fetching recurrence history:', error);
+    res.status(error.message === 'Task not found' ? 404 : 500).json({ error: error.message });
+  }
+});
 
 export default router; 

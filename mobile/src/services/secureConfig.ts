@@ -74,7 +74,7 @@ class SecureConfigService {
       }
 
       await this.loadSecureConfig(signal);
-      
+
       // Check if cancelled after loading config
       if (signal?.aborted) {
         throw new Error('Initialization was cancelled');
@@ -96,15 +96,15 @@ class SecureConfigService {
       if (!this.config) {
         throw new Error('Secure config is not initialized; cannot load remote config.');
       }
-      
+
       // Check if cancelled before making network request
       if (signal?.aborted) {
         throw new Error('Remote config loading was cancelled');
       }
-      
+
       // Create AbortController for timeout and signal combination
       const timeoutController = new AbortController();
-      
+
       // Link external signal to timeoutController to ensure we respect upstream cancellation
       const handleExternalAbort = () => timeoutController.abort();
       if (signal) {
@@ -114,7 +114,7 @@ class SecureConfigService {
           signal.addEventListener('abort', handleExternalAbort);
         }
       }
-      
+
       // Add timeout to prevent hanging during app startup
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
@@ -122,7 +122,7 @@ class SecureConfigService {
           reject(new Error('Remote config request timeout'));
         }, 5000); // Reduced to 5 second timeout
       });
-      
+
       let remoteConfig: RemoteConfig;
       try {
         const remoteConfigPromise = enhancedAPI.getUserConfig(timeoutController.signal);
@@ -133,22 +133,22 @@ class SecureConfigService {
           signal.removeEventListener('abort', handleExternalAbort);
         }
       }
-      
+
       // Clear timeout on success
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = undefined;
       }
-      
+
       // Check if cancelled after getting remote config
       if (signal?.aborted) {
         throw new Error('Remote config loading was cancelled');
       }
-      
+
       if (remoteConfig.supabaseUrl && remoteConfig.supabaseAnonKey) {
         this.config.remoteConfig = remoteConfig;
         logger.info('Secure remote config loaded from server');
-        
+
         // Log Google client IDs availability (optional, so don't fail if missing)
         if (!remoteConfig.googleWebClientId) {
           logger.warn('Google Web Client ID not available in remote config');
@@ -159,7 +159,7 @@ class SecureConfigService {
         if (!remoteConfig.googleIosClientId) {
           logger.warn('Google iOS Client ID not available in remote config');
         }
-        
+
         // If Google Client IDs are now available, update configService and trigger Google Auth reconfiguration
         if (remoteConfig.googleWebClientId || remoteConfig.googleAndroidClientId || remoteConfig.googleIosClientId) {
           try {
@@ -170,7 +170,7 @@ class SecureConfigService {
               ios: remoteConfig.googleIosClientId,
             });
             logger.info('Google Client IDs updated in configService from remote config');
-            
+
             // Trigger Google Auth reconfiguration now that IDs are available
             if (remoteConfig.googleWebClientId) {
               // Dynamically import to avoid circular dependency
@@ -192,7 +192,7 @@ class SecureConfigService {
           });
           logger.info('MindClear URIs updated in configService from remote config');
         }
-        
+
         // Persist the updated config to AsyncStorage for offline use
         try {
           await AsyncStorage.setItem(this.configKey, JSON.stringify(this.config));
@@ -210,7 +210,7 @@ class SecureConfigService {
         clearTimeout(timeoutId);
         timeoutId = undefined;
       }
-      
+
       // Only log if not cancelled
       if (!signal?.aborted) {
         // Distinguish between timeout and other errors
@@ -436,7 +436,7 @@ class SecureConfigService {
     if (!this.isLoaded) {
       await this.loadSecureConfig();
     }
-    
+
     if (!this.config) {
       const error = new Error('Config not initialized');
       logger.error('Failed to update API base URL: config not initialized', { url });
@@ -445,17 +445,17 @@ class SecureConfigService {
 
     // Preserve original value for rollback
     const previousUrl = this.config.apiBaseUrl;
-    
+
     try {
       // Create updated config
       const updatedConfig = {
         ...this.config,
         apiBaseUrl: url,
       };
-      
+
       // Persist to storage first
       await AsyncStorage.setItem(this.configKey, JSON.stringify(updatedConfig));
-      
+
       // Only update in-memory config after successful persistence
       this.config = updatedConfig;
       logger.info('API base URL updated successfully', { previousUrl, newUrl: url });
@@ -467,7 +467,7 @@ class SecureConfigService {
         error: error instanceof Error ? error.message : String(error),
         errorType: error instanceof Error ? error.constructor.name : typeof error,
       });
-      
+
       // Rethrow to propagate to caller
       throw new Error(`Failed to update API base URL: ${error instanceof Error ? error.message : 'Storage error'}`);
     }
@@ -517,11 +517,58 @@ class SecureConfigService {
     }
 
     // Final fallback based on environment
-    const finalFallback = __DEV__
-      ? 'http://192.168.1.66:5000/api'  // Development: use computer IP address
-      : 'https://foci-production.up.railway.app/api';  // Production: use Railway
-    logger.warn('Using final fallback API base URL:', finalFallback, `(${__DEV__ ? 'development' : 'production'})`);
-    return finalFallback;
+    // Priority: Config Service (already checked) -> Env Vars -> Error
+    let finalFallback: string | undefined;
+
+    if (__DEV__) {
+      // Development: Check for full URL env vars first, then construct from Host/IP
+      const devApiUrl = process.env.DEV_API_URL || process.env.API_BASE_URL;
+      const devHost = process.env.DEV_API_HOST; // e.g., '192.168.1.5' or 'localhost'
+      const devPort = process.env.DEV_API_PORT || '5000'; // Default only if needed
+
+      if (devApiUrl && this.isValidUrl(devApiUrl.trim())) {
+        finalFallback = devApiUrl.trim();
+      } else if (devHost) {
+        // Construct URL from host - avoids hardcoding specific IPs in source
+        const protocol = devHost.includes('://') ? '' : 'http://';
+        // Construct basic URL without /api first, let sanitizer handle path
+        const constructedUrl = `${protocol}${devHost.trim()}:${devPort}`;
+
+        // Validate and sanitize the constructed URL
+        const validatedUrl = this.validateAndSanitizeApiUrl(constructedUrl, environment);
+
+        if (validatedUrl) {
+          finalFallback = validatedUrl;
+        } else {
+          logger.warn('Constructed development URL failed validation:', constructedUrl);
+        }
+      }
+    } else {
+      // Production: Check for Prod API Base or generic API Base
+      const prodApiBase = process.env.PROD_API_BASE || process.env.API_BASE_URL;
+      if (prodApiBase) {
+        const validatedUrl = this.validateAndSanitizeApiUrl(prodApiBase.trim(), environment);
+        if (validatedUrl) {
+          finalFallback = validatedUrl;
+        } else {
+          logger.warn('Production URL failed validation (must be HTTPS):', prodApiBase.trim());
+        }
+      }
+    }
+
+    if (finalFallback) {
+      logger.warn('Using resolved API base URL:', finalFallback, `(${__DEV__ ? 'development' : 'production'})`);
+      return finalFallback;
+    }
+
+    // If neither config service nor env vars provided a valid URL, throw explicit error
+    const errorMsg = __DEV__
+      ? 'Development API configuration missing. Set DEV_API_HOST or API_BASE_URL in environment.'
+      : 'Production API configuration missing. Set PROD_API_BASE or API_BASE_URL in environment.';
+
+    logger.error(errorMsg);
+    throw new Error(errorMsg);
+
   }
 
   private getBooleanFlag(name: string, defaultValue: boolean): boolean {
@@ -566,7 +613,7 @@ class SecureConfigService {
     if (!this.isLoaded) {
       await this.loadSecureConfig();
     }
-    
+
     return {
       isLoaded: this.isLoaded,
       environment: this.config?.environment,
@@ -600,7 +647,7 @@ class SecureConfigService {
     try {
       const apiUrl = this.getApiBaseUrl();
       const environment = await this.getEnvironment();
-      
+
       return {
         status: 'healthy',
         details: {

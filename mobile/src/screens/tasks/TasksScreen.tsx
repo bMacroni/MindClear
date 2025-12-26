@@ -515,6 +515,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       weather_dependent: false, // Default value
       is_today_focus: task.isTodayFocus,
       location: task.location,
+      recurrence_pattern: task.recurrence_pattern, // Access via getter for parsed JSON
     };
   };
 
@@ -537,6 +538,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       estimated_duration_minutes: task.estimatedDurationMinutes,
       is_today_focus: task.isTodayFocus,
       location: task.location,
+      recurrence_pattern: task.recurrence_pattern, // Access via getter for parsed JSON
     };
   };
 
@@ -577,6 +579,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         goalId: taskData.goal_id,
         isTodayFocus: taskData.is_today_focus,
         status: taskData.status || 'not_started', // Lifecycle status
+        recurrencePattern: taskData.recurrence_pattern, // Map snake_case to camelCase
       };
 
       if (editingTask) {

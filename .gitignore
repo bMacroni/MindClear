@@ -117,7 +117,14 @@ get-jwt.js
 
 # Backup files
 *.bak
-*.backup 
+*.backup
+
+# Debug and search output files
+backend/src/*.txt
+**/search_results.txt
+**/all_*.txt
+**/enum_*.txt
+**/*_search.txt 
 frontend/interfaceexamples/ai-chat-page.tsx
 frontend/interfaceexamples/ui/scroll-area.tsx
 backend/docs/FOCUS_NOTIFICATION_OPTIMIZATION.md

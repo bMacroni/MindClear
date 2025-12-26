@@ -7,7 +7,6 @@ import { RootStackParamList } from './types';
 import { authService } from '../services/auth';
 import { navigationRef } from './navigationRef';
 import { OnboardingService } from '../services/onboarding';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { configService } from '../services/config';
 
 // Import screens directly for now to fix lazy loading issues
@@ -16,7 +15,7 @@ import SignupScreen from '@src/screens/auth/SignupScreen';
 import ForgotPasswordScreen from '@src/screens/auth/ForgotPasswordScreen';
 import ResetPasswordScreen from '@src/screens/auth/ResetPasswordScreen';
 import EmailConfirmationScreen from '@src/screens/auth/EmailConfirmationScreen';
-import BetaThankYouScreen from '@src/screens/beta/BetaThankYouScreen';
+
 import TabNavigator from './TabNavigator';
 import { MainHeader } from './MainHeader';
 import GoalFormScreen from '../screens/goals/GoalFormScreen';
@@ -30,7 +29,7 @@ import RoutineDetailScreen from '../screens/routines/RoutineDetailScreen';
 import { RoutineProvider } from '../contexts/RoutineContext';
 import { parseAccessTokenFromUrl } from '@src/utils/deeplink';
 
-const BETA_SCREEN_SEEN_KEY = 'beta_thank_you_seen';
+
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -135,8 +134,9 @@ export default function AppNavigator() {
       }
     };
 
-    Linking.getInitialURL().then(handleInitialUrl).catch(() => { });
-    handledInitialLink.current = true;
+    Linking.getInitialURL().then(handleInitialUrl).catch((error) => {
+      console.error('AppNavigator: Error getting initial URL:', error);
+    }); handledInitialLink.current = true;
   }, []); // Empty dependency array - runs only once
 
   useEffect(() => {
@@ -179,10 +179,15 @@ export default function AppNavigator() {
     const checkAuthState = async () => {
       try {
         // Wait for auth service to initialize
-        await new Promise(resolve => {
+        await new Promise((resolve, reject) => {
+          const startTime = Date.now();
+          const timeout = 10000; // 10 second timeout
+
           const checkInitialized = () => {
             if (authService.isInitialized()) {
               resolve(true);
+            } else if (Date.now() - startTime > timeout) {
+              reject(new Error('Auth service initialization timeout'));
             } else {
               setTimeout(checkInitialized, 100);
             }
@@ -194,25 +199,7 @@ export default function AppNavigator() {
         setIsAuthenticated(authenticated);
         prevAuthRef.current = authenticated;
 
-        // If already authenticated on app start, check if beta screen should be shown
-        if (authenticated && navigationRef.current) {
-          try {
-            const hasSeenBetaScreen = await AsyncStorage.getItem(BETA_SCREEN_SEEN_KEY);
-            if (!hasSeenBetaScreen) {
-              // Show beta screen on next navigation cycle
-              setTimeout(() => {
-                if (navigationRef.current) {
-                  navigationRef.current.reset({ index: 0, routes: [{ name: 'BetaThankYou' }] });
-                  AsyncStorage.setItem(BETA_SCREEN_SEEN_KEY, 'true').catch((err) => {
-                    console.warn('AppNavigator: Error saving beta screen seen flag:', err);
-                  });
-                }
-              }, 100);
-            }
-          } catch (error) {
-            console.warn('AppNavigator: Error checking beta screen on app start:', error);
-          }
-        }
+
         // Note: First session check is handled in auth state change callback below
       } catch (error) {
         console.error('AppNavigator: Error checking auth state:', error);
@@ -233,22 +220,10 @@ export default function AppNavigator() {
       // Handle navigation when auth state changes
       if (navigationRef.current && !authState.isLoading) {
         if (isNowAuthenticated && !wasAuthenticated) {
-          // Check if user has seen beta screen, then check first session
+          // Check if first session for onboarding flow
           // Use IIFE to handle async operation in callback
           (async () => {
             try {
-              // Check if user has seen the beta thank you screen
-              const hasSeenBetaScreen = await AsyncStorage.getItem(BETA_SCREEN_SEEN_KEY);
-
-              if (!hasSeenBetaScreen) {
-                // First time login - show beta thank you screen
-                navigationRef.current?.reset({ index: 0, routes: [{ name: 'BetaThankYou' }] });
-                // Mark as seen
-                await AsyncStorage.setItem(BETA_SCREEN_SEEN_KEY, 'true');
-                return;
-              }
-
-              // User has seen beta screen, proceed with normal flow
               const firstSession = await OnboardingService.isFirstSession();
               if (firstSession) {
                 // Navigate to Main tab, then to BrainDump stack with BrainDumpInput screen
@@ -269,7 +244,7 @@ export default function AppNavigator() {
                 navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
               }
             } catch (error) {
-              console.warn('AppNavigator: Error checking beta screen or first session for navigation:', error);
+              console.warn('AppNavigator: Error checking first session for navigation:', error);
               // Fallback to existing navigation on error
               navigationRef.current?.reset({ index: 0, routes: [{ name: 'Main' }] });
             }
@@ -362,11 +337,7 @@ export default function AppNavigator() {
             component={EmailConfirmationScreen}
             options={{ headerShown: false }}
           />
-          <Stack.Screen
-            name="BetaThankYou"
-            component={BetaThankYouScreen}
-            options={{ headerShown: false }}
-          />
+
           <Stack.Screen
             name="Main"
             component={TabNavigator}

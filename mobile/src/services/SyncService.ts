@@ -29,6 +29,7 @@ interface TaskPayload {
   is_today_focus?: boolean;
   user_id?: string;
   status?: string;
+  recurrence_pattern?: any;
 }
 
 const LAST_SYNCED_AT_KEY = 'last_synced_at';
@@ -294,7 +295,16 @@ class SyncService {
             // Only include is_today_focus if it's explicitly a boolean (not null or undefined)
             // Backend validation requires boolean or absent, not null
             ...(typeof record.isTodayFocus === 'boolean' ? { is_today_focus: record.isTodayFocus } : {}),
-            status: lifecycleStatus, // Include lifecycle status in sync
+            // Include recurrence_pattern - ensure it can be null to clear recurrence
+            recurrence_pattern: (() => {
+              if (!record.recurrencePatternJson) return null;
+              try {
+                return JSON.parse(record.recurrencePatternJson);
+              } catch (e) {
+                console.warn(`Push: Invalid recurrencePatternJson for task ${record.id}, sending null`, e);
+                return null;
+              }
+            })(), status: lifecycleStatus, // Include lifecycle status in sync
             client_updated_at: record.updatedAt?.toISOString(),
           };
 
@@ -1761,6 +1771,18 @@ class SyncService {
           record.category = potentialDuplicate.category;
           record.location = potentialDuplicate.location;
           record.calendarEventId = potentialDuplicate.calendarEventId;
+          // Handle recurrence_pattern from server - explicitly allow null to clear
+          if (taskData.recurrence_pattern !== undefined) {
+            const patternJson = taskData.recurrence_pattern
+              ? (typeof taskData.recurrence_pattern === 'string'
+                ? taskData.recurrence_pattern
+                : JSON.stringify(taskData.recurrence_pattern))
+              : null;
+            (record as any).recurrencePatternJson = patternJson;
+          } else {
+            // If server doesn't provide it, preserve local value
+            (record as any).recurrencePatternJson = potentialDuplicate.recurrencePatternJson;
+          }
         });
 
         // Update all calendar events to point to new task ID
@@ -1796,6 +1818,14 @@ class SyncService {
         record.isTodayFocus = taskData.is_today_focus;
         // Preserve lifecycle status from server, not sync status
         record.status = lifecycleStatus;
+        // Handle recurrence_pattern from server
+        if (taskData.recurrence_pattern !== undefined) {
+          (record as any).recurrencePatternJson = taskData.recurrence_pattern
+            ? (typeof taskData.recurrence_pattern === 'string'
+              ? taskData.recurrence_pattern
+              : JSON.stringify(taskData.recurrence_pattern))
+            : null;
+        }
       });
     } else {
       // Create new task
@@ -1817,6 +1847,14 @@ class SyncService {
         record.userId = taskData.user_id || '';
         // Use lifecycle status from server, not sync status
         record.status = lifecycleStatus;
+        // Handle recurrence_pattern from server
+        if (taskData.recurrence_pattern !== undefined) {
+          (record as any).recurrencePatternJson = taskData.recurrence_pattern
+            ? (typeof taskData.recurrence_pattern === 'string'
+              ? taskData.recurrence_pattern
+              : JSON.stringify(taskData.recurrence_pattern))
+            : null;
+        }
       });
     }
   }

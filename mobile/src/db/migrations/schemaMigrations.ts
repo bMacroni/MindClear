@@ -1,4 +1,4 @@
-import {schemaMigrations, addColumns} from '@nozbe/watermelondb/Schema/migrations';
+import { schemaMigrations, addColumns } from '@nozbe/watermelondb/Schema/migrations';
 
 /**
  * Migration 3→4: Add location column to tasks table
@@ -19,7 +19,7 @@ export default schemaMigrations({
         addColumns({
           table: 'tasks',
           columns: [
-            {name: 'location', type: 'string', isOptional: true},
+            { name: 'location', type: 'string', isOptional: true },
           ],
         }),
       ],
@@ -30,7 +30,7 @@ export default schemaMigrations({
         addColumns({
           table: 'tasks',
           columns: [
-            {name: 'category', type: 'string', isOptional: true},
+            { name: 'category', type: 'string', isOptional: true },
           ],
         }),
       ],
@@ -41,7 +41,18 @@ export default schemaMigrations({
         addColumns({
           table: 'tasks',
           columns: [
-            {name: 'auto_schedule_enabled', type: 'boolean', isOptional: true},
+            { name: 'auto_schedule_enabled', type: 'boolean', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 7,
+      steps: [
+        addColumns({
+          table: 'tasks',
+          columns: [
+            { name: 'recurrence_pattern', type: 'string', isOptional: true },
           ],
         }),
       ],

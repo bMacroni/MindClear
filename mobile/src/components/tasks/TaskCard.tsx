@@ -22,10 +22,18 @@ import {
   CheckmarkCircle01Icon,
   CircleIcon,
   CloudIcon,
-  Location01Icon
+  Location01Icon,
+  RepeatIcon
 } from '@hugeicons/core-free-icons';
+import { RecurringTag } from '../common';
 import HelpTarget from '../help/HelpTarget';
 import { formatRelativeDueLabel } from '../../utils/dateUtils';
+import {
+  RecurrencePattern,
+  isRecurringTask,
+  getRecurrenceBadgeText,
+  isPausedRecurringTask
+} from '../../utils/recurrenceUtils';
 
 interface Task {
   id: string;
@@ -44,6 +52,8 @@ interface Task {
   weather_dependent?: boolean;
   location?: string;
   travel_time_minutes?: number;
+  // Recurring task fields
+  recurrence_pattern?: RecurrencePattern | null;
 }
 
 interface TaskCardProps {
@@ -324,6 +334,13 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
                   <Icon icon={Clock01Icon} size={14} color={colors.text.secondary} />
                   <Text style={styles.durationText}>{(task as any).estimated_duration_minutes}m</Text>
                 </View>
+              )}
+              {/* Recurring Task Tag */}
+              {isRecurringTask(task) && (
+                <RecurringTag
+                  label={getRecurrenceBadgeText(task.recurrence_pattern) || 'Recurring'}
+                  isPaused={isPausedRecurringTask(task)}
+                />
               )}
             </View>
 
