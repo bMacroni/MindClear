@@ -33,12 +33,19 @@ interface TaskFormData {
 
 // Convert database Task model to TaskFormData
 function taskToFormData(task: Task): TaskFormData {
+  // Validate and normalize status with safe fallback
+  const allowedStatuses = ['not_started', 'in_progress', 'completed'];
+  const normalizedStatus =
+    task.status && allowedStatuses.includes(task.status)
+      ? (task.status as 'not_started' | 'in_progress' | 'completed')
+      : 'not_started';
+
   return {
     id: task.id,
     title: task.title,
     description: task.description,
     priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
-    status: task.status as 'not_started' | 'in_progress' | 'completed',
+    status: normalizedStatus,
     due_date: task.dueDate?.toISOString(),
     category: task.category,
     goal_id: task.goalId,
