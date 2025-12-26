@@ -15,10 +15,10 @@ import { authService } from '../../services/auth';
 import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Task, { RecurrencePattern } from '../../db/models/Task';
 
-import { RecurrencePattern } from '../../utils/recurrenceUtils';
-
-interface Task {
+// TaskForm expects snake_case properties, different from the database Task model
+interface TaskFormData {
   id?: string;
   title: string;
   description?: string;
@@ -29,6 +29,22 @@ interface Task {
   goal_id?: string;
   estimated_duration_minutes?: number;
   recurrence_pattern?: RecurrencePattern | null;
+}
+
+// Convert database Task model to TaskFormData
+function taskToFormData(task: Task): TaskFormData {
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
+    status: task.status as 'not_started' | 'in_progress' | 'completed',
+    due_date: task.dueDate?.toISOString(),
+    category: task.category,
+    goal_id: task.goalId,
+    estimated_duration_minutes: task.estimatedDurationMinutes,
+    recurrence_pattern: task.recurrence_pattern,
+  };
 }
 
 interface Goal {
@@ -50,7 +66,7 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
   navigation,
 }) => {
   const { taskId } = route.params || {};
-  const [task, setTask] = useState<Task | undefined>();
+  const [task, setTask] = useState<TaskFormData | undefined>();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -64,7 +80,7 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
         taskId ? taskRepository.getTaskById(taskId) : Promise.resolve(undefined),
       ]);
       setGoals(goalsData);
-      setTask(taskData);
+      setTask(taskData ? taskToFormData(taskData) : undefined);
     } catch (error) {
       console.error('Error loading data:', error);
       Alert.alert('Error', 'Failed to load data');
@@ -93,7 +109,7 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
     });
   }, [navigation, taskId]);
 
-  const handleSave = async (taskData: Partial<Task>) => {
+  const handleSave = async (taskData: Partial<TaskFormData>) => {
     try {
       setSaving(true);
 
