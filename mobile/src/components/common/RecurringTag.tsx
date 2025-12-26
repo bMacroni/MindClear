@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { RepeatIcon } from '@hugeicons/react-native';
+import { RepeatIcon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';

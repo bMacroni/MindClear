@@ -90,44 +90,63 @@ export function getRecurrenceBadgeText(pattern: RecurrencePattern | null | undef
     if (!pattern) return null;
 
     const interval = pattern.interval || 1;
+    let baseLabel: string;
 
+    // Compute base label without early returns
     switch (pattern.type) {
         case 'daily':
-            return interval === 1 ? 'Daily' : `Every ${interval}d`;
+            baseLabel = interval === 1 ? 'Daily' : `Every ${interval}d`;
+            break;
         case 'weekly':
-            return interval === 1 ? 'Weekly' : `Every ${interval}w`;
+            baseLabel = interval === 1 ? 'Weekly' : `Every ${interval}w`;
+            break;
         case 'monthly':
-            return interval === 1 ? 'Monthly' : `Every ${interval}mo`;
+            baseLabel = interval === 1 ? 'Monthly' : `Every ${interval}mo`;
+            break;
         default:
-            return 'Recurring';
+            baseLabel = 'Recurring';
+            break;
     }
+
+    // Handle end condition if present
+    if (!pattern.endCondition) {
+        return baseLabel;
+    }
+
     if (pattern.endCondition.type === 'count') {
         const completed = pattern.completedCount || 0;
         const total = typeof pattern.endCondition.value === 'number'
             ? pattern.endCondition.value
             : 0;
-        if (total <= 0) return null;
-        return `${completed} of ${total} times`;
+
+        // Guard against non-positive totals
+        if (total <= 0) {
+            return baseLabel;
+        }
+
+        return `${baseLabel} (${completed}/${total})`;
     }
 
     if (pattern.endCondition.type === 'date') {
         const dateValue = pattern.endCondition.value;
-        if (typeof dateValue !== 'string') return null;
+
+        // Validate date type and value
+        if (typeof dateValue !== 'string') {
+            return baseLabel;
+        }
+
         const endDate = new Date(dateValue);
-        if (isNaN(endDate.getTime())) return null;
-        return `Until ${endDate.toLocaleDateString()}`;
-    } if (pattern.endCondition.type === 'count') {
-        const completed = pattern.completedCount || 0;
-        const total = pattern.endCondition.value as number;
-        return `${completed} of ${total} times`;
+
+        // Guard against invalid dates
+        if (isNaN(endDate.getTime())) {
+            return baseLabel;
+        }
+
+        return `${baseLabel} (until ${endDate.toLocaleDateString()})`;
     }
 
-    if (pattern.endCondition.type === 'date') {
-        const endDate = new Date(pattern.endCondition.value as string);
-        return `Until ${endDate.toLocaleDateString()}`;
-    }
-
-    return null;
+    // 'never' type or unknown type - return base label
+    return baseLabel;
 }
 
 /**

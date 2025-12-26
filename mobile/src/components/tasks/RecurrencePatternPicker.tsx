@@ -12,9 +12,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import {
     RepeatIcon,
     Calendar03Icon,
-    CheckmarkCircle02Icon,
-    Cancel01Icon
-} from '@hugeicons/react-native'; import { colors } from '../../themes/colors';
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
+import { colors } from '../../themes/colors';
 import { RecurrencePattern, formatRecurrencePattern } from '../../utils/recurrenceUtils';
 
 interface RecurrencePatternPickerProps {
