@@ -1,4 +1,0 @@
-﻿C:\Users\bmcor\Documents\GitHub\MindClear\backend\src\routes\tasks.js:69:   commonValidations.enum('priority', ['low', 'medium', 'high']),
-C:\Users\bmcor\Documents\GitHub\MindClear\backend\src\routes\tasks.js:71:   commonValidations.enum('preferred_time_of_day', ['morning', 'afternoon', 'evening']),
-C:\Users\bmcor\Documents\GitHub\MindClear\backend\src\routes\tasks.js:72:   commonValidations.enum('deadline_type', ['soft', 'hard']),
-C:\Users\bmcor\Documents\GitHub\MindClear\backend\src\routes\tasks.js:94:   commonValidations.enum('task_type', ['indoor', 'outdoor', 'travel', 'virtual', 'other']),
