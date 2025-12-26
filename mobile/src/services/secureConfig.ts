@@ -546,8 +546,13 @@ class SecureConfigService {
     } else {
       // Production: Check for Prod API Base or generic API Base
       const prodApiBase = process.env.PROD_API_BASE || process.env.API_BASE_URL;
-      if (prodApiBase && this.isValidUrl(prodApiBase.trim())) {
-        finalFallback = prodApiBase.trim();
+      if (prodApiBase) {
+        const validatedUrl = this.validateAndSanitizeApiUrl(prodApiBase.trim(), environment);
+        if (validatedUrl) {
+          finalFallback = validatedUrl;
+        } else {
+          logger.warn('Production URL failed validation (must be HTTPS):', prodApiBase.trim());
+        }
       }
     }
 
