@@ -134,8 +134,9 @@ export default function AppNavigator() {
       }
     };
 
-    Linking.getInitialURL().then(handleInitialUrl).catch(() => { });
-    handledInitialLink.current = true;
+    Linking.getInitialURL().then(handleInitialUrl).catch((error) => {
+      console.error('AppNavigator: Error getting initial URL:', error);
+    }); handledInitialLink.current = true;
   }, []); // Empty dependency array - runs only once
 
   useEffect(() => {
@@ -178,10 +179,15 @@ export default function AppNavigator() {
     const checkAuthState = async () => {
       try {
         // Wait for auth service to initialize
-        await new Promise(resolve => {
+        await new Promise((resolve, reject) => {
+          const startTime = Date.now();
+          const timeout = 10000; // 10 second timeout
+
           const checkInitialized = () => {
             if (authService.isInitialized()) {
               resolve(true);
+            } else if (Date.now() - startTime > timeout) {
+              reject(new Error('Auth service initialization timeout'));
             } else {
               setTimeout(checkInitialized, 100);
             }

@@ -517,14 +517,43 @@ class SecureConfigService {
     }
 
     // Final fallback based on environment
-    // To switch between machines, update the IP below
-    const activeDevIp = '192.168.1.238'; // Options: '192.168.1.238', '192.168.1.66'
+    // Priority: Config Service (already checked) -> Env Vars -> Error
+    let finalFallback: string | undefined;
 
-    const finalFallback = __DEV__
-      ? `http://${activeDevIp}:5000/api`
-      : 'https://foci-production.up.railway.app/api';  // Production: use Railway
-    logger.warn('Using final fallback API base URL:', finalFallback, `(${__DEV__ ? 'development' : 'production'})`);
-    return finalFallback;
+    if (__DEV__) {
+      // Development: Check for full URL env vars first, then construct from Host/IP
+      const devApiUrl = process.env.DEV_API_URL || process.env.API_BASE_URL;
+      const devHost = process.env.DEV_API_HOST; // e.g., '192.168.1.5' or 'localhost'
+      const devPort = process.env.DEV_API_PORT || '5000'; // Default only if needed
+
+      if (devApiUrl && this.isValidUrl(devApiUrl.trim())) {
+        finalFallback = devApiUrl.trim();
+      } else if (devHost) {
+        // Construct URL from host - avoids hardcoding specific IPs in source
+        const protocol = devHost.includes('://') ? '' : 'http://';
+        // Append /api if not present in host (though ideally should be constructed cleanly)
+        finalFallback = `${protocol}${devHost.trim()}:${devPort}/api`;
+      }
+    } else {
+      // Production: Check for Prod API Base or generic API Base
+      const prodApiBase = process.env.PROD_API_BASE || process.env.API_BASE_URL;
+      if (prodApiBase && this.isValidUrl(prodApiBase.trim())) {
+        finalFallback = prodApiBase.trim();
+      }
+    }
+
+    if (finalFallback) {
+      logger.warn('Using resolved API base URL:', finalFallback, `(${__DEV__ ? 'development' : 'production'})`);
+      return finalFallback;
+    }
+
+    // If neither config service nor env vars provided a valid URL, throw explicit error
+    const errorMsg = __DEV__
+      ? 'Development API configuration missing. Set DEV_API_HOST or API_BASE_URL in environment.'
+      : 'Production API configuration missing. Set PROD_API_BASE or API_BASE_URL in environment.';
+
+    logger.error(errorMsg);
+    throw new Error(errorMsg);
 
   }
 
