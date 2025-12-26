@@ -96,12 +96,12 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
   // Generate available time slots
   const availableSlots = [];
   const now = new Date();
-  
+
   // Look for slots in the next 7 days
   for (let day = 0; day < 7; day++) {
     const checkDate = new Date();
     checkDate.setDate(checkDate.getDate() + day);
-    
+
     // Check if it's a work day (1=Monday, 7=Sunday)
     const dayOfWeek = checkDate.getDay();
     const adjustedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek; // Convert Sunday=0 to Sunday=7
@@ -112,7 +112,7 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
     // Set work hours for this day
     const dayStart = new Date(checkDate);
     dayStart.setHours(workStartHour, workStartMinute, 0, 0);
-    
+
     const dayEnd = new Date(checkDate);
     dayEnd.setHours(workEndHour, workEndMinute, 0, 0);
 
@@ -135,7 +135,7 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
       // If there's enough time before this commitment
       const timeBeforeCommitment = commitment.start.getTime() - currentTime.getTime();
       const requiredTime = (taskDuration + bufferTimeMinutes) * 60 * 1000;
-      
+
       if (timeBeforeCommitment >= requiredTime) {
         const slotEnd = new Date(currentTime.getTime() + taskDuration * 60 * 1000);
         const slot = {
@@ -146,7 +146,7 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
         availableSlots.push(slot);
         return availableSlots; // Return first available slot
       }
-      
+
       // Move current time to after this commitment (plus buffer)
       currentTime = new Date(commitment.end.getTime() + bufferTimeMinutes * 60 * 1000);
     }
@@ -154,7 +154,7 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
     // Check if there's time after the last commitment
     const timeAfterLastCommitment = dayEnd.getTime() - currentTime.getTime();
     const requiredTime = (taskDuration + bufferTimeMinutes) * 60 * 1000;
-    
+
     if (timeAfterLastCommitment >= requiredTime) {
       const slotEnd = new Date(currentTime.getTime() + taskDuration * 60 * 1000);
       const slot = {
@@ -174,17 +174,17 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
     fallbackDate.setDate(fallbackDate.getDate() + daysToAdd);
     const dayOfWeek = fallbackDate.getDay();
     const adjustedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
-    
+
     if (workDays.includes(adjustedDayOfWeek)) {
       fallbackDate.setHours(workStartHour, workStartMinute, 0, 0);
       const fallbackEnd = new Date(fallbackDate.getTime() + taskDuration * 60 * 1000);
-      
+
       const fallbackSlot = {
         start_time: new Date(fallbackDate),
         end_time: fallbackEnd,
         duration_minutes: taskDuration
       };
-      
+
       return [fallbackSlot];
     }
     daysToAdd++;
@@ -194,13 +194,13 @@ export async function findAvailableTimeSlots(userId, taskDuration, preferredWind
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(9, 0, 0, 0);
-  
+
   const ultimateFallbackSlot = {
     start_time: tomorrow,
     end_time: new Date(tomorrow.getTime() + taskDuration * 60 * 1000),
     duration_minutes: taskDuration
   };
-  
+
   return [ultimateFallbackSlot];
 }
 
@@ -225,7 +225,7 @@ export async function scheduleSingleTask(userId, taskId, token) {
   if (taskError) {
     throw new Error('Task not found');
   }
-  
+
   if (!task) {
     throw new Error('Task not found');
   }
@@ -255,7 +255,7 @@ export async function scheduleSingleTask(userId, taskId, token) {
 
   // Calculate task duration including travel time
   let totalDuration = task.estimated_duration_minutes || 30;
-  
+
   // Add travel time if location is specified
   if (task.location) {
     try {
@@ -332,7 +332,7 @@ export async function scheduleSingleTask(userId, taskId, token) {
   for (let day = 0; day < 7; day++) {
     const checkDate = new Date();
     checkDate.setDate(checkDate.getDate() + day);
-    
+
     // Check if it's a work day
     const dayOfWeek = checkDate.getDay();
     const adjustedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
@@ -343,7 +343,7 @@ export async function scheduleSingleTask(userId, taskId, token) {
     // Set work hours for this day
     const dayStart = new Date(checkDate);
     dayStart.setHours(workStartHour, workStartMinute, 0, 0);
-    
+
     const dayEnd = new Date(checkDate);
     dayEnd.setHours(workEndHour, workEndMinute, 0, 0);
 
@@ -366,12 +366,12 @@ export async function scheduleSingleTask(userId, taskId, token) {
       // If there's enough time before this commitment
       const timeBeforeCommitment = commitment.start.getTime() - currentTime.getTime();
       const requiredTime = (totalDuration + bufferTimeMinutes) * 60 * 1000;
-      
+
       if (timeBeforeCommitment >= requiredTime) {
         scheduledTime = new Date(currentTime);
         break;
       }
-      
+
       // Move current time to after this commitment (plus buffer)
       currentTime = new Date(commitment.end.getTime() + bufferTimeMinutes * 60 * 1000);
     }
@@ -384,7 +384,7 @@ export async function scheduleSingleTask(userId, taskId, token) {
     // Check if there's time after the last commitment
     const timeAfterLastCommitment = dayEnd.getTime() - currentTime.getTime();
     const requiredTime = (totalDuration + bufferTimeMinutes) * 60 * 1000;
-    
+
     if (timeAfterLastCommitment >= requiredTime) {
       scheduledTime = new Date(currentTime);
       break;
@@ -399,7 +399,7 @@ export async function scheduleSingleTask(userId, taskId, token) {
       fallbackDate.setDate(fallbackDate.getDate() + daysToAdd);
       const dayOfWeek = fallbackDate.getDay();
       const adjustedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
-      
+
       if (preferences.work_days.includes(adjustedDayOfWeek)) {
         fallbackDate.setHours(workStartHour, workStartMinute, 0, 0);
         scheduledTime = fallbackDate;
@@ -457,7 +457,7 @@ export async function createCalendarEvent(userId, task, scheduledTime, token) {
 
   const endTime = new Date(scheduledTime);
   endTime.setMinutes(endTime.getMinutes() + (task.estimated_duration_minutes || 60));
-  
+
   const { data, error } = await supabase
     .from('calendar_events')
     .insert([{
@@ -509,56 +509,25 @@ export async function updateTaskSchedulingHistory(userId, taskId, scheduledTime,
   return data;
 }
 
-export async function processRecurringTask(task, token) {
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
+// Import enhanced processRecurringTask from dedicated service
+// Re-exported here for backward compatibility with existing consumers
+import {
+  processRecurringTask as enhancedProcessRecurringTask,
+  rolloverMissedRecurringTasks
+} from '../services/recurringTaskService.js';
 
-  if (!task.recurrence_pattern) {
-    return null;
-  }
+/**
+ * Process a recurring task after completion
+ * This is a re-export of the enhanced function from recurringTaskService.js
+ * for backward compatibility with existing code that imports from this file.
+ */
+export const processRecurringTask = enhancedProcessRecurringTask;
 
-  const pattern = task.recurrence_pattern;
-  const now = new Date();
-  let nextScheduledDate = new Date();
-
-  // Calculate next occurrence based on recurrence pattern
-  switch (pattern.type) {
-    case 'daily':
-      nextScheduledDate.setDate(now.getDate() + (pattern.interval || 1));
-      break;
-    case 'weekly':
-      nextScheduledDate.setDate(now.getDate() + 7 * (pattern.interval || 1));
-      break;
-    case 'monthly':
-      nextScheduledDate.setMonth(now.getMonth() + (pattern.interval || 1));
-      break;
-    default:
-      return null;
-  }
-
-  // Update task with new due date and reset status
-  const { data, error } = await supabase
-    .from('tasks')
-    .update({
-      due_date: nextScheduledDate.toISOString(),
-      status: 'not_started',
-      last_scheduled_date: now.toISOString()
-    })
-    .eq('id', task.id)
-    .select()
-    .single();
-
-  if (error) {
-    return null;
-  }
-
-  return data;
-}
+/**
+ * ADHD-friendly rollover for missed recurring tasks
+ * Re-exported for convenience
+ */
+export { rolloverMissedRecurringTasks };
 
 export async function autoScheduleTasks(userId, token) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
@@ -627,14 +596,14 @@ export async function autoScheduleTasks(userId, token) {
 
   const results = [];
   const newlyScheduledTasks = []; // Track tasks scheduled in this run
-  
+
   for (const task of tasks) {
     try {
       // Check if task is weather dependent
       let weatherData = null;
       if (task.weather_dependent && task.location) {
         weatherData = await checkWeatherConditions(task.location, new Date());
-        
+
         // Skip scheduling if weather is not suitable
         if (!weatherData.suitable_for_outdoor) {
           results.push({
@@ -676,7 +645,7 @@ export async function autoScheduleTasks(userId, token) {
 
       // Schedule the task in the first available slot
       const scheduledTime = timeSlots[0].start_time;
-      
+
       // Create calendar event (optional - continue even if it fails)
       let calendarEvent = null;
       try {
@@ -764,10 +733,10 @@ export async function autoScheduleTasks(userId, token) {
       const notificationData = {
         type: failedTasks.length > 0 ? 'auto_scheduling_error' : 'auto_scheduling_completed',
         title: failedTasks.length > 0 ? 'Auto-Scheduling Issues Detected' : 'Auto-Scheduling Completed',
-        message: failedTasks.length > 0 
+        message: failedTasks.length > 0
           ? `Auto-scheduling completed with ${successfulTasks.length} tasks scheduled and ${failedTasks.length} issues encountered.`
           : `Successfully scheduled ${successfulTasks.length} tasks automatically.`,
-        details: failedTasks.length > 0 
+        details: failedTasks.length > 0
           ? `Some tasks couldn't be scheduled due to conflicts or missing information.`
           : `All eligible tasks have been scheduled according to your preferences.`,
         scheduledTasks: successfulTasks,
@@ -789,7 +758,7 @@ export async function autoScheduleTasks(userId, token) {
     skipped: skippedTasks.length,
     task_count_change: totalTasksAfter - totalTasksBefore
   };
-} 
+}
 
 // Get user scheduling preferences
 export async function getSchedulingPreferences(userId, token) {
@@ -974,7 +943,7 @@ export async function getAvailableTimeSlots(userId, taskId, token) {
 
   // Calculate task duration including travel time
   let totalDuration = task.estimated_duration_minutes || 30;
-  
+
   if (task.location) {
     try {
       const travelData = await calculateTravelTime('current_location', task.location);

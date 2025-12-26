@@ -1,6 +1,6 @@
 import { getDatabase } from '../db';
 import { Q } from '@nozbe/watermelondb';
-import Task from '../db/models/Task';
+import Task, { RecurrencePattern } from '../db/models/Task';
 import { authService } from '../services/auth';
 import logger from '../utils/logger';
 import { safeParseDate } from '../utils/dateUtils';
@@ -11,7 +11,7 @@ const getSyncService = () => {
   if (!syncServiceModule) {
     syncServiceModule = require('../services/SyncService');
   }
-  return syncServiceModule.syncService;
+  return (syncServiceModule as any).syncService;
 };
 
 /**
@@ -107,6 +107,7 @@ export class TaskRepository {
     goalId?: string;
     isTodayFocus?: boolean;
     status?: 'not_started' | 'in_progress' | 'completed'; // Lifecycle status
+    recurrencePattern?: RecurrencePattern | null;
   }): Promise<Task> {
     // Validate date if provided
     if (data.dueDate && isNaN(data.dueDate.getTime())) {
@@ -131,6 +132,10 @@ export class TaskRepository {
         task.status = `pending_create:${lifecycleStatus}`;
         task.createdAt = new Date();
         task.updatedAt = new Date();
+        // Serialize recurrence pattern to JSON
+        if (data.recurrencePattern) {
+          task.recurrencePatternJson = JSON.stringify(data.recurrencePattern);
+        }
       });
     });
   }
@@ -151,6 +156,7 @@ export class TaskRepository {
     goalId?: string;
     isTodayFocus?: boolean;
     status?: 'not_started' | 'in_progress' | 'completed'; // Lifecycle status
+    recurrencePattern?: RecurrencePattern | null;
   }): Promise<Task> {
     // Validate date if provided
     if (data.dueDate && isNaN(data.dueDate.getTime())) {
@@ -173,6 +179,10 @@ export class TaskRepository {
         if (data.dueDate !== undefined) t.dueDate = data.dueDate;
         if (data.goalId !== undefined) t.goalId = data.goalId;
         if (data.isTodayFocus !== undefined) t.isTodayFocus = data.isTodayFocus;
+        // Handle recurrence pattern - serialize to JSON
+        if (data.recurrencePattern !== undefined) {
+          t.recurrencePatternJson = data.recurrencePattern ? JSON.stringify(data.recurrencePattern) : undefined;
+        }
         // Store lifecycle status with sync marker, preserving pending_create for offline-created tasks
         // SyncService will extract lifecycle status during push
         const currentStatus = t.status as string;
@@ -568,6 +578,7 @@ export class TaskRepository {
           t.category = localTask.category;
           t.location = localTask.location;
           t.calendarEventId = localTask.calendarEventId;
+          t.recurrencePatternJson = localTask.recurrencePatternJson;
           t.userId = localTask.userId;
           t.status = 'synced';
           t.createdAt = localTask.createdAt;
@@ -654,6 +665,14 @@ export class TaskRepository {
             t.goalId = serverTask.goal_id || null;
             t.isTodayFocus = serverTask.is_today_focus === true;
             t.category = serverTask.category ?? null;
+            // Handle recurrence_pattern from server
+            if (serverTask.recurrence_pattern !== undefined) {
+              t.recurrencePatternJson = serverTask.recurrence_pattern
+                ? (typeof serverTask.recurrence_pattern === 'string'
+                  ? serverTask.recurrence_pattern
+                  : JSON.stringify(serverTask.recurrence_pattern))
+                : null;
+            }
             t.userId = serverTask.user_id || userId;
             // Set status to 'synced' to mark record as synced and prevent sync loop
             t.status = 'synced';

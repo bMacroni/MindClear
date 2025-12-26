@@ -16,6 +16,8 @@ import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import { Cancel01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RecurrencePattern } from '../../utils/recurrenceUtils';
+
 interface Task {
   id?: string;
   title: string;
@@ -26,6 +28,7 @@ interface Task {
   category?: string;
   goal_id?: string;
   estimated_duration_minutes?: number;
+  recurrence_pattern?: RecurrencePattern | null;
 }
 
 interface Goal {
@@ -95,13 +98,28 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
       setSaving(true);
 
       if (taskId) {
-        // Update existing task
-        await taskRepository.updateTask(taskId, taskData);
+        // Update existing task - map form data to repository format
+        await taskRepository.updateTask(taskId, {
+          title: taskData.title,
+          description: taskData.description,
+          priority: taskData.priority,
+          status: taskData.status,
+          dueDate: taskData.due_date ? new Date(taskData.due_date) : undefined,
+          goalId: taskData.goal_id,
+          estimatedDurationMinutes: taskData.estimated_duration_minutes,
+          recurrencePattern: taskData.recurrence_pattern,
+        });
       } else {
-        // Create new task
+        // Create new task - map form data to repository format
         await taskRepository.createTask({
-          ...taskData,
-          userId: authService.getCurrentUser()?.id,
+          title: taskData.title || '',
+          description: taskData.description,
+          priority: taskData.priority,
+          status: taskData.status,
+          dueDate: taskData.due_date ? new Date(taskData.due_date) : undefined,
+          goalId: taskData.goal_id,
+          estimatedDurationMinutes: taskData.estimated_duration_minutes,
+          recurrencePattern: taskData.recurrence_pattern,
         });
       }
 
