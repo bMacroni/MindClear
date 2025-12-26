@@ -158,7 +158,9 @@ export function getRecurrenceProgress(pattern: RecurrencePattern | null | undefi
     }
 
     const completed = pattern.completedCount || 0;
-    const total = pattern.endCondition.value as number;
+    const total = typeof pattern.endCondition.value === 'number' 
+        ? pattern.endCondition.value 
+        : 0;
 
     if (total <= 0) return null;
 
