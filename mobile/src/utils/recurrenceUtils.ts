@@ -55,10 +55,20 @@ export function formatRecurrencePattern(pattern: RecurrencePattern | null | unde
             break;
         case 'weekly':
             if (pattern.daysOfWeek && pattern.daysOfWeek.length > 0) {
-                const days = pattern.daysOfWeek.map(d => DAY_NAMES[d]).join(', ');
-                base = interval === 1
-                    ? `Weekly on ${days}`
-                    : `Every ${interval} weeks on ${days}`;
+                // Filter to only valid day indices (0-6), deduplicate, and preserve order
+                const validDays = Array.from(new Set(
+                    pattern.daysOfWeek.filter(d => typeof d === 'number' && d >= 0 && d <= 6)
+                ));
+
+                if (validDays.length > 0) {
+                    const days = validDays.map(d => DAY_NAMES[d]).join(', ');
+                    base = interval === 1
+                        ? `Weekly on ${days}`
+                        : `Every ${interval} weeks on ${days}`;
+                } else {
+                    // Fall back to interval-based text if no valid days
+                    base = interval === 1 ? 'Weekly' : `Every ${interval} weeks`;
+                }
             } else {
                 base = interval === 1 ? 'Every week' : `Every ${interval} weeks`;
             }
@@ -91,17 +101,22 @@ export function getRecurrenceBadgeText(pattern: RecurrencePattern | null | undef
         default:
             return 'Recurring';
     }
-}
-
-/**
- * Format end condition as a string
- */
-export function formatEndCondition(pattern: RecurrencePattern | null | undefined): string | null {
-    if (!pattern?.endCondition || pattern.endCondition.type === 'never') {
-        return null;
+    if (pattern.endCondition.type === 'count') {
+        const completed = pattern.completedCount || 0;
+        const total = typeof pattern.endCondition.value === 'number'
+            ? pattern.endCondition.value
+            : 0;
+        if (total <= 0) return null;
+        return `${completed} of ${total} times`;
     }
 
-    if (pattern.endCondition.type === 'count') {
+    if (pattern.endCondition.type === 'date') {
+        const dateValue = pattern.endCondition.value;
+        if (typeof dateValue !== 'string') return null;
+        const endDate = new Date(dateValue);
+        if (isNaN(endDate.getTime())) return null;
+        return `Until ${endDate.toLocaleDateString()}`;
+    } if (pattern.endCondition.type === 'count') {
         const completed = pattern.completedCount || 0;
         const total = pattern.endCondition.value as number;
         return `${completed} of ${total} times`;
@@ -147,11 +162,76 @@ export function createDefaultRecurrencePattern(type: 'daily' | 'weekly' | 'month
 
 /**
  * Validate a recurrence pattern
+ * Performs comprehensive validation of all recurrence fields
  */
 export function isValidRecurrencePattern(pattern: any): pattern is RecurrencePattern {
+    // Basic type check
     if (!pattern || typeof pattern !== 'object') return false;
+
+    // Validate type field
     if (!['daily', 'weekly', 'monthly'].includes(pattern.type)) return false;
-    if (pattern.interval !== undefined && (typeof pattern.interval !== 'number' || pattern.interval < 1)) return false;
-    if (pattern.daysOfWeek !== undefined && !Array.isArray(pattern.daysOfWeek)) return false;
+
+    // Validate interval (must be an integer >= 1)
+    if (pattern.interval !== undefined) {
+        if (typeof pattern.interval !== 'number' ||
+            !Number.isInteger(pattern.interval) ||
+            pattern.interval < 1) {
+            return false;
+        }
+    }
+
+    // Validate daysOfWeek (must be array of integers 0-6)
+    if (pattern.daysOfWeek !== undefined) {
+        if (!Array.isArray(pattern.daysOfWeek)) return false;
+
+        for (const day of pattern.daysOfWeek) {
+            if (typeof day !== 'number' ||
+                !Number.isInteger(day) ||
+                day < 0 ||
+                day > 6) {
+                return false;
+            }
+        }
+    }
+
+    // Validate completedCount (must be a non-negative integer)
+    if (pattern.completedCount !== undefined) {
+        if (typeof pattern.completedCount !== 'number' ||
+            !Number.isInteger(pattern.completedCount) ||
+            pattern.completedCount < 0) {
+            return false;
+        }
+    }
+
+    // Validate endCondition
+    if (pattern.endCondition !== undefined) {
+        const endCond = pattern.endCondition;
+
+        // Must be an object
+        if (!endCond || typeof endCond !== 'object') return false;
+
+        // Validate type field
+        if (!['never', 'count', 'date'].includes(endCond.type)) return false;
+
+        // Type-specific validation
+        if (endCond.type === 'count') {
+            // Must have a positive integer value
+            if (endCond.value === undefined) return false;
+            if (typeof endCond.value !== 'number' ||
+                !Number.isInteger(endCond.value) ||
+                endCond.value <= 0) {
+                return false;
+            }
+        } else if (endCond.type === 'date') {
+            // Must have a valid date/ISO string
+            if (endCond.value === undefined) return false;
+            if (typeof endCond.value !== 'string') return false;
+
+            const date = new Date(endCond.value);
+            if (isNaN(date.getTime())) return false;
+        }
+        // 'never' type doesn't require a value
+    }
+
     return true;
 }

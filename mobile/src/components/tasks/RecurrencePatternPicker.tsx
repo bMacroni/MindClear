@@ -9,14 +9,12 @@ import {
     Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
 import {
     RepeatIcon,
     Calendar03Icon,
     CheckmarkCircle02Icon,
     Cancel01Icon
-} from '@hugeicons/core-free-icons';
-import { colors } from '../../themes/colors';
+} from '@hugeicons/react-native'; import { colors } from '../../themes/colors';
 import { RecurrencePattern, formatRecurrencePattern } from '../../utils/recurrenceUtils';
 
 interface RecurrencePatternPickerProps {
@@ -458,14 +456,13 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     dayButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
         backgroundColor: colors.background.secondary,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    dayButtonActive: {
+    }, dayButtonActive: {
         backgroundColor: colors.primary,
     },
     dayButtonText: {

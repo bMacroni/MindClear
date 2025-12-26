@@ -98,25 +98,88 @@ const TaskFormScreen: React.FC<TaskFormScreenProps> = ({
       setSaving(true);
 
       if (taskId) {
-        // Update existing task - map form data to repository format
-        await taskRepository.updateTask(taskId, {
-          title: taskData.title,
-          description: taskData.description,
-          priority: taskData.priority,
-          status: taskData.status,
-          dueDate: taskData.due_date ? new Date(taskData.due_date) : undefined,
-          goalId: taskData.goal_id,
-          estimatedDurationMinutes: taskData.estimated_duration_minutes,
-          recurrencePattern: taskData.recurrence_pattern,
-        });
+        // Update existing task - validate and normalize data before calling repository
+
+        // Validate title if present (should not be empty)
+        if (taskData.title !== undefined && taskData.title.trim() === '') {
+          Alert.alert('Validation Error', 'Task title cannot be empty');
+          return;
+        }
+
+        // Normalize due_date to Date, with validation
+        let normalizedDueDate: Date | undefined = undefined;
+        if (taskData.due_date !== undefined) {
+          if (taskData.due_date && taskData.due_date.trim() !== '') {
+            normalizedDueDate = new Date(taskData.due_date);
+            // Validate the Date object
+            if (isNaN(normalizedDueDate.getTime())) {
+              Alert.alert('Validation Error', 'Invalid due date format');
+              return;
+            }
+          }
+          // If due_date is empty string, normalizedDueDate stays undefined (clears the date)
+        }
+
+        // Build update payload - only include fields that are defined in taskData
+        const updatePayload: {
+          title?: string;
+          description?: string;
+          priority?: 'low' | 'medium' | 'high';
+          status?: 'not_started' | 'in_progress' | 'completed';
+          dueDate?: Date;
+          goalId?: string;
+          estimatedDurationMinutes?: number;
+          recurrencePattern?: RecurrencePattern | null;
+        } = {};
+
+        if (taskData.title !== undefined) updatePayload.title = taskData.title.trim();
+        if (taskData.description !== undefined) updatePayload.description = taskData.description;
+        if (taskData.priority !== undefined) updatePayload.priority = taskData.priority;
+        if (taskData.status !== undefined) updatePayload.status = taskData.status;
+        if (taskData.due_date !== undefined) updatePayload.dueDate = normalizedDueDate;
+        if (taskData.goal_id !== undefined) updatePayload.goalId = taskData.goal_id;
+        if (taskData.estimated_duration_minutes !== undefined) {
+          updatePayload.estimatedDurationMinutes = taskData.estimated_duration_minutes;
+        }
+        if (taskData.recurrence_pattern !== undefined) {
+          updatePayload.recurrencePattern = taskData.recurrence_pattern;
+        }
+
+        await taskRepository.updateTask(taskId, updatePayload);
       } else {
-        // Create new task - map form data to repository format
+        // Create new task - validate and normalize data before calling repository
+
+        // Validate required fields
+        if (!taskData.title || taskData.title.trim() === '') {
+          Alert.alert('Validation Error', 'Task title is required');
+          return;
+        }
+
+        // Normalize optional fields with proper defaults
+        const normalizedPriority: 'low' | 'medium' | 'high' =
+          taskData.priority || 'medium';
+
+        const normalizedStatus: 'not_started' | 'in_progress' | 'completed' =
+          taskData.status || 'not_started';
+
+        // Only convert due_date to Date when present and non-empty
+        let normalizedDueDate: Date | undefined = undefined;
+        if (taskData.due_date && taskData.due_date.trim() !== '') {
+          normalizedDueDate = new Date(taskData.due_date);
+          // Validate the Date object
+          if (isNaN(normalizedDueDate.getTime())) {
+            Alert.alert('Validation Error', 'Invalid due date format');
+            return;
+          }
+        }
+
+        // Create task with validated and normalized data
         await taskRepository.createTask({
-          title: taskData.title || '',
+          title: taskData.title.trim(),
           description: taskData.description,
-          priority: taskData.priority,
-          status: taskData.status,
-          dueDate: taskData.due_date ? new Date(taskData.due_date) : undefined,
+          priority: normalizedPriority,
+          status: normalizedStatus,
+          dueDate: normalizedDueDate,
           goalId: taskData.goal_id,
           estimatedDurationMinutes: taskData.estimated_duration_minutes,
           recurrencePattern: taskData.recurrence_pattern,

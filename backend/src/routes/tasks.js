@@ -73,25 +73,18 @@ const taskValidation = [
   commonValidations.integer('travel_time_minutes', 0, 480),
   commonValidations.boolean('auto_schedule_enabled'),
   body('recurrence_pattern').optional().custom(value => {
-    console.log('[VALIDATION DEBUG] recurrence_pattern value:', value, 'type:', typeof value);
     if (value === null) {
-      console.log('[VALIDATION DEBUG] Value is null, returning true');
       return true; // Allow null to clear recurrence
     }
     // If it's a string, it must be the string 'none' (backward compatibility or simple case)
     if (typeof value === 'string') {
-      console.log('[VALIDATION DEBUG] Value is string:', value);
       return value === 'none';
     }
     // If it's an object, it must have a valid type
     if (typeof value === 'object') {
-      console.log('[VALIDATION DEBUG] Value is object:', JSON.stringify(value));
-      if (!value.type) return true; // Accept empty objects if they have no type (though unlikely)
-      const isValid = ['daily', 'weekly', 'monthly'].includes(value.type);
-      console.log('[VALIDATION DEBUG] Object has type:', value.type, 'valid:', isValid);
-      return isValid;
+      if (!value.type) return false; // Reject objects without a type property
+      return ['daily', 'weekly', 'monthly'].includes(value.type);
     }
-    console.log('[VALIDATION DEBUG] Value failed all checks, returning false');
     return false;
   }).withMessage('recurrence_pattern must be a valid recurrence object or "none"'),
   commonValidations.json('scheduling_preferences'),
@@ -116,7 +109,7 @@ const bulkTaskValidation = [
     if (value === null) return true;
     if (typeof value === 'string') return value === 'none';
     if (typeof value === 'object') {
-      if (!value.type) return true;
+      if (!value.type) return false; // Reject objects without a type property
       return ['daily', 'weekly', 'monthly'].includes(value.type);
     }
     return false;
@@ -144,15 +137,6 @@ const autoScheduleTriggerValidation = [
     throw new Error('preferences_override must be an object');
   })
 ];
-
-// DEBUG: Test endpoint to verify code is loaded - REMOVE AFTER FIXING ISSUE
-router.get('/debug/validation-test', (req, res) => {
-  res.json({
-    message: 'Validation code loaded',
-    timestamp: new Date().toISOString(),
-    codeVersion: 'v2-with-debug-logs'
-  });
-});
 
 router.post('/', requireAuth, taskValidation, validateInput, createTask);
 router.post('/bulk', requireAuth, bulkTaskValidation, validateInput, bulkCreateTasks);

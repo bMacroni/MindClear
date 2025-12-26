@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { HugeiconsIcon as Icon } from '@hugeicons/react-native';
-import { RepeatIcon } from '@hugeicons/core-free-icons';
+import { RepeatIcon } from '@hugeicons/react-native';
 import { colors } from '../../themes/colors';
 import { spacing, borderRadius } from '../../themes/spacing';
 import { typography } from '../../themes/typography';
@@ -28,6 +27,10 @@ export const RecurringTag: React.FC<RecurringTagProps> = ({
                 isPaused && styles.pausedContainer,
                 style,
             ]}
+            accessible={true}
+            accessibilityRole="text"
+            accessibilityLabel={isPaused ? `${label}, paused` : `${label}, recurring`}
+            accessibilityState={{ disabled: isPaused }}
         >
             <Icon
                 icon={RepeatIcon}
@@ -43,8 +46,7 @@ export const RecurringTag: React.FC<RecurringTagProps> = ({
             >
                 {label}
             </Text>
-        </View>
-    );
+        </View>);
 };
 
 const styles = StyleSheet.create({

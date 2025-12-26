@@ -132,9 +132,27 @@ export class TaskRepository {
         task.status = `pending_create:${lifecycleStatus}`;
         task.createdAt = new Date();
         task.updatedAt = new Date();
-        // Serialize recurrence pattern to JSON
-        if (data.recurrencePattern) {
-          task.recurrencePatternJson = JSON.stringify(data.recurrencePattern);
+        // Serialize recurrence pattern to JSON - handle undefined/null consistently with updateTask
+        if (data.recurrencePattern !== undefined) {
+          if (data.recurrencePattern) {
+            try {
+              task.recurrencePatternJson = JSON.stringify(data.recurrencePattern);
+            } catch (error: any) {
+              // Log serialization failure with contextual info
+              logger.error('Failed to serialize recurrence_pattern during task creation', {
+                taskTitle: data.title,
+                recurrencePatternType: typeof data.recurrencePattern,
+                error: error instanceof Error ? error.message : 'Unknown error',
+                errorStack: error instanceof Error ? error.stack : undefined
+              });
+              // Throw error to notify caller that serialization failed
+              throw new Error(
+                `Failed to serialize recurrence pattern: ${error instanceof Error ? error.message : 'Unknown error'}`
+              );
+            }
+          } else {
+            task.recurrencePatternJson = undefined;
+          }
         }
       });
     });
@@ -181,7 +199,23 @@ export class TaskRepository {
         if (data.isTodayFocus !== undefined) t.isTodayFocus = data.isTodayFocus;
         // Handle recurrence pattern - serialize to JSON
         if (data.recurrencePattern !== undefined) {
-          t.recurrencePatternJson = data.recurrencePattern ? JSON.stringify(data.recurrencePattern) : undefined;
+          if (data.recurrencePattern) {
+            try {
+              t.recurrencePatternJson = JSON.stringify(data.recurrencePattern);
+            } catch (error: any) {
+              // Log serialization failure with contextual info and set to undefined for graceful degradation
+              logger.error('Failed to serialize recurrence_pattern during task update', {
+                taskId: id,
+                taskTitle: t.title,
+                recurrencePatternType: typeof data.recurrencePattern,
+                error: error instanceof Error ? error.message : 'Unknown error',
+                errorStack: error instanceof Error ? error.stack : undefined
+              });
+              t.recurrencePatternJson = undefined;
+            }
+          } else {
+            t.recurrencePatternJson = undefined;
+          }
         }
         // Store lifecycle status with sync marker, preserving pending_create for offline-created tasks
         // SyncService will extract lifecycle status during push
@@ -667,11 +701,25 @@ export class TaskRepository {
             t.category = serverTask.category ?? null;
             // Handle recurrence_pattern from server
             if (serverTask.recurrence_pattern !== undefined) {
-              t.recurrencePatternJson = serverTask.recurrence_pattern
-                ? (typeof serverTask.recurrence_pattern === 'string'
-                  ? serverTask.recurrence_pattern
-                  : JSON.stringify(serverTask.recurrence_pattern))
-                : null;
+              if (serverTask.recurrence_pattern) {
+                try {
+                  t.recurrencePatternJson = typeof serverTask.recurrence_pattern === 'string'
+                    ? serverTask.recurrence_pattern
+                    : JSON.stringify(serverTask.recurrence_pattern);
+                } catch (error: any) {
+                  // Log serialization failure with contextual info and set to null for graceful degradation
+                  logger.error('Failed to serialize recurrence_pattern from server', {
+                    taskId: serverTask.id,
+                    taskTitle: serverTask.title,
+                    recurrencePatternType: typeof serverTask.recurrence_pattern,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                    errorStack: error instanceof Error ? error.stack : undefined
+                  });
+                  t.recurrencePatternJson = null;
+                }
+              } else {
+                t.recurrencePatternJson = null;
+              }
             }
             t.userId = serverTask.user_id || userId;
             // Set status to 'synced' to mark record as synced and prevent sync loop

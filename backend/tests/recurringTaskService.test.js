@@ -146,8 +146,12 @@ describe('Recurring Task Service - Date Calculations', () => {
 
             const result = getNextMatchingDayOfWeek(fromDate, daysOfWeek, weekInterval);
 
+            // Compute expected date: 14 days after fromDate
+            const expected = new Date(fromDate.getTime());
+            expected.setUTCDate(expected.getUTCDate() + 14);
+
             expect(result.getDay()).toBe(1); // Monday
-            // Should be 2 weeks from now, not 1
+            expect(result.getTime()).toBe(expected.getTime()); // Exactly 14 days later
         });
 
         it('should default to 7 days if no days specified', () => {

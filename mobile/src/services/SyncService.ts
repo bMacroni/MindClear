@@ -296,8 +296,15 @@ class SyncService {
             // Backend validation requires boolean or absent, not null
             ...(typeof record.isTodayFocus === 'boolean' ? { is_today_focus: record.isTodayFocus } : {}),
             // Include recurrence_pattern - ensure it can be null to clear recurrence
-            recurrence_pattern: record.recurrencePatternJson ? JSON.parse(record.recurrencePatternJson) : null,
-            status: lifecycleStatus, // Include lifecycle status in sync
+            recurrence_pattern: (() => {
+              if (!record.recurrencePatternJson) return null;
+              try {
+                return JSON.parse(record.recurrencePatternJson);
+              } catch (e) {
+                console.warn(`Push: Invalid recurrencePatternJson for task ${record.id}, sending null`, e);
+                return null;
+              }
+            })(), status: lifecycleStatus, // Include lifecycle status in sync
             client_updated_at: record.updatedAt?.toISOString(),
           };
 
