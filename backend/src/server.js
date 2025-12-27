@@ -52,7 +52,6 @@ import analyticsRouter from './routes/analytics.js';
 import routinesRouter from './routes/routines.js';
 import cron from 'node-cron';
 import { syncGoogleCalendarEvents } from './utils/syncService.js';
-import { autoScheduleTasks } from './controllers/autoSchedulingController.js';
 import { sendNotification, sendRoutineReminder } from './services/notificationService.js';
 import { initializeFirebaseAdmin } from './utils/firebaseAdmin.js';
 import webSocketManager from './utils/webSocketManager.js';
@@ -275,28 +274,6 @@ async function getAllUserIds() {
   return data.map(row => row.user_id);
 }
 
-async function getUsersWithAutoSchedulingEnabled() {
-  // Check if Supabase is initialized
-  if (!supabase) {
-    logger.warn('Supabase client not initialized. Skipping getUsersWithAutoSchedulingEnabled.');
-    return [];
-  }
-
-  // Query users who have auto-scheduling enabled
-  const { data, error } = await supabase
-    .from('user_scheduling_preferences')
-    .select('user_id')
-    .eq('auto_scheduling_enabled', true);
-
-  if (error) {
-    logger.error('Error fetching users with auto-scheduling enabled:', error);
-    return [];
-  }
-
-  // Return unique user IDs as an array of strings
-  return data.map(row => row.user_id);
-}
-
 // Schedule sync every day at 4:00 AM CST (America/Chicago)
 cron.schedule('0 4 * * *', async () => {
   // Check if Supabase is initialized
@@ -313,105 +290,6 @@ cron.schedule('0 4 * * *', async () => {
       logger.cron(`[CRON] Synced Google Calendar for user: ${userId}`);
     } catch (err) {
       logger.error(`[CRON] Error syncing Google Calendar for user: ${userId}`, err);
-    }
-  }
-}, {
-  timezone: 'America/Chicago'
-});
-
-// Schedule auto-scheduling every day at 5:00 AM CST (after calendar sync)
-cron.schedule('0 5 * * *', async () => {
-  // Check if Supabase is initialized
-  if (!supabase) {
-    logger.warn('[CRON] Supabase client not initialized. Skipping auto-scheduling.');
-    return;
-  }
-
-  logger.cron('[CRON] Starting auto-scheduling for all enabled users at 5:00 AM CST');
-  const userIds = await getUsersWithAutoSchedulingEnabled();
-
-  if (userIds.length === 0) {
-    logger.cron('[CRON] No users with auto-scheduling enabled found');
-    return;
-  }
-
-  logger.cron(`[CRON] Found ${userIds.length} users with auto-scheduling enabled`);
-
-  for (const userId of userIds) {
-    try {
-      // Get user's JWT token for API calls
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('google_tokens')
-        .select('access_token')
-        .eq('user_id', userId)
-        .single();
-
-      if (tokenError || !tokenData?.access_token) {
-        logger.cron(`[CRON] No valid token found for user: ${userId}, skipping auto-scheduling`);
-        continue;
-      }
-
-      const token = tokenData.access_token;
-      const result = await autoScheduleTasks(userId, token);
-
-      if (result.error) {
-        logger.error(`[CRON] Error auto-scheduling for user ${userId}:`, result.error);
-      } else {
-        logger.cron(`[CRON] Auto-scheduling completed for user: ${userId}`);
-        if (result.successful > 0) {
-          logger.cron(`[CRON] Successfully scheduled ${result.successful} tasks for user: ${userId}`);
-        }
-      }
-    } catch (err) {
-      logger.error(`[CRON] Error in auto-scheduling for user: ${userId}`, err);
-    }
-  }
-}, {
-  timezone: 'America/Chicago'
-});
-
-// Schedule auto-scheduling every 6 hours for recurring tasks and new tasks
-cron.schedule('0 */6 * * *', async () => {
-  // Check if Supabase is initialized
-  if (!supabase) {
-    logger.warn('[CRON] Supabase client not initialized. Skipping periodic auto-scheduling.');
-    return;
-  }
-
-  logger.cron('[CRON] Starting periodic auto-scheduling check (every 6 hours)');
-  const userIds = await getUsersWithAutoSchedulingEnabled();
-
-  if (userIds.length === 0) {
-    logger.cron('[CRON] No users with auto-scheduling enabled found for periodic check');
-    return;
-  }
-
-  logger.cron(`[CRON] Found ${userIds.length} users for periodic auto-scheduling check`);
-
-  for (const userId of userIds) {
-    try {
-      // Get user's JWT token for API calls
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('google_tokens')
-        .select('access_token')
-        .eq('user_id', userId)
-        .single();
-
-      if (tokenError || !tokenData?.access_token) {
-        logger.cron(`[CRON] No valid token found for user: ${userId}, skipping periodic auto-scheduling`);
-        continue;
-      }
-
-      const token = tokenData.access_token;
-      const result = await autoScheduleTasks(userId, token);
-
-      if (result.error) {
-        logger.error(`[CRON] Error in periodic auto-scheduling for user ${userId}:`, result.error);
-      } else if (result.successful > 0) {
-        logger.cron(`[CRON] Periodically scheduled ${result.successful} tasks for user: ${userId}`);
-      }
-    } catch (err) {
-      logger.error(`[CRON] Error in periodic auto-scheduling for user: ${userId}`, err);
     }
   }
 }, {

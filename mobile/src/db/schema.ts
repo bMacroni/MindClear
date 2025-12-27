@@ -60,7 +60,7 @@ export const mySchema = appSchema({
         { name: 'is_today_focus', type: 'boolean', isOptional: true },
         { name: 'location', type: 'string', isOptional: true }, // Task location for travel preference
         { name: 'category', type: 'string', isOptional: true }, // Task category (e.g., "Digital Hygiene", "Health", etc.)
-        { name: 'auto_schedule_enabled', type: 'boolean', isOptional: true },
+        { name: 'auto_schedule_enabled', type: 'boolean', isOptional: true }, // @deprecated: Auto-scheduling feature has been removed
         { name: 'recurrence_pattern', type: 'string', isOptional: true }, // JSON stringified RecurrencePattern
       ],
     }),

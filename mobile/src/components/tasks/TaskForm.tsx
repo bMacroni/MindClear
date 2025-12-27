@@ -527,47 +527,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
             onChange={(pattern) => handleInputChange('recurrence_pattern', pattern)}
           />
 
-          {/* Auto-Scheduling Section */}
-          <View style={styles.autoScheduleSection}>
-            <Text style={styles.sectionTitle}>Auto-Scheduling</Text>
-
-            {renderSwitch(
-              'Enable Auto-Scheduling',
-              formData.auto_schedule_enabled || false,
-              (value) => handleInputChange('auto_schedule_enabled', value),
-              'Automatically schedule this task based on your preferences'
-            )}
-
-            {formData.auto_schedule_enabled && (
-              <>
-                {/* Location */}
-                <View style={styles.field}>
-                  <Text style={styles.label}>Location</Text>
-                  <View style={styles.locationInputContainer}>
-                    <Icon icon={Location01Icon} size={16} color={colors.text.secondary} />
-                    <TextInput
-                      style={styles.locationInput}
-                      value={formData.location}
-                      onChangeText={(text) => handleInputChange('location', text)}
-                      placeholder="Enter location (optional)"
-                      placeholderTextColor={colors.text.disabled}
-                    />
-                  </View>
-                </View>
-
-                {/* Weather Dependency */}
-                {renderSwitch(
-                  'Weather Dependent',
-                  formData.weather_dependent || false,
-                  (value) => handleInputChange('weather_dependent', value),
-                  'Only schedule when weather is suitable for outdoor tasks'
-                )}
-
-                {/* Preferred Time Windows */}
-                {renderTimeWindowSelector()}
-              </>
-            )}
-          </View>
+          {/* Auto-Scheduling Section - DEPRECATED: Feature removed */}
 
           {/* Bottom actions */}
           {stickyFooter ? null : (

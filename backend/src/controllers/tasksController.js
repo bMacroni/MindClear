@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { dateParser } from '../utils/dateParser.js';
-import { autoScheduleTasks, processRecurringTask } from './autoSchedulingController.js';
+import { processRecurringTask } from '../services/recurringTaskService.js';
 import logger from '../utils/logger.js';
 import cacheService from '../utils/cacheService.js';
 
@@ -22,28 +22,28 @@ function normalizeRolloverYear(dateStr) {
   if (!dateStr || typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return dateStr;
   }
-  
+
   const [_, year, month, day] = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const currentYear = new Date().getFullYear();
-  
+
   if (parseInt(year, 10) < currentYear) {
     const rolloverCandidate = new Date(`${currentYear}-${month}-${day}T12:00:00Z`);
     return Number.isNaN(rolloverCandidate.getTime()) ? dateStr : `${currentYear}-${month}-${day}`;
   }
-  
+
   return dateStr;
 }
 
 export async function createTask(req, res) {
-  const { 
-    title, 
-    description, 
-    due_date, 
-    priority, 
-    goal_id, 
+  const {
+    title,
+    description,
+    due_date,
+    priority,
+    goal_id,
     // completed (deprecated): use status; left for backward compatibility via trigger
-    preferred_time_of_day, 
-    deadline_type, 
+    preferred_time_of_day,
+    deadline_type,
     travel_time_minutes,
     // Auto-scheduling fields
     auto_schedule_enabled,
@@ -64,7 +64,7 @@ export async function createTask(req, res) {
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
 
-  
+
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
@@ -73,27 +73,27 @@ export async function createTask(req, res) {
       }
     }
   });
-  
+
   // Creating task for user
-  
+
   // Convert empty string goal_id to null
   const sanitizedGoalId = goal_id === '' ? null : goal_id;
-  
+
   // Convert empty string due_date to null
   const sanitizedDueDate = due_date === '' ? null : due_date;
-  
+
   const { data, error } = await supabase
     .from('tasks')
-    .insert([{ 
-      user_id, 
-      title, 
-      description, 
-      due_date: sanitizedDueDate, 
-      priority, 
-      goal_id: sanitizedGoalId, 
+    .insert([{
+      user_id,
+      title,
+      description,
+      due_date: sanitizedDueDate,
+      priority,
+      goal_id: sanitizedGoalId,
       // Do not write completed directly; rely on status and sync trigger
-      preferred_time_of_day, 
-      deadline_type, 
+      preferred_time_of_day,
+      deadline_type,
       travel_time_minutes,
       category,
       is_today_focus,
@@ -110,21 +110,21 @@ export async function createTask(req, res) {
     }])
     .select()
     .single();
-  
+
   if (error) {
     // Supabase error occurred
-    
+
     // Check if this is a unique constraint violation for is_today_focus
     if (error.message && error.message.includes('uniq_tasks_user_focus')) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'You already have a task set as today\'s focus. Please update your existing focus task instead.',
         code: 'FOCUS_CONSTRAINT_VIOLATION'
       });
     }
-    
+
     return res.status(400).json({ error: error.message });
   }
-  
+
   // Track analytics event after successful task creation
   try {
     const analyticsSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
@@ -150,28 +150,28 @@ export async function createTask(req, res) {
     // Don't fail the request if analytics fails
     logger.warn('Failed to track task creation analytics:', analyticsError);
   }
-  
+
   // Invalidate user's task cache since we added a new task
   cacheService.invalidateUserCache(user_id, 'tasks');
-  
+
   res.status(201).json(data);
 }
 
 export async function getTasks(req, res) {
   const user_id = req.user.id;
   const since = req.query.since; // For delta sync
-  
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
-  
+
   // Validate since parameter if provided
   if (since && isNaN(Date.parse(since))) {
     return res.status(400).json({ error: 'Invalid since parameter. Expected ISO 8601 date string.' });
   }
-  
+
   // Create cache key for this user's tasks
   const cacheKey = cacheService.generateUserKey(user_id, 'tasks');
-  
+
   try {
     // For incremental sync, don't use cache
     if (!since) {
@@ -184,7 +184,7 @@ export async function getTasks(req, res) {
     }
 
     logger.debug('Cache miss for user tasks:', user_id);
-    
+
     // Create Supabase client with the JWT
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
       global: {
@@ -193,7 +193,7 @@ export async function getTasks(req, res) {
         }
       }
     });
-    
+
     let query = supabase
       .from('tasks')
       .select(`
@@ -212,14 +212,14 @@ export async function getTasks(req, res) {
       `)
       .eq('user_id', user_id)
       .order('created_at', { ascending: false });
-    
+
     // Add `since` filter for delta sync
     if (since) {
       query = query.gt('updated_at', since);
     }
-    
+
     const { data, error } = await query;
-    
+
     if (error) {
       return res.status(400).json({ error: error.message });
     }
@@ -240,14 +240,14 @@ export async function getTasks(req, res) {
       } else {
         deleted = deletedData.map(r => r.record_id);
       }
-      
+
       logger.info(`[Tasks API] Returning ${data.length} changed and ${deleted.length} deleted tasks for user ${user_id}`);
       return res.json({ changed: data, deleted });
     }
 
     // Cache the results for full sync
     cacheService.cacheUserTasks(user_id, data);
-    
+
     res.json(data);
   } catch (error) {
     logger.error('Error in getTasks:', error);
@@ -258,10 +258,10 @@ export async function getTasks(req, res) {
 export async function getTaskById(req, res) {
   const user_id = req.user.id;
   const { id } = req.params;
-  
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
-  
+
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
@@ -270,14 +270,14 @@ export async function getTaskById(req, res) {
       }
     }
   });
-  
+
   const { data, error } = await supabase
     .from('tasks')
     .select('*')
     .eq('id', id)
     .eq('user_id', user_id)
     .single();
-  
+
   if (error) {
     return res.status(404).json({ error: error.message });
   }
@@ -287,16 +287,16 @@ export async function getTaskById(req, res) {
 export async function updateTask(req, res) {
   const user_id = req.user.id;
   const { id } = req.params;
-  const { 
-    title, 
-    description, 
-    due_date, 
-    priority, 
-    goal_id, 
-    completed, 
-    preferred_time_of_day, 
-    deadline_type, 
-    travel_time_minutes, 
+  const {
+    title,
+    description,
+    due_date,
+    priority,
+    goal_id,
+    completed,
+    preferred_time_of_day,
+    deadline_type,
+    travel_time_minutes,
     status,
     estimated_duration_minutes,
     scheduled_time,
@@ -313,10 +313,10 @@ export async function updateTask(req, res) {
     buffer_time_minutes,
     task_type
   } = req.body;
-  
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
-  
+
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
@@ -325,13 +325,13 @@ export async function updateTask(req, res) {
       }
     }
   });
-  
+
   // Convert empty string goal_id to null
   const sanitizedGoalId = goal_id === '' ? null : goal_id;
-  
+
   // Convert empty string due_date to null
   const sanitizedDueDate = due_date === '' ? null : due_date;
-  
+
   const updateFields = {
     ...(title !== undefined && { title }),
     ...(description !== undefined && { description }),
@@ -361,7 +361,7 @@ export async function updateTask(req, res) {
 
   // Check if this is a recurring task being completed
   const isRecurringTaskCompletion = status === 'completed' && recurrence_pattern;
-  
+
   const { data, error } = await supabase
     .from('tasks')
     .update(updateFields)
@@ -369,7 +369,7 @@ export async function updateTask(req, res) {
     .eq('user_id', user_id)
     .select()
     .single();
-  
+
   if (error) {
     // Supabase error occurred
     return res.status(400).json({ error: error.message });
@@ -396,10 +396,10 @@ export async function updateTask(req, res) {
 export async function deleteTask(req, res) {
   const user_id = req.user.id;
   const { id } = req.params;
-  
+
   // Get the JWT from the request
   const token = req.headers.authorization?.split(' ')[1];
-  
+
   // Create Supabase client with the JWT
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
     global: {
@@ -408,13 +408,13 @@ export async function deleteTask(req, res) {
       }
     }
   });
-  
+
   const { error } = await supabase
     .from('tasks')
     .delete()
     .eq('id', id)
     .eq('user_id', user_id);
-  
+
   if (error) {
     // Supabase error occurred
     return res.status(400).json({ error: error.message });
@@ -464,15 +464,15 @@ export async function getNextFocusTask(req, res) {
 
     // Apply exclusions in SQL with parameterized query for security
     const exclude = Array.isArray(exclude_ids) ? exclude_ids : [];
-    
+
     // Validate exclude IDs to prevent injection attacks
     const validExcludeIds = exclude.filter(id => {
       // Allow integers (task IDs) or valid UUIDs
-      return typeof id === 'number' || 
-             (typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) ||
-             (typeof id === 'string' && /^\d+$/.test(id));
+      return typeof id === 'number' ||
+        (typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) ||
+        (typeof id === 'string' && /^\d+$/.test(id));
     });
-    
+
     if (validExcludeIds.length > 0) {
       // Use Supabase's native parameter handling to prevent SQL injection
       // Pass the array directly to the 'in' operator
@@ -601,28 +601,28 @@ export async function createTaskFromAI(args, userId, userContext) {
     const titleLower = title.toLowerCase();
     // Health-related keywords (check first to avoid conflicts with work keywords)
     if (titleLower.includes('doctor') || titleLower.includes('medical appointment') ||
-        titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('exercise') ||
-        titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
-        titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
-        titleLower.includes('health appointment')) {
+      titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('exercise') ||
+      titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
+      titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
+      titleLower.includes('health appointment')) {
       return 'health';
     }
-    
+
     // Work-related keywords
     if (titleLower.includes('meeting') || titleLower.includes('email') ||
-        titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
-        titleLower.includes('deadline') || titleLower.includes('presentation') ||
-        titleLower.includes('client') || titleLower.includes('call client')) {
+      titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
+      titleLower.includes('deadline') || titleLower.includes('presentation') ||
+      titleLower.includes('client') || titleLower.includes('call client')) {
       return 'work';
     }
-    
+
     // Social-related keywords
     if (titleLower.includes('social') || titleLower.includes('friend') ||
-        titleLower.includes('family') || titleLower.includes('party') ||
-        titleLower.includes('gathering') || titleLower.includes('event')) {
+      titleLower.includes('family') || titleLower.includes('party') ||
+      titleLower.includes('gathering') || titleLower.includes('event')) {
       return 'social';
     }
-    
+
     // Default to personal if no specific category matches
     return 'personal';
   }
@@ -664,7 +664,7 @@ export async function createTaskFromAI(args, userId, userContext) {
       parsedDueDate = normalizeRolloverYear(due_date);
     } else {
       parsedDueDate = dateParser.parse(due_date);
-      
+
       // Also normalize DateParser results if they're in the past
       if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
         parsedDueDate = normalizeRolloverYear(parsedDueDate);
@@ -681,10 +681,10 @@ export async function createTaskFromAI(args, userId, userContext) {
 
   const { data, error } = await supabase
     .from('tasks')
-    .insert([{ 
-      user_id: userId, 
-      title, 
-      description, 
+    .insert([{
+      user_id: userId,
+      title,
+      description,
       due_date: finalDueDate,
       priority: defaultPriority,
       goal_id: goalId,
@@ -873,7 +873,7 @@ export async function lookupTaskbyTitle(userId, token) {
   if (error) {
     return { error: error.message };
   }
-  
+
   // Return all tasks with their IDs and titles
   if (data && data.length > 0) {
     return data;
@@ -948,198 +948,4 @@ export async function readTaskFromAI(args, userId, userContext) {
     return { error: error.message };
   }
   return data;
-}
-
-// Auto-scheduling API endpoints
-
-export async function toggleAutoSchedule(req, res) {
-  const user_id = req.user.id;
-  const { id } = req.params;
-  const { auto_schedule_enabled } = req.body;
-  
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  // First get the task to check its status
-  const { data: task, error: taskError } = await supabase
-    .from('tasks')
-    .select('status')
-    .eq('id', id)
-    .eq('user_id', user_id)
-    .single();
-
-  if (taskError) {
-    logger.error('Supabase error in toggleAutoSchedule:', taskError);
-    return res.status(400).json({ error: taskError.message });
-  }
-
-  // Prevent toggling auto-schedule on completed tasks
-  if (task && task.status === 'completed') {
-    return res.status(400).json({ error: 'Cannot modify auto-scheduling for completed tasks' });
-  }
-  const { data, error } = await supabase
-    .from('tasks')
-    .update({ auto_schedule_enabled })
-    .eq('id', id)
-    .eq('user_id', user_id)
-    .select()
-    .single();
-
-  if (error) {
-    // Supabase error occurred
-    return res.status(400).json({ error: error.message });
-  }
-  res.json(data);
-}
-
-export async function getAutoSchedulingDashboard(req, res) {
-  const user_id = req.user.id;
-  
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  const { data, error } = await supabase
-    .from('auto_scheduling_dashboard')
-    .select('*')
-    .eq('user_id', user_id)
-    .single();
-
-  if (error) {
-    // Supabase error occurred
-    return res.status(400).json({ error: error.message });
-  }
-  res.json(data);
-}
-
-export async function getUserSchedulingPreferences(req, res) {
-  const user_id = req.user.id;
-  
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  const { data, error } = await supabase
-    .from('user_scheduling_preferences')
-    .select('*')
-    .eq('user_id', user_id)
-    .single();
-
-  if (error) {
-    // Supabase error occurred
-    return res.status(400).json({ error: error.message });
-  }
-  res.json(data);
-}
-
-export async function updateUserSchedulingPreferences(req, res) {
-  const user_id = req.user.id;
-  const {
-    preferred_start_time,
-    preferred_end_time,
-    work_days,
-    max_tasks_per_day,
-    buffer_time_minutes,
-    weather_check_enabled,
-    travel_time_enabled,
-    auto_scheduling_enabled
-  } = req.body;
-  
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  const updateFields = {
-    ...(preferred_start_time !== undefined && { preferred_start_time }),
-    ...(preferred_end_time !== undefined && { preferred_end_time }),
-    ...(work_days !== undefined && { work_days }),
-    ...(max_tasks_per_day !== undefined && { max_tasks_per_day }),
-    ...(buffer_time_minutes !== undefined && { buffer_time_minutes }),
-    ...(weather_check_enabled !== undefined && { weather_check_enabled }),
-    ...(travel_time_enabled !== undefined && { travel_time_enabled }),
-    ...(auto_scheduling_enabled !== undefined && { auto_scheduling_enabled })
-  };
-
-  const { data, error } = await supabase
-    .from('user_scheduling_preferences')
-    .update(updateFields)
-    .eq('user_id', user_id)
-    .select()
-    .single();
-
-  if (error) {
-    // Supabase error occurred
-    return res.status(400).json({ error: error.message });
-  }
-  res.json(data);
-}
-
-export async function getTaskSchedulingHistory(req, res) {
-  const user_id = req.user.id;
-  const { task_id } = req.params;
-  
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  let query = supabase
-    .from('task_scheduling_history')
-    .select('*')
-    .eq('user_id', user_id);
-
-  if (task_id) {
-    query = query.eq('task_id', task_id);
-  }
-
-  const { data, error } = await query.order('created_at', { ascending: false });
-
-  if (error) {
-    // Supabase error occurred
-    return res.status(400).json({ error: error.message });
-  }
-  res.json(data);
-}
-
-export async function triggerAutoScheduling(req, res) {
-  const user_id = req.user.id;
-  const token = req.headers.authorization?.split(' ')[1];
-
-  try {
-    const result = await autoScheduleTasks(user_id, token);
-    
-    if (result.error) {
-      return res.status(400).json({ error: result.error });
-    }
-    
-    res.json(result);
-  } catch (error) {
-    // Error in triggerAutoScheduling
-    res.status(500).json({ error: 'Internal server error during auto-scheduling' });
-  }
 } 

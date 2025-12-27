@@ -24,10 +24,6 @@ jest.mock('../services/api', () => {
     calendarAPI: {
       createEvent: jest.fn(async () => ({ data: { scheduled_time: new Date().toISOString() } })),
     },
-    autoSchedulingAPI: {
-      autoScheduleTasks: jest.fn(async () => ({ successful: 0 })),
-      toggleTaskAutoScheduling: jest.fn(async () => ({})),
-    },
     appPreferencesAPI: {
       get: jest.fn(async () => ({ momentum_mode_enabled: false, momentum_travel_preference: 'allow_travel' })),
       update: jest.fn(async () => ({})),
@@ -49,14 +45,14 @@ jest.mock('../services/offline', () => ({
   offlineService: {
     getCachedTasks: jest.fn(async () => null),
     getCachedGoals: jest.fn(async () => null),
-    cacheTasks: jest.fn(async () => {}),
-    cacheGoals: jest.fn(async () => {}),
+    cacheTasks: jest.fn(async () => { }),
+    cacheGoals: jest.fn(async () => { }),
   }
 }));
 
 jest.mock('../services/analyticsService', () => ({
   __esModule: true,
-  default: { trackScreenView: jest.fn(async () => {}), trackTaskCompleted: jest.fn(async () => {}) }
+  default: { trackScreenView: jest.fn(async () => { }), trackTaskCompleted: jest.fn(async () => { }) }
 }));
 
 jest.mock('react-native-safe-area-context', () => {

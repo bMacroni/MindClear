@@ -35,12 +35,8 @@ jest.mock('../../../services/api', () => ({
   calendarAPI: {
     createEvent: jest.fn(),
   },
-  autoSchedulingAPI: {
-    autoScheduleTasks: jest.fn(() => Promise.resolve({ successful: 0 })),
-    toggleTaskAutoScheduling: jest.fn(),
-  },
   appPreferencesAPI: {
-    get: jest.fn(() => Promise.resolve({ 
+    get: jest.fn(() => Promise.resolve({
       momentum_mode_enabled: false,
       momentum_travel_preference: 'allow_travel',
     })),
@@ -265,7 +261,8 @@ describe('TasksScreen Task Operations', () => {
             status: 'completed',
           })
         );
-      });    });
+      });
+    });
   });
 
   describe('Task Deletion', () => {

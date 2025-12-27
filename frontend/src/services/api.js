@@ -9,7 +9,7 @@ const CACHE_DURATION = 1000; // 1 second
 const API_BASE_URL = import.meta.env.VITE_SECURE_API_BASE || import.meta.env.VITE_API_URL;
 if (!API_BASE_URL) {
   throw new Error('API base URL not configured. Please set VITE_SECURE_API_BASE or VITE_API_URL environment variable.');
-}const api = axios.create({
+} const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
@@ -23,7 +23,7 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     // Add security headers
     const securityHeaders = getSecurityHeaders();
     Object.assign(config.headers, securityHeaders);
@@ -33,21 +33,21 @@ api.interceptors.request.use(
     } catch (_) {
       // Ignore timezone detection errors
     }
-    
+
     // Add request deduplication for GET requests
     if (config.method === 'get') {
       const cacheKey = `${config.method}:${config.url}:${JSON.stringify(config.params || {})}`;
       const now = Date.now();
       const cached = requestCache.get(cacheKey);
-      
+
       if (cached && (now - cached.timestamp) < CACHE_DURATION) {
         // Return cached promise
-        return Promise.reject({ 
-          isCached: true, 
-          cachedResponse: cached.promise 
+        return Promise.reject({
+          isCached: true,
+          cachedResponse: cached.promise
         });
       }
-      
+
       // Create a deferred promise for the in-flight request
       let resolve, reject;
       const promise = new Promise((res, rej) => {
@@ -62,10 +62,10 @@ api.interceptors.request.use(
         resolve,
         reject
       });
-      
+
       // Attach cacheKey to config for response interceptors
       config._cacheKey = cacheKey;
-      
+
       // Clean up old cache entries
       for (const [key, value] of requestCache.entries()) {
         if ((now - value.timestamp) > CACHE_DURATION) {
@@ -73,7 +73,7 @@ api.interceptors.request.use(
         }
       }
     }
-    
+
     return config;
   },
   (error) => {
@@ -108,7 +108,7 @@ api.interceptors.response.use(
         requestCache.delete(error.config._cacheKey);
       }
     }
-    
+
     if (error.response?.status === 401) {
       // Token expired or invalid
       logSecurityEvent('Authentication failed', { status: 401 });
@@ -116,9 +116,9 @@ api.interceptors.response.use(
       window.location.href = '/login';
     } else if (error.response?.status >= 400) {
       // Log other client/server errors
-      logSecurityEvent('API error', { 
-        status: error.response.status, 
-        url: error.config?.url 
+      logSecurityEvent('API error', {
+        status: error.response.status,
+        url: error.config?.url
       });
     }
     return Promise.reject(error);
