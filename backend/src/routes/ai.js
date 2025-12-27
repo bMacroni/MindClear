@@ -7,6 +7,7 @@ import { conversationController } from '../controllers/conversationController.js
 import logger from '../utils/logger.js';
 import { sendFeedback } from '../controllers/feedbackController.js';
 import { sendNotification } from '../services/notificationService.js';
+import { getSupabaseConfig } from '../config/supabase.js';
 
 const router = express.Router();
 const geminiService = new GeminiService();
@@ -103,7 +104,8 @@ router.post('/chat', requireAuth, async (req, res) => {
 
             // Track analytics
             const { createClient } = await import('@supabase/supabase-js');
-            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+            const { url, serviceKey, anonKey } = getSupabaseConfig();
+            const supabase = createClient(url, serviceKey || anonKey);
             await supabase
               .from('analytics_events')
               .insert({
@@ -166,7 +168,8 @@ router.post('/chat', requireAuth, async (req, res) => {
 
     // Track AI message processing event
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    const { url, serviceKey, anonKey } = getSupabaseConfig();
+    const supabase = createClient(url, serviceKey || anonKey);
     await supabase
       .from('analytics_events')
       .insert({
@@ -264,7 +267,8 @@ router.post('/recommend-task', requireAuth, async (req, res) => {
     // Fetch the user's tasks (reuse logic from getTasks controller)
     const token = req.headers.authorization?.split(' ')[1];
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    const { url, serviceKey, anonKey } = getSupabaseConfig();
+    const supabase = createClient(url, serviceKey || anonKey, {
       global: {
         headers: {
           Authorization: `Bearer ${token}`
@@ -309,7 +313,8 @@ router.post('/braindump', requireAuth, async (req, res) => {
 
     // Track brain dump processing event
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    const { url, serviceKey, anonKey } = getSupabaseConfig();
+    const supabase = createClient(url, serviceKey || anonKey);
     await supabase
       .from('analytics_events')
       .insert({

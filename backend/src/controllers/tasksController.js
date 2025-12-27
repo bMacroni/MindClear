@@ -360,8 +360,6 @@ export async function updateTask(req, res) {
   };
 
   // Check if this is a recurring task being completed
-  const isRecurringTaskCompletion = status === 'completed' && recurrence_pattern;
-
   const { data, error } = await supabase
     .from('tasks')
     .update(updateFields)
@@ -376,576 +374,593 @@ export async function updateTask(req, res) {
   }
 
   // Handle recurring task completion
-  if (isRecurringTaskCompletion && data.recurrence_pattern) {
+  if (status === 'completed' && data.recurrence_pattern) {
     try {
       const updatedTask = await processRecurringTask(data, token);
-      if (updatedTask) {
-        // Return the updated task with new due date
-        res.json(updatedTask);
-        return;
-      }
-    } catch (recurringError) {
-      // Error processing recurring task
-      // Continue with normal response even if recurring processing fails
-    }
-  }
+      const { data, error } = await supabase
+        .from('tasks')
+        .update(updateFields)
+        .eq('id', id)
+        .eq('user_id', user_id)
+        .select()
+        .single();
 
-  res.json(data);
-}
+      if (error) {
+        // Supabase error occurred
+        return res.status(400).json({ error: error.message });
+      }
+
+      // Handle recurring task completion
+      if (isRecurringTaskCompletion && data.recurrence_pattern) {
+        try {
+          const updatedTask = await processRecurringTask(data, token);
+          if (updatedTask) {
+            // Return the updated task with new due date
+            res.json(updatedTask);
+            return;
+          }
+        } catch (recurringError) {
+          // Error processing recurring task
+          // Continue with normal response even if recurring processing fails
+        }
+      }
+
+      res.json(data);
+    }
 
 export async function deleteTask(req, res) {
-  const user_id = req.user.id;
-  const { id } = req.params;
+      const user_id = req.user.id;
+      const { id } = req.params;
 
-  // Get the JWT from the request
-  const token = req.headers.authorization?.split(' ')[1];
+      // Get the JWT from the request
+      const token = req.headers.authorization?.split(' ')[1];
 
-  // Create Supabase client with the JWT
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user_id);
-
-  if (error) {
-    // Supabase error occurred
-    return res.status(400).json({ error: error.message });
-  }
-  res.status(204).send();
-}
-
-/**
- * Momentum Mode: Find and set the next focus task for today.
- * Body: { current_task_id: string|null, travel_preference: 'allow_travel'|'home_only'|null, exclude_ids: string[] }
- * Behavior:
- * 1) If current_task_id provided, unset its is_today_focus (set false)
- * 2) Select next candidate among user's tasks:
- *    - Not completed
- *    - Not in exclude_ids
- *    - If travel_preference === 'home_only', prefer tasks without a location
- *    - Must have estimated_duration_minutes; if missing on chosen task, default to 30
- *    - Highest priority (high > medium > low), then earliest due date (nulls last)
- * 3) Set chosen task is_today_focus = true and return the full row
- * 4) If none found, return 404 with message
- */
-export async function getNextFocusTask(req, res) {
-  const user_id = req.user.id;
-  const { current_task_id, travel_preference, exclude_ids } = req.body || {};
-
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${token}` } }
-  });
-
-  try {
-    // 1) Unset current focus if provided
-    if (current_task_id) {
-      await supabase
-        .from('tasks')
-        .update({ is_today_focus: false })
-        .eq('id', current_task_id)
-        .eq('user_id', user_id);
-    }
-
-    // 2) Build optimized query with SQL filtering instead of JavaScript
-    let query = supabase
-      .from('tasks')
-      .select('*')
-      .eq('user_id', user_id)
-      .neq('status', 'completed');
-
-    // Apply exclusions in SQL with parameterized query for security
-    const exclude = Array.isArray(exclude_ids) ? exclude_ids : [];
-
-    // Validate exclude IDs to prevent injection attacks
-    const validExcludeIds = exclude.filter(id => {
-      // Allow integers (task IDs) or valid UUIDs
-      return typeof id === 'number' ||
-        (typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) ||
-        (typeof id === 'string' && /^\d+$/.test(id));
-    });
-
-    if (validExcludeIds.length > 0) {
-      // Use Supabase's native parameter handling to prevent SQL injection
-      // Pass the array directly to the 'in' operator
-      query = query.not('id', 'in', validExcludeIds);
-    }
-    // Apply travel preference filter in SQL
-    if (travel_preference === 'home_only') {
-      query = query.or('location.is.null,location.eq.');
-    }
-
-    // Order by priority (high=3, medium=2, low=1) and due_date in SQL
-    // Use CASE statement for priority ordering and COALESCE for null due_dates
-    const { data: candidates, error: fetchErr } = await query
-      .order('priority', { ascending: false, nullsLast: true })
-      .order('due_date', { ascending: true, nullsLast: true })
-      .limit(50); // Limit results to prevent large data transfer
-
-    if (fetchErr) {
-      return res.status(400).json({ error: fetchErr.message });
-    }
-
-    if (!candidates || candidates.length === 0) {
-      return res.status(404).json({ message: 'No other tasks match your criteria.' });
-    }
-
-    // 3) Choose first candidate (already sorted by SQL)
-    const next = candidates[0];
-    const ensureDuration = (t) => (Number.isFinite(t.estimated_duration_minutes) && t.estimated_duration_minutes > 0) ? t.estimated_duration_minutes : 30;
-
-    const updates = {
-      is_today_focus: true,
-      estimated_duration_minutes: ensureDuration(next),
-    };
-
-    const { data: updated, error: updErr } = await supabase
-      .from('tasks')
-      .update(updates)
-      .eq('id', next.id)
-      .eq('user_id', user_id)
-      .select()
-      .single();
-
-    if (updErr) {
-      return res.status(400).json({ error: updErr.message });
-    }
-
-    return res.json(updated);
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to select next focus task' });
-  }
-}
-
-export async function bulkCreateTasks(req, res) {
-  const tasks = req.body.tasks;
-  const user_id = req.user.id;
-  const token = req.headers.authorization?.split(' ')[1];
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  if (!Array.isArray(tasks) || tasks.length === 0) {
-    return res.status(400).json({ error: 'Request body must be a non-empty array of tasks.' });
-  }
-
-  // Build normalized titles to deduplicate (case-insensitive, trim)
-  const normalizeTitle = (t) => (typeof t === 'string' ? t.trim().toLowerCase() : '');
-  const attemptedCount = tasks.length;
-
-  // Fetch existing titles for this user
-  const { data: existingRows, error: existingErr } = await supabase
-    .from('tasks')
-    .select('title')
-    .eq('user_id', user_id);
-  if (existingErr) {
-    // Supabase fetch existing titles error
-    return res.status(400).json({ error: existingErr.message });
-  }
-  const existingTitleSet = new Set((existingRows || []).map(r => normalizeTitle(r.title)));
-
-  // Attach user_id to each task and sanitize fields; filter out duplicates by normalized title
-  const tasksToInsert = tasks
-    .filter(task => !existingTitleSet.has(normalizeTitle(task.title)))
-    .map(task => ({
-      user_id,
-      title: task.title,
-      description: task.description || '',
-      due_date: task.due_date || null,
-      priority: task.priority || null,
-      goal_id: task.goal_id === '' ? null : (task.goal_id || null),
-      preferred_time_of_day: task.preferred_time_of_day || null,
-      deadline_type: task.deadline_type || null,
-      travel_time_minutes: task.travel_time_minutes || null,
-      category: task.category || null,
-      is_today_focus: task.is_today_focus === true
-    }));
-
-  let data = [];
-  if (tasksToInsert.length > 0) {
-    const insertResult = await supabase
-      .from('tasks')
-      .insert(tasksToInsert)
-      .select();
-    if (insertResult.error) {
-      // Supabase bulk insert error
-      return res.status(400).json({ error: insertResult.error.message });
-    }
-    data = insertResult.data || [];
-  }
-
-  res.status(201).json(data);
-}
-
-export async function createTaskFromAI(args, userId, userContext) {
-  const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes, category, status } = args;
-  const token = userContext?.token;
-
-  // Helper function to determine category based on task title and context
-  function determineCategory(title, description) {
-    if (category) return category; // Use provided category if available
-
-    if (!title) return 'personal';
-    const titleLower = title.toLowerCase();
-    // Health-related keywords (check first to avoid conflicts with work keywords)
-    if (titleLower.includes('doctor') || titleLower.includes('medical appointment') ||
-      titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('exercise') ||
-      titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
-      titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
-      titleLower.includes('health appointment')) {
-      return 'health';
-    }
-
-    // Work-related keywords
-    if (titleLower.includes('meeting') || titleLower.includes('email') ||
-      titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
-      titleLower.includes('deadline') || titleLower.includes('presentation') ||
-      titleLower.includes('client') || titleLower.includes('call client')) {
-      return 'work';
-    }
-
-    // Social-related keywords
-    if (titleLower.includes('social') || titleLower.includes('friend') ||
-      titleLower.includes('family') || titleLower.includes('party') ||
-      titleLower.includes('gathering') || titleLower.includes('event')) {
-      return 'social';
-    }
-
-    // Default to personal if no specific category matches
-    return 'personal';
-  }
-
-  // Set default values
-  const defaultPriority = priority || 'medium';
-  const defaultCategory = determineCategory(title, description);
-  const defaultStatus = status || 'not_started';
-  const defaultDeadlineType = deadline_type || 'soft';
-
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }
-  });
-
-  let goalId = null;
-  if (related_goal) {
-    // Fetch all goals for the user and find by title
-    const { data: goals, error: fetchError } = await supabase
-      .from('goals')
-      .select('id, title')
-      .eq('user_id', userId);
-    if (fetchError) {
-      logger.error('Error fetching goals for task creation:', fetchError);
-      return { error: fetchError.message };
-    }
-    const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
-    if (match) goalId = match.id;
-  }
-
-  // Use DateParser utility for due_date parsing and normalize past years
-  let parsedDueDate = due_date;
-  if (due_date && typeof due_date === 'string') {
-    // If it's already in YYYY-MM-DD format, normalize past years
-    if (/^\d{4}-\d{2}-\d{2}$/.test(due_date)) {
-      parsedDueDate = normalizeRolloverYear(due_date);
-    } else {
-      parsedDueDate = dateParser.parse(due_date);
-
-      // Also normalize DateParser results if they're in the past
-      if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
-        parsedDueDate = normalizeRolloverYear(parsedDueDate);
-      }
-    }
-  }
-
-  // Ensure due_date is stored as a proper date string to avoid timezone conversion
-  let finalDueDate = parsedDueDate;
-  if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
-    // Add T12:00:00 for consistent midday representation
-    finalDueDate = `${parsedDueDate}T12:00:00`;
-  }
-
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert([{
-      user_id: userId,
-      title,
-      description,
-      due_date: finalDueDate,
-      priority: defaultPriority,
-      goal_id: goalId,
-      preferred_time_of_day,
-      deadline_type: defaultDeadlineType,
-      travel_time_minutes,
-      category: defaultCategory,
-      status: defaultStatus
-    }])
-    .select()
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  // Track analytics event for AI-created tasks (after successful insertion)
-  try {
-    const analyticsSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
-    await analyticsSupabase
-      .from('analytics_events')
-      .insert({
-        user_id: userId,
-        event_name: 'task_created',
-        payload: {
-          source: 'ai',
-          task_id: data.id,
-          priority: defaultPriority,
-          has_due_date: !!due_date,
-          has_related_goal: !!related_goal,
-          has_category: !!defaultCategory,
-          preferred_time_of_day: preferred_time_of_day || null,
-          category: defaultCategory,
-          status: defaultStatus,
-          deadline_type: defaultDeadlineType,
-          timestamp: new Date().toISOString()
+      // Create Supabase client with the JWT
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
         }
       });
-  } catch (analyticsError) {
-    // Don't fail the request if analytics fails
-    logger.warn('Failed to track AI task creation analytics:', analyticsError);
-  }
 
-  return data;
-}
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user_id);
 
-export async function updateTaskFromAI(args, userId, userContext) {
-  const { id, title, description, due_date, priority, related_goal, /* completed (deprecated) */ completed, status, preferred_time_of_day, deadline_type, travel_time_minutes } = args;
-  const token = userContext?.token;
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+      if (error) {
+        // Supabase error occurred
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(204).send();
+    }
+
+    /**
+     * Momentum Mode: Find and set the next focus task for today.
+     * Body: { current_task_id: string|null, travel_preference: 'allow_travel'|'home_only'|null, exclude_ids: string[] }
+     * Behavior:
+     * 1) If current_task_id provided, unset its is_today_focus (set false)
+     * 2) Select next candidate among user's tasks:
+     *    - Not completed
+     *    - Not in exclude_ids
+     *    - If travel_preference === 'home_only', prefer tasks without a location
+     *    - Must have estimated_duration_minutes; if missing on chosen task, default to 30
+     *    - Highest priority (high > medium > low), then earliest due date (nulls last)
+     * 3) Set chosen task is_today_focus = true and return the full row
+     * 4) If none found, return 404 with message
+     */
+    export async function getNextFocusTask(req, res) {
+      const user_id = req.user.id;
+      const { current_task_id, travel_preference, exclude_ids } = req.body || {};
+
+      const token = req.headers.authorization?.split(' ')[1];
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: `Bearer ${token}` } }
+      });
+
+      try {
+        // 1) Unset current focus if provided
+        if (current_task_id) {
+          await supabase
+            .from('tasks')
+            .update({ is_today_focus: false })
+            .eq('id', current_task_id)
+            .eq('user_id', user_id);
+        }
+
+        // 2) Build optimized query with SQL filtering instead of JavaScript
+        let query = supabase
+          .from('tasks')
+          .select('*')
+          .eq('user_id', user_id)
+          .neq('status', 'completed');
+
+        // Apply exclusions in SQL with parameterized query for security
+        const exclude = Array.isArray(exclude_ids) ? exclude_ids : [];
+
+        // Validate exclude IDs to prevent injection attacks
+        const validExcludeIds = exclude.filter(id => {
+          // Allow integers (task IDs) or valid UUIDs
+          return typeof id === 'number' ||
+            (typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) ||
+            (typeof id === 'string' && /^\d+$/.test(id));
+        });
+
+        if (validExcludeIds.length > 0) {
+          // Use Supabase's native parameter handling to prevent SQL injection
+          // Pass the array directly to the 'in' operator
+          query = query.not('id', 'in', validExcludeIds);
+        }
+        // Apply travel preference filter in SQL
+        if (travel_preference === 'home_only') {
+          query = query.or('location.is.null,location.eq.');
+        }
+
+        // Order by priority (high=3, medium=2, low=1) and due_date in SQL
+        // Use CASE statement for priority ordering and COALESCE for null due_dates
+        const { data: candidates, error: fetchErr } = await query
+          .order('priority', { ascending: false, nullsLast: true })
+          .order('due_date', { ascending: true, nullsLast: true })
+          .limit(50); // Limit results to prevent large data transfer
+
+        if (fetchErr) {
+          return res.status(400).json({ error: fetchErr.message });
+        }
+
+        if (!candidates || candidates.length === 0) {
+          return res.status(404).json({ message: 'No other tasks match your criteria.' });
+        }
+
+        // 3) Choose first candidate (already sorted by SQL)
+        const next = candidates[0];
+        const ensureDuration = (t) => (Number.isFinite(t.estimated_duration_minutes) && t.estimated_duration_minutes > 0) ? t.estimated_duration_minutes : 30;
+
+        const updates = {
+          is_today_focus: true,
+          estimated_duration_minutes: ensureDuration(next),
+        };
+
+        const { data: updated, error: updErr } = await supabase
+          .from('tasks')
+          .update(updates)
+          .eq('id', next.id)
+          .eq('user_id', user_id)
+          .select()
+          .single();
+
+        if (updErr) {
+          return res.status(400).json({ error: updErr.message });
+        }
+
+        return res.json(updated);
+      } catch (error) {
+        return res.status(500).json({ error: 'Failed to select next focus task' });
       }
     }
-  });
 
-  let taskId = id;
-  if (!taskId && title) {
-    const cleaned = normalizeSearchText(title);
-    // Partial, case-insensitive match on title using ilike
-    const { data: matches, error: fetchError } = await supabase
-      .from('tasks')
-      .select('id, title')
-      .eq('user_id', userId)
-      .ilike('title', `%${cleaned}%`)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    if (fetchError) return { error: fetchError.message };
-    const match = Array.isArray(matches) && matches.length > 0 ? matches[0] : null;
-    if (!match) return { error: `No task found matching '${cleaned}'` };
-    taskId = match.id;
-  }
-  if (!taskId) {
-    return { error: "Task ID or title is required to update a task." };
-  }
+    export async function bulkCreateTasks(req, res) {
+      const tasks = req.body.tasks;
+      const user_id = req.user.id;
+      const token = req.headers.authorization?.split(' ')[1];
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
 
-  let goalId = null;
-  if (related_goal) {
-    // Fetch all goals for the user and find by title
-    const { data: goals, error: fetchError } = await supabase
-      .from('goals')
-      .select('id, title')
-      .eq('user_id', userId);
-    if (fetchError) return { error: fetchError.message };
-    const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
-    if (match) goalId = match.id;
-  }
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        return res.status(400).json({ error: 'Request body must be a non-empty array of tasks.' });
+      }
 
-  // Prepare update data with DateParser for due_date
-  const updateData = {};
-  if (description !== undefined) updateData.description = description;
-  if (due_date !== undefined) {
-    updateData.due_date = typeof due_date === 'string' ? dateParser.parse(due_date) : due_date;
-  }
-  if (status !== undefined) {
-    updateData.status = status;
-  } else if (completed !== undefined) {
-    // Back-compat: only handle completed=true; let completed=false preserve existing status
-    if (completed === true) {
-      updateData.status = 'completed';
+      // Build normalized titles to deduplicate (case-insensitive, trim)
+      const normalizeTitle = (t) => (typeof t === 'string' ? t.trim().toLowerCase() : '');
+      const attemptedCount = tasks.length;
+
+      // Fetch existing titles for this user
+      const { data: existingRows, error: existingErr } = await supabase
+        .from('tasks')
+        .select('title')
+        .eq('user_id', user_id);
+      if (existingErr) {
+        // Supabase fetch existing titles error
+        return res.status(400).json({ error: existingErr.message });
+      }
+      const existingTitleSet = new Set((existingRows || []).map(r => normalizeTitle(r.title)));
+
+      // Attach user_id to each task and sanitize fields; filter out duplicates by normalized title
+      const tasksToInsert = tasks
+        .filter(task => !existingTitleSet.has(normalizeTitle(task.title)))
+        .map(task => ({
+          user_id,
+          title: task.title,
+          description: task.description || '',
+          due_date: task.due_date || null,
+          priority: task.priority || null,
+          goal_id: task.goal_id === '' ? null : (task.goal_id || null),
+          preferred_time_of_day: task.preferred_time_of_day || null,
+          deadline_type: task.deadline_type || null,
+          travel_time_minutes: task.travel_time_minutes || null,
+          category: task.category || null,
+          is_today_focus: task.is_today_focus === true
+        }));
+
+      let data = [];
+      if (tasksToInsert.length > 0) {
+        const insertResult = await supabase
+          .from('tasks')
+          .insert(tasksToInsert)
+          .select();
+        if (insertResult.error) {
+          // Supabase bulk insert error
+          return res.status(400).json({ error: insertResult.error.message });
+        }
+        data = insertResult.data || [];
+      }
+
+      res.status(201).json(data);
     }
-    // If completed=false, don't modify status (could be in_progress or not_started)
-  }
-  if (preferred_time_of_day !== undefined) updateData.preferred_time_of_day = preferred_time_of_day;
-  if (deadline_type !== undefined) updateData.deadline_type = deadline_type;
-  if (travel_time_minutes !== undefined) updateData.travel_time_minutes = travel_time_minutes;
 
-  const { data, error } = await supabase
-    .from('tasks')
-    .update(updateData)
-    .eq('id', taskId)
-    .eq('user_id', userId)
-    .select()
-    .single();
+    export async function createTaskFromAI(args, userId, userContext) {
+      const { title, description, due_date, priority, related_goal, preferred_time_of_day, deadline_type, travel_time_minutes, category, status } = args;
+      const token = userContext?.token;
 
-  if (error) {
-    return { error: error.message };
-  }
-  return data;
-}
+      // Helper function to determine category based on task title and context
+      function determineCategory(title, description) {
+        if (category) return category; // Use provided category if available
 
-export async function deleteTaskFromAI(args, userId, userContext) {
-  const { id, title } = args;
-  const token = userContext?.token;
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+        if (!title) return 'personal';
+        const titleLower = title.toLowerCase();
+        // Health-related keywords (check first to avoid conflicts with work keywords)
+        if (titleLower.includes('doctor') || titleLower.includes('medical appointment') ||
+          titleLower.includes('call doctor') || titleLower.includes('medical') || titleLower.includes('exercise') ||
+          titleLower.includes('gym') || titleLower.includes('workout') || titleLower.includes('health') ||
+          titleLower.includes('medication') || titleLower.includes('therapy') || titleLower.includes('checkup') ||
+          titleLower.includes('health appointment')) {
+          return 'health';
+        }
+
+        // Work-related keywords
+        if (titleLower.includes('meeting') || titleLower.includes('email') ||
+          titleLower.includes('report') || titleLower.includes('project') || titleLower.includes('work') ||
+          titleLower.includes('deadline') || titleLower.includes('presentation') ||
+          titleLower.includes('client') || titleLower.includes('call client')) {
+          return 'work';
+        }
+
+        // Social-related keywords
+        if (titleLower.includes('social') || titleLower.includes('friend') ||
+          titleLower.includes('family') || titleLower.includes('party') ||
+          titleLower.includes('gathering') || titleLower.includes('event')) {
+          return 'social';
+        }
+
+        // Default to personal if no specific category matches
+        return 'personal';
+      }
+
+      // Set default values
+      const defaultPriority = priority || 'medium';
+      const defaultCategory = determineCategory(title, description);
+      const defaultStatus = status || 'not_started';
+      const defaultDeadlineType = deadline_type || 'soft';
+
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+
+      let goalId = null;
+      if (related_goal) {
+        // Fetch all goals for the user and find by title
+        const { data: goals, error: fetchError } = await supabase
+          .from('goals')
+          .select('id, title')
+          .eq('user_id', userId);
+        if (fetchError) {
+          logger.error('Error fetching goals for task creation:', fetchError);
+          return { error: fetchError.message };
+        }
+        const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
+        if (match) goalId = match.id;
+      }
+
+      // Use DateParser utility for due_date parsing and normalize past years
+      let parsedDueDate = due_date;
+      if (due_date && typeof due_date === 'string') {
+        // If it's already in YYYY-MM-DD format, normalize past years
+        if (/^\d{4}-\d{2}-\d{2}$/.test(due_date)) {
+          parsedDueDate = normalizeRolloverYear(due_date);
+        } else {
+          parsedDueDate = dateParser.parse(due_date);
+
+          // Also normalize DateParser results if they're in the past
+          if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
+            parsedDueDate = normalizeRolloverYear(parsedDueDate);
+          }
+        }
+      }
+
+      // Ensure due_date is stored as a proper date string to avoid timezone conversion
+      let finalDueDate = parsedDueDate;
+      if (parsedDueDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDueDate)) {
+        // Add T12:00:00 for consistent midday representation
+        finalDueDate = `${parsedDueDate}T12:00:00`;
+      }
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([{
+          user_id: userId,
+          title,
+          description,
+          due_date: finalDueDate,
+          priority: defaultPriority,
+          goal_id: goalId,
+          preferred_time_of_day,
+          deadline_type: defaultDeadlineType,
+          travel_time_minutes,
+          category: defaultCategory,
+          status: defaultStatus
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      // Track analytics event for AI-created tasks (after successful insertion)
+      try {
+        const analyticsSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+        await analyticsSupabase
+          .from('analytics_events')
+          .insert({
+            user_id: userId,
+            event_name: 'task_created',
+            payload: {
+              source: 'ai',
+              task_id: data.id,
+              priority: defaultPriority,
+              has_due_date: !!due_date,
+              has_related_goal: !!related_goal,
+              has_category: !!defaultCategory,
+              preferred_time_of_day: preferred_time_of_day || null,
+              category: defaultCategory,
+              status: defaultStatus,
+              deadline_type: defaultDeadlineType,
+              timestamp: new Date().toISOString()
+            }
+          });
+      } catch (analyticsError) {
+        // Don't fail the request if analytics fails
+        logger.warn('Failed to track AI task creation analytics:', analyticsError);
+      }
+
+      return data;
+    }
+
+    export async function updateTaskFromAI(args, userId, userContext) {
+      const { id, title, description, due_date, priority, related_goal, /* completed (deprecated) */ completed, status, preferred_time_of_day, deadline_type, travel_time_minutes } = args;
+      const token = userContext?.token;
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+
+      let taskId = id;
+      if (!taskId && title) {
+        const cleaned = normalizeSearchText(title);
+        // Partial, case-insensitive match on title using ilike
+        const { data: matches, error: fetchError } = await supabase
+          .from('tasks')
+          .select('id, title')
+          .eq('user_id', userId)
+          .ilike('title', `%${cleaned}%`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (fetchError) return { error: fetchError.message };
+        const match = Array.isArray(matches) && matches.length > 0 ? matches[0] : null;
+        if (!match) return { error: `No task found matching '${cleaned}'` };
+        taskId = match.id;
+      }
+      if (!taskId) {
+        return { error: "Task ID or title is required to update a task." };
+      }
+
+      let goalId = null;
+      if (related_goal) {
+        // Fetch all goals for the user and find by title
+        const { data: goals, error: fetchError } = await supabase
+          .from('goals')
+          .select('id, title')
+          .eq('user_id', userId);
+        if (fetchError) return { error: fetchError.message };
+        const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
+        if (match) goalId = match.id;
+      }
+
+      // Prepare update data with DateParser for due_date
+      const updateData = {};
+      if (description !== undefined) updateData.description = description;
+      if (due_date !== undefined) {
+        updateData.due_date = typeof due_date === 'string' ? dateParser.parse(due_date) : due_date;
+      }
+      if (status !== undefined) {
+        updateData.status = status;
+      } else if (completed !== undefined) {
+        // Back-compat: only handle completed=true; let completed=false preserve existing status
+        if (completed === true) {
+          updateData.status = 'completed';
+        }
+        // If completed=false, don't modify status (could be in_progress or not_started)
+      }
+      if (preferred_time_of_day !== undefined) updateData.preferred_time_of_day = preferred_time_of_day;
+      if (deadline_type !== undefined) updateData.deadline_type = deadline_type;
+      if (travel_time_minutes !== undefined) updateData.travel_time_minutes = travel_time_minutes;
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .update(updateData)
+        .eq('id', taskId)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+      if (error) {
+        return { error: error.message };
+      }
+      return data;
+    }
+
+    export async function deleteTaskFromAI(args, userId, userContext) {
+      const { id, title } = args;
+      const token = userContext?.token;
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+
+      let taskId = id;
+      if (!taskId && title) {
+        const cleaned = normalizeSearchText(title);
+        // Partial, case-insensitive match
+        const { data: matches, error: fetchError } = await supabase
+          .from('tasks')
+          .select('id, title')
+          .eq('user_id', userId)
+          .ilike('title', `%${cleaned}%`)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (fetchError) return { error: fetchError.message };
+        const match = Array.isArray(matches) && matches.length > 0 ? matches[0] : null;
+        if (!match) return { error: `No task found matching '${cleaned}'` };
+        taskId = match.id;
+      }
+      if (!taskId) {
+        return { error: "Task ID or title is required to delete a task." };
+      }
+
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', taskId)
+        .eq('user_id', userId);
+
+      if (error) {
+        return { error: error.message };
+      }
+      return { success: true };
+    }
+
+    export async function lookupTaskbyTitle(userId, token) {
+      if (!token) {
+        return { error: 'No authentication token provided' };
+      }
+
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
+
+      // Get ALL tasks for this user
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('id, title')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      // Return all tasks with their IDs and titles
+      if (data && data.length > 0) {
+        return data;
+      } else {
+        return { error: 'No tasks found for this user' };
       }
     }
-  });
 
-  let taskId = id;
-  if (!taskId && title) {
-    const cleaned = normalizeSearchText(title);
-    // Partial, case-insensitive match
-    const { data: matches, error: fetchError } = await supabase
-      .from('tasks')
-      .select('id, title')
-      .eq('user_id', userId)
-      .ilike('title', `%${cleaned}%`)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    if (fetchError) return { error: fetchError.message };
-    const match = Array.isArray(matches) && matches.length > 0 ? matches[0] : null;
-    if (!match) return { error: `No task found matching '${cleaned}'` };
-    taskId = match.id;
-  }
-  if (!taskId) {
-    return { error: "Task ID or title is required to delete a task." };
-  }
 
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', taskId)
-    .eq('user_id', userId);
+    export async function readTaskFromAI(args, userId, userContext) {
+      const { due_date, related_goal } = args;
+      const token = userContext?.token;
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      });
 
-  if (error) {
-    return { error: error.message };
-  }
-  return { success: true };
-}
+      let query = supabase
+        .from('tasks')
+        .select('*')
+        .eq('user_id', userId);
 
-export async function lookupTaskbyTitle(userId, token) {
-  if (!token) {
-    return { error: 'No authentication token provided' };
-  }
-
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+      if (due_date) {
+        query = query.eq('due_date', due_date);
       }
-    }
-  });
-
-  // Get ALL tasks for this user
-  const { data, error } = await supabase
-    .from('tasks')
-    .select('id, title')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  // Return all tasks with their IDs and titles
-  if (data && data.length > 0) {
-    return data;
-  } else {
-    return { error: 'No tasks found for this user' };
-  }
-}
-
-
-export async function readTaskFromAI(args, userId, userContext) {
-  const { due_date, related_goal } = args;
-  const token = userContext?.token;
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
+      if (related_goal) {
+        // First get the goal ID
+        const { data: goals, error: goalError } = await supabase
+          .from('goals')
+          .select('id, title')
+          .eq('user_id', userId);
+        if (goalError) return { error: goalError.message };
+        const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
+        if (match) {
+          query = query.eq('goal_id', match.id);
+        }
       }
-    }
-  });
+      if (args.priority) {
+        query = query.eq('priority', args.priority);
+      }
+      if (args.status) {
+        query = query.eq('status', args.status);
+      }
+      // Back-compat: map completed filter to status
+      if (args.completed !== undefined) {
+        query = query.eq('status', args.completed ? 'completed' : 'not_started');
+      }
+      if (args.category) {
+        query = query.eq('category', args.category);
+      }
+      if (args.search) {
+        const cleanedSearch = normalizeSearchText(args.search);
+        // Case-insensitive partial match for title or description
+        query = query.or(`title.ilike.%${cleanedSearch}%,description.ilike.%${cleanedSearch}%`);
+      }
+      if (args.preferred_time_of_day) {
+        query = query.eq('preferred_time_of_day', args.preferred_time_of_day);
+      }
+      if (args.deadline_type) {
+        query = query.eq('deadline_type', args.deadline_type);
+      }
+      if (args.recurrence) {
+        query = query.eq('recurrence', args.recurrence);
+      }
 
-  let query = supabase
-    .from('tasks')
-    .select('*')
-    .eq('user_id', userId);
+      const { data, error } = await query.order('created_at', { ascending: false });
 
-  if (due_date) {
-    query = query.eq('due_date', due_date);
-  }
-  if (related_goal) {
-    // First get the goal ID
-    const { data: goals, error: goalError } = await supabase
-      .from('goals')
-      .select('id, title')
-      .eq('user_id', userId);
-    if (goalError) return { error: goalError.message };
-    const match = goals.find(g => g.title && g.title.trim().toLowerCase() === related_goal.trim().toLowerCase());
-    if (match) {
-      query = query.eq('goal_id', match.id);
-    }
-  }
-  if (args.priority) {
-    query = query.eq('priority', args.priority);
-  }
-  if (args.status) {
-    query = query.eq('status', args.status);
-  }
-  // Back-compat: map completed filter to status
-  if (args.completed !== undefined) {
-    query = query.eq('status', args.completed ? 'completed' : 'not_started');
-  }
-  if (args.category) {
-    query = query.eq('category', args.category);
-  }
-  if (args.search) {
-    const cleanedSearch = normalizeSearchText(args.search);
-    // Case-insensitive partial match for title or description
-    query = query.or(`title.ilike.%${cleanedSearch}%,description.ilike.%${cleanedSearch}%`);
-  }
-  if (args.preferred_time_of_day) {
-    query = query.eq('preferred_time_of_day', args.preferred_time_of_day);
-  }
-  if (args.deadline_type) {
-    query = query.eq('deadline_type', args.deadline_type);
-  }
-  if (args.recurrence) {
-    query = query.eq('recurrence', args.recurrence);
-  }
-
-  const { data, error } = await query.order('created_at', { ascending: false });
-
-  if (error) {
-    return { error: error.message };
-  }
-  return data;
-} 
+      if (error) {
+        return { error: error.message };
+      }
+      return data;
+    } 

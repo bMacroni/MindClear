@@ -656,19 +656,19 @@ class EnhancedAPI {
   // DEPRECATED: Auto-scheduling feature has been removed. These methods are no-ops for backward compatibility.
 
   /** @deprecated Auto-scheduling feature removed */
-  async autoScheduleTasks(): Promise<any> {
+  async autoScheduleTasks(): Promise<{ scheduled: any[]; skipped: any[]; failed: any[]; message: string }> {
     console.warn('[DEPRECATED] enhancedAPI.autoScheduleTasks() - Auto-scheduling feature has been removed');
     return { scheduled: [], skipped: [], failed: [], message: 'Auto-scheduling feature has been deprecated' };
   }
 
   /** @deprecated Auto-scheduling feature removed */
-  async getSchedulingPreferences(): Promise<any> {
+  async getSchedulingPreferences(): Promise<Record<string, never>> {
     console.warn('[DEPRECATED] enhancedAPI.getSchedulingPreferences() - Auto-scheduling feature has been removed');
     return {};
   }
 
   /** @deprecated Auto-scheduling feature removed */
-  async updateSchedulingPreferences(_preferences: any): Promise<any> {
+  async updateSchedulingPreferences(_preferences: any): Promise<Record<string, never>> {
     console.warn('[DEPRECATED] enhancedAPI.updateSchedulingPreferences() - Auto-scheduling feature has been removed');
     return {};
   }
