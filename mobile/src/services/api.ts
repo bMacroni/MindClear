@@ -34,7 +34,7 @@ const getSecureApiBaseUrl = (): string => {
   }
 
   // Final fallback based on environment
-  const finalFallback = __DEV__ 
+  const finalFallback = __DEV__
     ? 'http://localhost:5000/api'  // Development: use localhost with adb reverse
     : 'https://foci-production.up.railway.app/api';  // Production: use Railway
   return finalFallback;
@@ -92,7 +92,7 @@ export interface Goal {
 
 // Brain Dump API
 export const brainDumpAPI = {
-  submit: async (text: string): Promise<{ threadId: string; items: Array<{ text: string; category?: string | null; stress_level: 'low'|'medium'|'high'; priority: 'low'|'medium'|'high' }>}> => {
+  submit: async (text: string): Promise<{ threadId: string; items: Array<{ text: string; category?: string | null; stress_level: 'low' | 'medium' | 'high'; priority: 'low' | 'medium' | 'high' }> }> => {
     try {
       const authToken = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/ai/braindump`, {
@@ -103,16 +103,16 @@ export const brainDumpAPI = {
         },
         body: JSON.stringify({ text }),
       });
-      
+
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body?.message || 'Failed to process brain dump');
       }
-      
+
       const result = await response.json().catch(() => {
         throw new Error('Invalid response format from server');
       });
-      
+
       return result;
     } catch (error) {
       console.error('Brain dump submission failed:', error);
@@ -268,11 +268,11 @@ export const goalsAPI = {
   getGoals: async (signal?: AbortSignal, since?: string): Promise<Goal[]> => {
     try {
       const token = await getAuthToken();
-      
-      const url = since 
+
+      const url = since
         ? `${getSecureApiBaseUrl()}/goals?since=${encodeURIComponent(since)}`
         : `${getSecureApiBaseUrl()}/goals`;
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -288,11 +288,11 @@ export const goalsAPI = {
       }
 
       const data = await response.json();
-      
+
       // Cache the goals for offline use
       const { offlineService } = await import('./offline');
       await offlineService.cacheGoals(data);
-      
+
       return data;
     } catch (_error) {
       if ((_error as any)?.name === 'AbortError') {
@@ -300,7 +300,7 @@ export const goalsAPI = {
         throw _error;
       }
       console.error('Error fetching goals:', _error);
-      
+
       // Try to get cached goals if offline
       const { offlineService } = await import('./offline');
       if (offlineService.shouldUseCache()) {
@@ -310,7 +310,7 @@ export const goalsAPI = {
           return cachedGoals;
         }
       }
-      
+
       throw _error;
     }
   },
@@ -461,11 +461,11 @@ export const tasksAPI = {
   getTasks: async (signal?: AbortSignal, since?: string): Promise<Task[]> => {
     try {
       const token = await getAuthToken();
-      
-      const url = since 
+
+      const url = since
         ? `${getSecureApiBaseUrl()}/tasks?since=${encodeURIComponent(since)}`
         : `${getSecureApiBaseUrl()}/tasks`;
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -481,11 +481,11 @@ export const tasksAPI = {
       }
 
       const data = await response.json();
-      
+
       // Cache the tasks for offline use
       const { offlineService } = await import('./offline');
       await offlineService.cacheTasks(data);
-      
+
       return data;
     } catch (_error) {
       if ((_error as any)?.name === 'AbortError') {
@@ -493,7 +493,7 @@ export const tasksAPI = {
         throw _error;
       }
       console.error('Error fetching tasks:', _error);
-      
+
       // Try to get cached tasks if offline
       const { offlineService } = await import('./offline');
       if (offlineService.shouldUseCache()) {
@@ -503,7 +503,7 @@ export const tasksAPI = {
           return cachedTasks;
         }
       }
-      
+
       throw _error;
     }
   },
@@ -597,7 +597,7 @@ export const tasksAPI = {
         } catch {
           errorData = { error: errorText };
         }
-        
+
         const error = new Error(errorData.error || `HTTP error! status: ${response.status}`);
         (error as any).code = errorData.code;
         throw error;
@@ -606,7 +606,7 @@ export const tasksAPI = {
       return await response.json();
     } catch (_error) {
       console.error('Error creating task:', _error);
-      
+
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
       if (!offlineService.getNetworkStatus()) {
@@ -618,7 +618,7 @@ export const tasksAPI = {
         console.warn('Added task creation to offline queue:', actionId);
         return { id: actionId, offline: true, ...taskData } as Task;
       }
-      
+
       throw _error;
     }
   },
@@ -649,7 +649,7 @@ export const tasksAPI = {
       return data;
     } catch (_error) {
       console.error('Error updating task:', _error);
-      
+
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
       if (!offlineService.getNetworkStatus()) {
@@ -661,7 +661,7 @@ export const tasksAPI = {
         console.warn('Added task update to offline queue:', actionId);
         return { id: taskId, offline: true, ...taskData } as Task;
       }
-      
+
       throw _error;
     }
   },
@@ -683,7 +683,7 @@ export const tasksAPI = {
       }
     } catch (_error) {
       console.error('Error deleting task:', _error);
-      
+
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
       if (!offlineService.getNetworkStatus()) {
@@ -694,11 +694,11 @@ export const tasksAPI = {
         console.warn('Added task deletion to offline queue:', actionId);
         return;
       }
-      
+
       throw _error;
     }
   },
-  
+
   /**
    * @deprecated Use taskRepository.getNextFocusTask() instead.
    * This method will be removed in a future version.
@@ -710,7 +710,7 @@ export const tasksAPI = {
    * - Faster response times
    * - Better user experience
    */
-  focusNext: async (payload: { current_task_id?: string|null; travel_preference?: 'allow_travel'|'home_only'; exclude_ids?: string[] }): Promise<Task> => {
+  focusNext: async (payload: { current_task_id?: string | null; travel_preference?: 'allow_travel' | 'home_only'; exclude_ids?: string[] }): Promise<Task> => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/focus/next`, {
@@ -722,7 +722,7 @@ export const tasksAPI = {
         body: JSON.stringify(payload || {}),
       });
       if (response.status === 404) {
-        const text = await response.text().catch(()=> '');
+        const text = await response.text().catch(() => '');
         const err = new Error(text || 'No other tasks match your criteria.');
         (err as any).code = 404;
         throw err;
@@ -761,15 +761,15 @@ export const calendarAPI = {
       }
 
       const events = await response.json();
-      
+
       // Cache the events for offline use
       const { offlineService } = await import('./offline');
       await offlineService.cacheEvents(events);
-      
+
       return events;
     } catch (_error) {
       console.error('Error fetching calendar events:', _error);
-      
+
       // Try to get cached events if offline
       const { offlineService } = await import('./offline');
       if (offlineService.shouldUseCache()) {
@@ -779,7 +779,7 @@ export const calendarAPI = {
           return cachedEvents;
         }
       }
-      
+
       throw _error;
     }
   },
@@ -836,7 +836,7 @@ export const calendarAPI = {
       return await response.json();
     } catch (_error) {
       console.error('Error creating calendar event:', _error);
-      
+
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
       if (!offlineService.getNetworkStatus()) {
@@ -848,7 +848,7 @@ export const calendarAPI = {
         console.warn('Added event creation to offline queue:', actionId);
         return { id: actionId, offline: true };
       }
-      
+
       throw _error;
     }
   },
@@ -883,7 +883,7 @@ export const calendarAPI = {
       return await response.json();
     } catch (_error) {
       console.error('Error updating calendar event:', _error);
-      
+
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
       if (!offlineService.getNetworkStatus()) {
@@ -895,7 +895,7 @@ export const calendarAPI = {
         console.warn('Added event update to offline queue:', actionId);
         return { id: actionId, offline: true };
       }
-      
+
       throw _error;
     }
   },
@@ -916,7 +916,7 @@ export const calendarAPI = {
       }
     } catch (_error) {
       console.error('Error deleting calendar event:', _error);
-      
+
       // Add to offline queue if network error
       const { offlineService } = await import('./offline');
       if (!offlineService.getNetworkStatus()) {
@@ -927,7 +927,7 @@ export const calendarAPI = {
         console.warn('Added event deletion to offline queue:', actionId);
         return;
       }
-      
+
       throw _error;
     }
   },
@@ -956,161 +956,41 @@ export const calendarAPI = {
 };
 
 // Auto-scheduling API
+// DEPRECATED: Auto-scheduling feature has been removed. These methods are no-ops for backward compatibility.
 export const autoSchedulingAPI = {
-  // Bulk auto-schedule all eligible tasks
+  /** @deprecated Auto-scheduling feature removed */
   autoScheduleTasks: async (): Promise<AutoSchedulingResult> => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/ai/auto-schedule-tasks`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (_error) {
-      console.error('Error auto-scheduling tasks:', _error);
-      throw _error;
-    }
+    console.warn('[DEPRECATED] autoSchedulingAPI.autoScheduleTasks() - Auto-scheduling feature has been removed');
+    return { scheduled: [], skipped: [], failed: [], message: 'Auto-scheduling feature has been deprecated' };
   },
 
-  // Get user scheduling preferences
+  /** @deprecated Auto-scheduling feature removed */
   getPreferences: async (): Promise<SchedulingPreferences> => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/ai/scheduling-preferences`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (_error) {
-      console.error('Error fetching scheduling preferences:', _error);
-      throw _error;
-    }
+    console.warn('[DEPRECATED] autoSchedulingAPI.getPreferences() - Auto-scheduling feature has been removed');
+    return {} as SchedulingPreferences;
   },
 
-  // Update user scheduling preferences
-  updatePreferences: async (preferences: Partial<SchedulingPreferences>): Promise<SchedulingPreferences> => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/ai/scheduling-preferences`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(preferences),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (_error) {
-      console.error('Error updating scheduling preferences:', _error);
-      throw _error;
-    }
+  /** @deprecated Auto-scheduling feature removed */
+  updatePreferences: async (_preferences: Partial<SchedulingPreferences>): Promise<SchedulingPreferences> => {
+    console.warn('[DEPRECATED] autoSchedulingAPI.updatePreferences() - Auto-scheduling feature has been removed');
+    return {} as SchedulingPreferences;
   },
 
-  // Get auto-scheduling status for a specific task
-  getTaskSchedulingStatus: async (taskId: string): Promise<TaskSchedulingStatus> => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}/scheduling-status`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (_error) {
-      console.error('Error fetching task scheduling status:', _error);
-      throw _error;
-    }
+  /** @deprecated Auto-scheduling feature removed */
+  getTaskSchedulingStatus: async (_taskId: string): Promise<TaskSchedulingStatus> => {
+    console.warn('[DEPRECATED] autoSchedulingAPI.getTaskSchedulingStatus() - Auto-scheduling feature has been removed');
+    return { enabled: false, lastScheduled: null, nextScheduled: null } as TaskSchedulingStatus;
   },
 
-  // Toggle auto-scheduling for a specific task
-  toggleTaskAutoScheduling: async (taskId: string, enabled: boolean): Promise<void> => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/tasks/${taskId}/auto-schedule`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ auto_schedule_enabled: enabled }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
-    } catch (_error) {
-      console.error('Error toggling task auto-scheduling:', _error);
-      throw _error;
-    }
+  /** @deprecated Auto-scheduling feature removed */
+  toggleTaskAutoScheduling: async (_taskId: string, _enabled: boolean): Promise<void> => {
+    console.warn('[DEPRECATED] autoSchedulingAPI.toggleTaskAutoScheduling() - Auto-scheduling feature has been removed');
   },
 
-  // Get available time slots for a task
-  getAvailableTimeSlots: async (taskId: string): Promise<TimeSlot[]> => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${getSecureApiBaseUrl()}/ai/available-time-slots?taskId=${taskId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data.map((slot: { start_time: string; end_time: string; [key: string]: unknown }) => ({
-        ...slot,
-        start_time: new Date(slot.start_time),
-        end_time: new Date(slot.end_time),
-      }));
-    } catch (_error) {
-      console.error('Error fetching available time slots:', _error);
-      throw _error;
-    }
+  /** @deprecated Auto-scheduling feature removed */
+  getAvailableTimeSlots: async (_taskId: string): Promise<TimeSlot[]> => {
+    console.warn('[DEPRECATED] autoSchedulingAPI.getAvailableTimeSlots() - Auto-scheduling feature has been removed');
+    return [];
   },
 };
 
@@ -1144,7 +1024,7 @@ export const usersAPI = {
       throw error;
     }
   },
-  updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light'|'dark'; notification_preferences: any; timezone: string; }>): Promise<any> => {
+  updateMe: async (payload: Partial<{ full_name: string; avatar_url: string; geographic_location: string; theme_preference: 'light' | 'dark'; notification_preferences: any; timezone: string; }>): Promise<any> => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/user/me`, {
@@ -1208,14 +1088,14 @@ export const usersAPI = {
       const token = await getAuthToken();
       const url = `${getSecureApiBaseUrl()}/tasks/notifications?status=${status}`;
       const response = await fetch(url, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-      
+
       if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Error response body:', errorText);
-          throw new Error(`Failed to get notifications: ${response.status} - ${errorText}`);
+        const errorText = await response.text();
+        console.error('Error response body:', errorText);
+        throw new Error(`Failed to get notifications: ${response.status} - ${errorText}`);
       }
       return response.json();
     } catch (error) {
@@ -1229,17 +1109,17 @@ export const usersAPI = {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/${notificationId}/read`, {
-          method: 'PUT',
-          headers: { 'Authorization': `Bearer ${token}` },
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {
-          if (response.status === 401) {
-            const err = new Error('Authentication failed - user not logged in');
-            (err as any).code = 'AUTH_REQUIRED';
-            throw err;
-          }
-          const errorText = await response.text();
-          throw new Error(`Failed to mark notification as read: ${response.status} - ${errorText}`);
+        if (response.status === 401) {
+          const err = new Error('Authentication failed - user not logged in');
+          (err as any).code = 'AUTH_REQUIRED';
+          throw err;
+        }
+        const errorText = await response.text();
+        throw new Error(`Failed to mark notification as read: ${response.status} - ${errorText}`);
       }
     } catch (error) {
       logger.error('Error marking notification as read:', error);
@@ -1257,17 +1137,17 @@ export const usersAPI = {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/read-all`, {
-          method: 'PUT',
-          headers: { 'Authorization': `Bearer ${token}` },
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {
-          if (response.status === 401) {
-            const err = new Error('Authentication failed - user not logged in');
-            (err as any).code = 'AUTH_REQUIRED';
-            throw err;
-          }
-          const errorText = await response.text();
-          throw new Error(`Failed to mark all notifications as read: ${response.status} - ${errorText}`);
+        if (response.status === 401) {
+          const err = new Error('Authentication failed - user not logged in');
+          (err as any).code = 'AUTH_REQUIRED';
+          throw err;
+        }
+        const errorText = await response.text();
+        throw new Error(`Failed to mark all notifications as read: ${response.status} - ${errorText}`);
       }
     } catch (error) {
       logger.error('Error marking all notifications as read:', error);
@@ -1285,17 +1165,17 @@ export const usersAPI = {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/tasks/notifications/unread-count`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {
-          if (response.status === 401) {
-            const err = new Error('Authentication failed - user not logged in');
-            (err as any).code = 'AUTH_REQUIRED';
-            throw err;
-          }
-          const errorText = await response.text();
-          throw new Error(`Failed to get unread notification count: ${response.status} - ${errorText}`);
+        if (response.status === 401) {
+          const err = new Error('Authentication failed - user not logged in');
+          (err as any).code = 'AUTH_REQUIRED';
+          throw err;
+        }
+        const errorText = await response.text();
+        throw new Error(`Failed to get unread notification count: ${response.status} - ${errorText}`);
       }
       const data = await response.json();
       return data.count || 0;
@@ -1317,15 +1197,15 @@ export const usersAPI = {
       const apiUrl = getSecureApiBaseUrl();
       const response = await fetch(`${apiUrl}/user`, {
         method: 'DELETE',
-        headers: { 
+        headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ confirmDeletion: true }),
       });
-      
+
       const payload = await response.json().catch(() => ({}));
-      
+
       // Only treat 4xx and 5xx as errors, 2xx are success responses
       if (response.status >= 400) {
         if (response.status === 401) {
@@ -1336,7 +1216,7 @@ export const usersAPI = {
         const errorText = payload.error || 'Unknown error';
         throw new Error(`Failed to delete account: ${response.status} - ${errorText}`);
       }
-      
+
       // Return both status and payload for the caller to inspect
       return { status: response.status, payload };
     } catch (error) {
@@ -1369,7 +1249,7 @@ class WebSocketService {
           logger.debug('WebSocket: Skipping connection - no valid token');
           return;
         }
-        
+
         // Check if user is still authenticated (without attempting refresh)
         if (!authService.isAuthenticated()) {
           logger.debug('WebSocket: Skipping connection - user not authenticated');
@@ -1388,13 +1268,13 @@ class WebSocketService {
 
       const wsUrl = getSecureApiBaseUrl().replace(/^http/, 'ws') + '/ws/notifications';
       logger.debug('WebSocket: Attempting to connect to:', wsUrl);
-      
+
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = async () => {
         logger.debug('WebSocket: Connected successfully');
         this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
-        
+
         try {
           // Authenticate upon connection with fresh token
           const token = await getAuthToken();
@@ -1414,7 +1294,7 @@ class WebSocketService {
       this.ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          
+
           // Handle authentication errors
           if (message.type === 'auth_error') {
             logger.warn('WebSocket: Authentication error:', message.message || message.error);
@@ -1424,7 +1304,7 @@ class WebSocketService {
             }
             return;
           }
-          
+
           if (this.onMessageCallback) {
             this.onMessageCallback(message);
           }
@@ -1440,18 +1320,18 @@ class WebSocketService {
 
       this.ws.onclose = (event) => {
         logger.debug('WebSocket: Connection closed', event.code, event.reason);
-        
+
         // Don't retry if it was a manual disconnect or authentication failure
         if (event.code === 1000 || event.reason === 'Authentication failed') {
           logger.debug('WebSocket: Not retrying - manual disconnect or auth failure');
           return;
         }
-        
+
         // Attempt to reconnect if it wasn't a manual disconnect
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           logger.debug(`WebSocket: Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-          
+
           setTimeout(() => {
             this.connect();
           }, this.reconnectDelay * this.reconnectAttempts);
@@ -1485,7 +1365,7 @@ class WebSocketService {
 
 // App Preferences API
 export const appPreferencesAPI = {
-  get: async (): Promise<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }> => {
+  get: async (): Promise<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel' | 'home_only' }> => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {
@@ -1512,7 +1392,7 @@ export const appPreferencesAPI = {
       return { momentum_mode_enabled: false, momentum_travel_preference: 'allow_travel' };
     }
   },
-  update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel'|'home_only' }>): Promise<any> => {
+  update: async (payload: Partial<{ momentum_mode_enabled: boolean; momentum_travel_preference: 'allow_travel' | 'home_only' }>): Promise<any> => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${getSecureApiBaseUrl()}/user/app-preferences`, {

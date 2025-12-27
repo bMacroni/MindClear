@@ -5,7 +5,7 @@ import {
   text,
   relation,
 } from '@nozbe/watermelondb/decorators';
-import { GoalType } from './Goal';
+import type { GoalType } from './Goal';
 
 // RecurrencePattern interface (matches mobile/src/utils/recurrenceUtils.ts)
 export interface RecurrencePattern {
@@ -38,7 +38,7 @@ export interface TaskType {
   userId: string;
   goalId?: string;
   location?: string;
-  autoScheduleEnabled?: boolean;
+  autoScheduleEnabled?: boolean; // @deprecated
   category?: string;
   recurrencePatternJson?: string | null;
   goal?: GoalType;
@@ -63,7 +63,7 @@ export default class Task extends Model {
   @text('user_id') userId!: string;
   @text('goal_id') goalId?: string;
   @text('location') location?: string;
-  @field('auto_schedule_enabled') autoScheduleEnabled?: boolean;
+  @field('auto_schedule_enabled') autoScheduleEnabled?: boolean; // @deprecated
   @text('category') category?: string;
   @text('recurrence_pattern') recurrencePatternJson?: string | null;
 

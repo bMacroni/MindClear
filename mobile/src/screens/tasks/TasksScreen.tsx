@@ -16,10 +16,9 @@ import { TaskCard } from '../../components/tasks/TaskCard';
 import { CompletedTaskCard } from '../../components/tasks/CompletedTaskCard';
 import QuickScheduleRadial from '../../components/tasks/QuickScheduleRadial';
 import { TaskForm } from '../../components/tasks/TaskForm';
-import { AutoSchedulingPreferencesModal } from '../../components/tasks/AutoSchedulingPreferencesModal';
 import { SuccessToast } from '../../components/common/SuccessToast';
 import { LazyList } from '../../utils/lazyListUtils';
-import { tasksAPI, goalsAPI, calendarAPI, autoSchedulingAPI, appPreferencesAPI } from '../../services/api';
+import { tasksAPI, goalsAPI, calendarAPI, appPreferencesAPI } from '../../services/api';
 import CelebratoryDismissal from '../../components/tasks/CelebratoryDismissal';
 import { enhancedAPI } from '../../services/enhancedApi';
 import { taskRepository } from '../../repositories/TaskRepository';
@@ -185,8 +184,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                 dueDate: t.dueDate,
                 goalId: t.goalId,
                 goal: t.goal,
-                autoScheduleEnabled: t.autoScheduleEnabled,
-                createdAt: t.createdAt,
                 updatedAt: t.updatedAt,
                 location: t.location,
                 _raw: t._raw,
@@ -207,8 +204,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
               dueDate: t.dueDate,
               goalId: t.goalId,
               goal: t.goal,
-              autoScheduleEnabled: t.autoScheduleEnabled,
-              createdAt: t.createdAt,
               updatedAt: t.updatedAt,
               location: t.location,
               _raw: t._raw,
@@ -231,8 +226,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             estimatedDurationMinutes: 30,
             dueDate: undefined,
             goalId: undefined,
-            autoScheduleEnabled: false,
-            createdAt: new Date(),
             updatedAt: new Date(),
             _raw: {} as any,
           } as unknown as Task;
@@ -254,8 +247,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const [editingTask, setEditingTask] = useState<Task | undefined>();
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false); // Ref to track saving state for double-submission prevention
-  const [bulkScheduling, setBulkScheduling] = useState(false);
-  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastScheduledTime, setToastScheduledTime] = useState<string | undefined>();
@@ -286,11 +277,8 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
   const eodFocusIdRef = React.useRef<string | undefined>(undefined);
   const [travelPreference, setTravelPreference] = useState<'allow_travel' | 'home_only'>('allow_travel');
   const [_userNotificationPrefs, _setUserNotificationPrefs] = useState<any | null>(null);
-  const [userSchedulingPreferences, setUserSchedulingPreferences] = useState<any>(null);
 
   const getTasksHelpContent = React.useCallback((): HelpContent => ({
-    'tasks-header-summary': 'This shows how many tasks are auto-scheduled and how many have a scheduled time.',
-    'tasks-bulk-auto-schedule': 'Tap to auto-schedule all eligible tasks using your preferences.',
     'tasks-momentum-toggle': 'Momentum mode picks your next focus task automatically when you complete one.',
     'tasks-travel-toggle': 'Switch between allowing travel or home-only tasks for momentum mode.',
     'tasks-inbox-toggle': 'Open your Inbox to choose a new focus task or view remaining tasks.',
@@ -316,7 +304,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   useEffect(() => {
     loadData();
-    loadSchedulingPreferences();
   }, []);
 
   // Track screen view
@@ -373,21 +360,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       };
     }, [setHelpScope, setIsHelpOverlayActive, setHelpContent, getTasksHelpContent, getFocusTask, inboxTasks])
   );
-  const loadSchedulingPreferences = async () => {
-    try {
-      const prefs = await (enhancedAPI as any).getSchedulingPreferences();
-      setUserSchedulingPreferences(prefs);
-    } catch (error) {
-      console.warn('Failed to load scheduling preferences:', error);
-      // Use defaults if preferences can't be loaded
-      setUserSchedulingPreferences({
-        preferred_start_time: '09:00:00',
-        preferred_end_time: '17:00:00',
-        buffer_time_minutes: 15,
-        work_days: [1, 2, 3, 4, 5]
-      });
-    }
-  };
+
 
   const loadData = async (options?: { silent?: boolean; awaitSync?: boolean }) => {
     const silent = !!options?.silent;
@@ -511,7 +484,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       category: task.category,
       goal_id: task.goalId,
       estimated_duration_minutes: task.estimatedDurationMinutes,
-      auto_schedule_enabled: task.autoScheduleEnabled,
       weather_dependent: false, // Default value
       is_today_focus: task.isTodayFocus,
       location: task.location,
@@ -533,7 +505,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         id: task.goal.id,
         title: task.goal.title,
       } : undefined,
-      auto_schedule_enabled: task.autoScheduleEnabled,
       weather_dependent: false, // Default value
       estimated_duration_minutes: task.estimatedDurationMinutes,
       is_today_focus: task.isTodayFocus,
@@ -642,7 +613,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             priority: task.priority,
             hasLocation: !!task.location,
             hasEstimatedDuration: !!task.estimatedDurationMinutes,
-            autoScheduleEnabled: task.autoScheduleEnabled ?? false,
             isTodayFocus: task.isTodayFocus
           }).catch(error => {
             console.warn('Failed to track task completion analytics:', error);
@@ -994,15 +964,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     }
   };
 
-  const handleToggleAutoSchedule = async (taskId: string, enabled: boolean) => {
-    try {
-      await autoSchedulingAPI.toggleTaskAutoScheduling(taskId, enabled);
-    } catch (error) {
-      console.error('Error toggling auto-schedule:', error);
-      Alert.alert('Error', 'Failed to update auto-schedule setting');
-    }
-  };
-
   const handleScheduleNow = async (_taskId: string) => {
     try {
       const task = tasks.find(t => t.id === _taskId);
@@ -1064,34 +1025,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
     }
   };
 
-  const handleBulkAutoSchedule = async () => {
-    try {
-      setBulkScheduling(true);
-      const result = await autoSchedulingAPI.autoScheduleTasks();
-
-      // Show results in toast
-      const successfulCount = result.successful;
-
-      // Show success toast
-      setToastMessage(`Successfully scheduled ${successfulCount} tasks`);
-      setToastScheduledTime(undefined);
-      setToastCalendarEvent(false);
-      setShowToast(true);
-
-      // Refresh tasks to get updated scheduling info
-      await loadData();
-    } catch (error) {
-      console.error('Error bulk auto-scheduling:', error);
-      Alert.alert('Error', 'Failed to auto-schedule tasks');
-    } finally {
-      setBulkScheduling(false);
-    }
-  };
-
-  const handleAutoScheduleSettings = () => {
-    setShowPreferencesModal(true);
-  };
-
   const handlePreferencesSave = (_preferences: any) => {
     // Refresh data to reflect any changes
     loadData();
@@ -1108,14 +1041,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
 
   const getCompletedTasks = () => {
     return tasks.filter(task => getLifecycleStatus(task.status) === 'completed');
-  };
-
-  const getAutoScheduledTasks = () => {
-    return tasks.filter(task => task.autoScheduleEnabled);
-  };
-
-  const getScheduledTasks = () => {
-    return tasks.filter(task => task.dueDate && task.autoScheduleEnabled);
   };
 
   const renderEmptyState = () => (
@@ -1194,7 +1119,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             const todaysEvents = await enhancedAPI.getEventsForDate(today);
             const taskDuration = task.estimatedDurationMinutes || 60;
 
-            availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
+            availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration);
 
             if (availableSlot) {
               try {
@@ -1248,7 +1173,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       setShowInbox(true);
       setSelectingFocus(true);
     }
-  }, [tasks, userSchedulingPreferences, showFirstFocusHelp, firstFocusHelpDismissed, setIsHelpOverlayActive]);
+  }, [tasks, showFirstFocusHelp, firstFocusHelpDismissed, setIsHelpOverlayActive]);
 
   const renderTaskItem = useCallback(({ item, index }: { item: Task; index: number }) => {
     const isFirstInboxTask = showFirstFocusHelp && !firstFocusHelpDismissed && index === 0 && !item.isTodayFocus;
@@ -1288,7 +1213,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
               onDelete={handleDeleteTask}
               onToggleStatus={onToggleStatus}
               onAddToCalendar={handleAddToCalendar}
-              onToggleAutoSchedule={handleToggleAutoSchedule}
               onScheduleNow={handleScheduleNow}
               onOpenQuickSchedule={handleOpenQuickSchedule}
               onQuickSchedule={handleQuickSchedule}
@@ -1313,57 +1237,10 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         }}
       </CelebratoryDismissal>
     );
-  }, [celebrationMessages, selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleToggleAutoSchedule, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp, showFirstFocusHelp, firstFocusHelpDismissed, tasks]);
+  }, [celebrationMessages, selectingFocus, handleTaskSelect, handleTaskPress, handleDeleteTask, handleToggleStatus, handleAddToCalendar, handleScheduleNow, handleOpenQuickSchedule, handleQuickSchedule, handleAIHelp, showFirstFocusHelp, firstFocusHelpDismissed, tasks]);
 
   const keyExtractor = useCallback((item: Task) => item.id, []);
 
-  const _renderHeaderActions = (compact?: boolean) => (
-    <View style={[styles.headerActions, compact && styles.headerRightRow]}>
-      <View style={[styles.actionButtons, compact && { marginTop: 0 }]}>
-        <TouchableOpacity
-          style={[styles.settingsButton, compact && styles.headerCompactButton, soundMuted && styles.mutedButton]}
-          onPress={toggleSoundMuted}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
-        >
-          <Icon icon={soundMuted ? VolumeMute01Icon : VolumeHighIcon} size={20} color={soundMuted ? colors.text.secondary : colors.text.secondary} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.settingsButton, compact && styles.headerCompactButton]}
-          onPress={handleAutoScheduleSettings}
-          activeOpacity={0.7}
-        >
-          <Icon icon={Settings01Icon} size={20} color={colors.text.secondary} />
-        </TouchableOpacity>
-
-        <HelpTarget helpId="tasks-bulk-auto-schedule">
-          <TouchableOpacity
-            style={[
-              styles.bulkScheduleButton,
-              compact && styles.bulkScheduleButtonCompact,
-              bulkScheduling && styles.bulkScheduleButtonDisabled
-            ]}
-            onPress={handleBulkAutoSchedule}
-            disabled={bulkScheduling}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={bulkScheduling ? 'Scheduling all tasks' : 'Auto-schedule all tasks'}
-          >
-            {bulkScheduling ? (
-              <ActivityIndicator size="small" color={colors.secondary} />
-            ) : (
-              <Icon icon={Task01Icon} size={16} color={colors.secondary} />
-            )}
-            <Text style={[styles.bulkScheduleText, compact && { fontSize: typography.fontSize.sm }]}>
-              {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
-            </Text>
-          </TouchableOpacity>
-        </HelpTarget>
-      </View>
-    </View>
-  );
 
   // End-of-day prompt logic: once per day if focus exists and is not completed
   useEffect(() => {
@@ -1443,7 +1320,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                   await enhancedAPI.deleteEvent(eventId);
                 }
               } catch (removeError) {
-                console.warn('Failed to remove completed focus task calendar event:', removeError);
+                console.warn('Failed to remove previous focus task calendar event:', removeError);
               }
 
               // Schedule the new focus task to calendar
@@ -1452,7 +1329,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                 const todaysEvents = await enhancedAPI.getEventsForDate(today);
                 const taskDuration = next.estimatedDurationMinutes || 60;
 
-                const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
+                const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration);
 
                 if (availableSlot) {
                   await enhancedAPI.scheduleTaskOnCalendar(next.id, {
@@ -1515,7 +1392,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
       console.error('Database update error in handleFocusDone:', dbError);
       Alert.alert('Error', 'Failed to complete focus task');
     }
-  }, [momentumEnabled, travelPreference, userSchedulingPreferences]);
+  }, [momentumEnabled, travelPreference]);
 
   const handleEodMarkDone = useCallback(async () => {
     if (eodActionInFlightRef.current) { return; }
@@ -1675,7 +1552,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             const todaysEvents = await enhancedAPI.getEventsForDate(today);
             const taskDuration = next.estimatedDurationMinutes || 60;
 
-            const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration, userSchedulingPreferences);
+            const availableSlot = findAvailableTimeSlot(todaysEvents, taskDuration);
 
             if (availableSlot) {
               await enhancedAPI.scheduleTaskOnCalendar(next.id, {
@@ -1728,7 +1605,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         Alert.alert('Error', 'Failed to get next focus task');
       }
     }
-  }, [travelPreference, userSchedulingPreferences, getFocusTask]);
+  }, [travelPreference, getFocusTask]);
 
   if (loading) {
     return (
@@ -1745,159 +1622,138 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
         <View style={styles.container}>
 
           <View style={styles.dashboardContainer}>
-            <View style={styles.dashboardRow}>
-              <HelpTarget helpId="tasks-header-summary" style={{ flex: 1 }}>
-                <Text style={styles.dashboardText}>
-                  {getAutoScheduledTasks().length} auto-scheduled • {getScheduledTasks().length} scheduled • {tasks.length} tasks
-                </Text>
-              </HelpTarget>
-              <View style={styles.dashboardActions}>
-                <TouchableOpacity
-                  style={[
-                    styles.settingsButton,
-                    styles.headerCompactButton,
-                    soundMuted && styles.mutedButton
-                  ]}
-                  onPress={toggleSoundMuted}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
-                >
-                  <Icon icon={soundMuted ? VolumeMute01Icon : VolumeHighIcon} size={20} color={colors.text.secondary} />
-                </TouchableOpacity>
+            <Text style={styles.dashboardText}>
+              {tasks.length} tasks
+            </Text>
+            <View style={styles.dashboardActions}>
+              <TouchableOpacity
+                style={[
+                  styles.settingsButton,
+                  styles.headerCompactButton,
+                  soundMuted && styles.mutedButton
+                ]}
+                onPress={toggleSoundMuted}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={soundMuted ? 'Enable task sounds' : 'Mute task sounds'}
+              >
+                <Icon icon={soundMuted ? VolumeMute01Icon : VolumeHighIcon} size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.settingsButton, styles.headerCompactButton]}
-                  onPress={handleAutoScheduleSettings}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Auto-scheduling settings"
-                >
-                  <Icon icon={Settings01Icon} size={20} color={colors.text.secondary} />
-                </TouchableOpacity>
-                <HelpTarget helpId="tasks-bulk-auto-schedule">
-                  <TouchableOpacity
-                    style={[
-                      styles.bulkScheduleButton,
-                      styles.bulkScheduleButtonCompact,
-                      bulkScheduling && styles.bulkScheduleButtonDisabled
-                    ]}
-                    onPress={handleBulkAutoSchedule}
-                    disabled={bulkScheduling}
-                    activeOpacity={0.7}
-                    accessibilityRole="button"
-                    accessibilityLabel={bulkScheduling ? 'Scheduling all tasks' : 'Auto-schedule all tasks'}
-                  >
-                    {bulkScheduling ? (
-                      <ActivityIndicator size="small" color={colors.secondary} />
-                    ) : (
-                      <Icon icon={Task01Icon} size={16} color={colors.secondary} />
-                    )}
-                    <Text style={[styles.bulkScheduleText, { fontSize: typography.fontSize.sm }]}>
-                      {bulkScheduling ? 'Scheduling...' : 'Auto-Schedule'}
-                    </Text>
-                  </TouchableOpacity>
-                </HelpTarget>
-              </View>
             </View>
-            {/* Today's Focus Card */}
-            {(() => {
-              const focus = getFocusTask();
-              const inboxCount = inboxTasks.length;
-              return (
-                <View>
-                  <View style={styles.focusHeaderRow}>
-                    <Text style={styles.focusTitle}>Today's Focus</Text>
-                    <View style={styles.focusHeaderControls}>
-                      {/* Momentum toggle placed next to Inbox; icon-only on compact */}
-                      <HelpTarget helpId="tasks-momentum-toggle">
-                        <TouchableOpacity
-                          testID="momentumToggle"
-                          style={[styles.momentumToggle, momentumEnabled && styles.momentumToggleOn, isCompact && styles.compactBtn]}
-                          onPress={handleToggleMomentum}
-                          activeOpacity={0.7}
-                          accessibilityLabel={momentumEnabled ? 'Momentum On' : 'Momentum Off'}
-                        >
-                          <Icon icon={FlashIcon} size={16} color={momentumEnabled ? colors.secondary : colors.text.secondary} />
-                        </TouchableOpacity>
-                      </HelpTarget>
-
-                      <HelpTarget helpId="tasks-travel-toggle">
-                        <TouchableOpacity
-                          testID="travelPrefButton"
-                          style={[styles.travelPrefButton, isCompact && styles.compactBtn]}
-                          onPress={handleToggleTravelPref}
-                          activeOpacity={0.7}
-                          accessibilityLabel={travelPreference === 'home_only' ? 'Home Only' : 'Allow Travel'}
-                        >
-                          <Icon icon={travelPreference === 'home_only' ? Home01Icon : Globe02Icon} size={16} color={colors.text.secondary} />
-                        </TouchableOpacity>
-                      </HelpTarget>
-
-                      <HelpTarget helpId="tasks-inbox-toggle">
-                        <TouchableOpacity testID="inboxToggle" style={styles.inboxButton} onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}>
-                          <Icon icon={InboxIcon} size={14} color={colors.text.primary} />
-                          <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
-                          <Icon icon={showInbox ? ArrowUp01Icon : ArrowDown01Icon} size={14} color={colors.text.primary} />
-                        </TouchableOpacity>
-                      </HelpTarget>
-                    </View>
-                  </View>
-                  <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
-                    {focus ? (
-                      <CelebratoryDismissal
-                        onComplete={() => {
-                          playBounceSound();
-                          handleFocusDone(focus, { skipAnimation: true });
-                        }}
-                        messages={celebrationMessages}
-                        testID="focus-celebration"
-                        onTriggerStart={playExitSound}
-                      >
-                        {({ trigger }) => (
-                          <Reanimated.View
-                            layout={ReanimatedLayout.springify()}
-                            style={styles.focusCard}
-                          >
-                            <Text style={styles.focusTaskTitle}>{focus.title}</Text>
-                            <View style={styles.focusBadges}>
-                              {!!focus.category && (
-                                <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
-                              )}
-                              <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
-                            </View>
-                            <View style={styles.focusActionsRow}>
-                              <HelpTarget helpId="tasks-focus-complete">
-                                <TouchableOpacity testID="completeFocusButton" style={styles.focusIconBtn} onPress={trigger}>
-                                  <Icon icon={Tick01Icon} size={22} color={colors.text.primary} />
-                                </TouchableOpacity>
-                              </HelpTarget>
-                              {momentumEnabled && (
-                                <HelpTarget helpId="tasks-focus-skip">
-                                  <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
-                                    <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
-                                  </TouchableOpacity>
-                                </HelpTarget>
-                              )}
-                              <HelpTarget helpId="tasks-focus-change">
-                                <TouchableOpacity style={styles.focusIconBtn} onPress={handleChangeFocus}>
-                                  <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
-                                </TouchableOpacity>
-                              </HelpTarget>
-                            </View>
-                          </Reanimated.View>
-                        )}
-                      </CelebratoryDismissal>
-                    ) : (
-                      <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
-                        <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
-                        <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
-                      </TouchableOpacity>
-                    )}
-                  </Reanimated.View>
-                </View>
-              );
-            })()}
           </View>
+          {/* Today's Focus Card */}
+          {(() => {
+            const focus = getFocusTask();
+            const inboxCount = inboxTasks.length;
+            return (
+              <View>
+                <View style={styles.focusHeaderRow}>
+                  <Text style={styles.focusTitle}>Today's Focus</Text>
+                  <View style={styles.focusHeaderControls}>
+                    {/* Momentum toggle placed next to Inbox; icon-only on compact */}
+                    <HelpTarget helpId="tasks-momentum-toggle">
+                      <TouchableOpacity
+                        testID="momentumToggle"
+                        style={[styles.momentumToggle, momentumEnabled && styles.momentumToggleOn, isCompact && styles.compactBtn]}
+                        onPress={handleToggleMomentum}
+                        activeOpacity={0.7}
+                        accessibilityLabel={momentumEnabled ? 'Momentum On' : 'Momentum Off'}
+                      >
+                        <Icon icon={FlashIcon} size={16} color={momentumEnabled ? colors.secondary : colors.text.secondary} />
+                      </TouchableOpacity>
+                    </HelpTarget>
+
+                    <HelpTarget helpId="tasks-travel-toggle">
+                      <TouchableOpacity
+                        testID="travelPrefButton"
+                        style={[styles.travelPrefButton, isCompact && styles.compactBtn]}
+                        onPress={handleToggleTravelPref}
+                        activeOpacity={0.7}
+                        accessibilityLabel={travelPreference === 'home_only' ? 'Home Only' : 'Allow Travel'}
+                      >
+                        <Icon icon={travelPreference === 'home_only' ? Home01Icon : Globe02Icon} size={16} color={colors.text.secondary} />
+                      </TouchableOpacity>
+                    </HelpTarget>
+
+                    <HelpTarget helpId="tasks-inbox-toggle">
+                      <TouchableOpacity
+                        testID="inboxToggle"
+                        style={styles.inboxButton}
+                        onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${showInbox ? 'Hide' : 'Show'} inbox with ${inboxCount} tasks`}
+                      >
+                        <Icon icon={InboxIcon} size={14} color={colors.text.primary} />
+                        <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
+                        <Icon icon={showInbox ? ArrowUp01Icon : ArrowDown01Icon} size={14} color={colors.text.primary} />
+                      </TouchableOpacity>
+                    </HelpTarget>                  </View>
+                </View>
+                <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
+                  {focus ? (
+                    <CelebratoryDismissal
+                      onComplete={() => {
+                        playBounceSound();
+                        handleFocusDone(focus, { skipAnimation: true });
+                      }}
+                      messages={celebrationMessages}
+                      testID="focus-celebration"
+                      onTriggerStart={playExitSound}
+                    >
+                      {({ trigger }) => (
+                        <Reanimated.View
+                          layout={ReanimatedLayout.springify()}
+                          style={styles.focusCard}
+                        >
+                          <Text style={styles.focusTaskTitle}>{focus.title}</Text>
+                          <View style={styles.focusBadges}>
+                            {!!focus.category && (
+                              <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                            )}
+                            <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                          </View>
+                          <View style={styles.focusActionsRow}>
+                            <HelpTarget helpId="tasks-focus-complete">
+                              <TouchableOpacity
+                                testID="skipFocusButton"
+                                style={styles.focusIconBtn}
+                                onPress={handleFocusSkip}
+                                accessibilityRole="button"
+                                accessibilityLabel="Skip to next focus task"
+                              >
+                                <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
+                              </TouchableOpacity>
+                            </HelpTarget>
+                            {momentumEnabled && (<HelpTarget helpId="tasks-focus-skip">
+                              <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
+                                <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
+                              </TouchableOpacity>
+                            </HelpTarget>
+                            )}
+                            <HelpTarget helpId="tasks-focus-change">
+                              <TouchableOpacity
+                                style={styles.focusIconBtn}
+                                onPress={handleChangeFocus}
+                                accessibilityRole="button"
+                                accessibilityLabel="Change today's focus task"
+                              >
+                                <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
+                              </TouchableOpacity>
+                            </HelpTarget>                          </View>
+                        </Reanimated.View>
+                      )}
+                    </CelebratoryDismissal>
+                  ) : (
+                    <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
+                      <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
+                      <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
+                    </TouchableOpacity>
+                  )}
+                </Reanimated.View>
+              </View>
+            );
+          })()}
 
           <LazyList
             data={showInbox ? inboxTasks : []}
@@ -1985,13 +1841,6 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
             onClose={() => setQuickMenuVisible(false)}
           />
 
-          {/* Auto-Scheduling Preferences Modal */}
-          <AutoSchedulingPreferencesModal
-            visible={showPreferencesModal}
-            onClose={() => setShowPreferencesModal(false)}
-            onSave={handlePreferencesSave}
-          />
-
           {/* End-of-day prompt modal */}
           <Modal
             visible={showEodPrompt}
@@ -2046,7 +1895,7 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
           />
         </View>
       </SafeAreaView>
-    </HelpScope>
+    </HelpScope >
   );
 };
 
@@ -2185,22 +2034,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 0,
   },
-  autoScheduleSummary: {
-    marginBottom: spacing.sm,
-  },
-  summaryText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.text.secondary,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  bulkScheduleContainer: {
-    flex: 1,
-    marginLeft: spacing.sm,
-  },
   momentumToggle: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2255,28 +2088,6 @@ const styles = StyleSheet.create({
   mutedButton: {
     borderColor: colors.border.light,
     opacity: 0.7,
-  },
-  bulkScheduleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.sm,
-  },
-  bulkScheduleButtonCompact: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    gap: 0,
-  },
-  bulkScheduleButtonDisabled: {
-    opacity: 0.6,
-  },
-  bulkScheduleText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium as any,
-    color: colors.secondary,
   },
   listContainer: {
     padding: spacing.md,
@@ -2422,11 +2233,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.xs,
     paddingBottom: spacing.xs,
-  },
-  dashboardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   dashboardText: {
     fontSize: typography.fontSize.sm,

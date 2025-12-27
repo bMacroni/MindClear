@@ -45,7 +45,7 @@ class EnhancedAPI {
       // Add auth token if not present and not explicitly set to empty string (for unauthenticated endpoints)
       const headers = options.headers as Record<string, string> | undefined;
       const shouldSkipAuth = headers?.Authorization === '';
-      
+
       if (shouldSkipAuth) {
         // Remove Authorization header if explicitly set to empty (for unauthenticated endpoints)
         const { Authorization, ...restHeaders } = headers;
@@ -82,7 +82,7 @@ class EnhancedAPI {
       // Merge signals: use the controller's signal (which respects both timeout and external cancellation)
       const fetchPromise = fetch(url, { ...options, signal: controller.signal });
       const response = await Promise.race([fetchPromise, timeoutPromise]);
-      
+
       // Clear timeout on success
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -93,20 +93,20 @@ class EnhancedAPI {
         const error = new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
         (error as any).status = response.status;
         (error as any).response = { status: response.status, data: errorText };
-        
+
         // Handle error with retry logic
         const userError = await errorHandlingService.handleError(error, category, context);
-        
+
         // Don't retry 404 errors - endpoint doesn't exist
         const is404 = response.status === 404;
-        
+
         // Check if we should retry
         if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
           const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
           await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
           return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
         }
-        
+
         throw userError;
       }
 
@@ -115,7 +115,7 @@ class EnhancedAPI {
       if (text.trim() === '') {
         return undefined;
       }
-      
+
       try {
         return JSON.parse(text);
       } catch (parseError) {
@@ -124,31 +124,31 @@ class EnhancedAPI {
         (error as any).responseText = text.substring(0, 200); // Log first 200 chars
         throw error;
       }
-} catch (error) {
+    } catch (error) {
       // Clear timeout on error
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-      
+
       // If it's already a UserFriendlyError, re-throw it
       if (error && typeof error === 'object' && 'isUserFriendlyError' in error) {
         throw error;
       }
-      
+
       // Handle the error and potentially retry
       const userError = await errorHandlingService.handleError(error, category, context);
-      
+
       // Don't retry 404 errors - endpoint doesn't exist
       const errorWithStatus = error as { status?: number; response?: { status?: number } } | null | undefined;
       const is404 = errorWithStatus?.status === 404 || errorWithStatus?.response?.status === 404;
-      
+
       // Check if we should retry
       if (!is404 && userError.retryable && retryCount < 3 && !signal?.aborted) {
         const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
         await new Promise<void>(resolve => setTimeout(() => resolve(), delay));
         return this.makeRequest(url, options, category, operation, retryCount + 1, signal);
       }
-      
+
       throw userError;
     }
   }
@@ -192,7 +192,7 @@ class EnhancedAPI {
     endTime: string;
     timeZone?: string;
     location?: string;
-    eventType?: 'event'|'task'|'goal';
+    eventType?: 'event' | 'task' | 'goal';
     taskId?: string;
     goalId?: string;
     isAllDay?: boolean;
@@ -223,7 +223,7 @@ class EnhancedAPI {
     endTime: string;
     timeZone?: string;
     location?: string;
-    eventType?: 'event'|'task'|'goal';
+    eventType?: 'event' | 'task' | 'goal';
     taskId?: string;
     goalId?: string;
     isAllDay?: boolean;
@@ -290,35 +290,35 @@ class EnhancedAPI {
     );
   }
 
-  async getCalendarStatus(): Promise<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }>{
+  async getCalendarStatus(): Promise<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }> {
     const result = await this.makeRequest<{ connected: boolean; email?: string; lastUpdated?: string; error?: string; details?: string; }>(
       `${getSecureApiBaseUrl()}/calendar/status`,
       { method: 'GET' },
       ErrorCategory.CALENDAR,
       'getCalendarStatus'
     );
-    
+
     if (result === undefined || result === null) {
       throw new Error('Calendar status not available');
     }
-    
+
     return result;
   }
 
 
 
-  async importCalendarFirstRun(): Promise<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }>{
+  async importCalendarFirstRun(): Promise<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }> {
     const result = await this.makeRequest<{ success: boolean; count?: number; warning?: string; error?: string; details?: string; }>(
       `${getSecureApiBaseUrl()}/calendar/import/first-run`,
       { method: 'POST' },
       ErrorCategory.SYNC,
       'importCalendarFirstRun'
     );
-    
+
     if (result === undefined || result === null) {
       throw new Error('Calendar import result not available');
     }
-    
+
     return result;
   }
 
@@ -345,22 +345,22 @@ class EnhancedAPI {
   }
 
   // User config
-  async getUserConfig(signal?: AbortSignal): Promise<{ 
-    supabaseUrl: string; 
+  async getUserConfig(signal?: AbortSignal): Promise<{
+    supabaseUrl: string;
     supabaseAnonKey: string;
     googleWebClientId?: string;
     googleAndroidClientId?: string;
     googleIosClientId?: string;
   }> {
-    const result = await this.makeRequest<{ 
-      supabaseUrl: string; 
+    const result = await this.makeRequest<{
+      supabaseUrl: string;
       supabaseAnonKey: string;
       googleWebClientId?: string;
       googleAndroidClientId?: string;
       googleIosClientId?: string;
     }>(
       `${getSecureApiBaseUrl()}/user/config`,
-      { 
+      {
         method: 'GET',
         headers: {
           'Authorization': '', // Explicitly bypass token attachment for this public endpoint
@@ -371,20 +371,20 @@ class EnhancedAPI {
       0,
       signal
     );
-    
+
     if (result === undefined || result === null) {
       throw new Error('User config not available');
     }
-    
+
     return result;
   }
 
   // Tasks API methods
   async getTasks(since?: string): Promise<any> {
-    const url = since 
+    const url = since
       ? `${getSecureApiBaseUrl()}/tasks?since=${encodeURIComponent(since)}`
       : `${getSecureApiBaseUrl()}/tasks`;
-    
+
     return this.makeRequest(
       url,
       { method: 'GET' },
@@ -441,10 +441,10 @@ class EnhancedAPI {
 
   // Goals API methods
   async getGoals(since?: string): Promise<any> {
-    const url = since 
+    const url = since
       ? `${getSecureApiBaseUrl()}/goals?since=${encodeURIComponent(since)}`
       : `${getSecureApiBaseUrl()}/goals`;
-    
+
     return this.makeRequest(
       url,
       { method: 'GET' },
@@ -547,10 +547,10 @@ class EnhancedAPI {
   }
 
   async getMilestones(since?: string): Promise<any> {
-    const url = since 
+    const url = since
       ? `${getSecureApiBaseUrl()}/milestones?since=${encodeURIComponent(since)}`
       : `${getSecureApiBaseUrl()}/milestones`;
-    
+
     return this.makeRequest(
       url,
       { method: 'GET' },
@@ -609,10 +609,10 @@ class EnhancedAPI {
   }
 
   async getMilestoneSteps(since?: string): Promise<any> {
-    const url = since 
+    const url = since
       ? `${getSecureApiBaseUrl()}/milestone-steps?since=${encodeURIComponent(since)}`
       : `${getSecureApiBaseUrl()}/milestone-steps`;
-    
+
     return this.makeRequest(
       url,
       { method: 'GET' },
@@ -629,7 +629,7 @@ class EnhancedAPI {
   ): Promise<{ token?: string; user?: any; refresh_token?: string; error?: string }> {
     const baseUrl = getSecureApiBaseUrl();
     const url = `${baseUrl}/auth/google/mobile-signin`;
-    
+
     // Make unauthenticated request (no auth token needed for initial auth)
     return this.makeRequest(
       url,
@@ -653,35 +653,24 @@ class EnhancedAPI {
   }
 
   // Auto-scheduling API methods
-  async autoScheduleTasks(): Promise<any> {
-    return this.makeRequest(
-      `${getSecureApiBaseUrl()}/ai/auto-schedule-tasks`,
-      { method: 'POST' },
-      ErrorCategory.SYNC,
-      'autoScheduleTasks'
-    );
+  // DEPRECATED: Auto-scheduling feature has been removed. These methods are no-ops for backward compatibility.
+
+  /** @deprecated Auto-scheduling feature removed */
+  async autoScheduleTasks(): Promise<{ scheduled: any[]; skipped: any[]; failed: any[]; message: string }> {
+    console.warn('[DEPRECATED] enhancedAPI.autoScheduleTasks() - Auto-scheduling feature has been removed');
+    return { scheduled: [], skipped: [], failed: [], message: 'Auto-scheduling feature has been deprecated' };
   }
 
-  async getSchedulingPreferences(): Promise<any> {
-    return this.makeRequest(
-      `${getSecureApiBaseUrl()}/ai/scheduling-preferences`,
-      { method: 'GET' },
-      ErrorCategory.SYNC,
-      'getSchedulingPreferences'
-    );
+  /** @deprecated Auto-scheduling feature removed */
+  async getSchedulingPreferences(): Promise<Record<string, never>> {
+    console.warn('[DEPRECATED] enhancedAPI.getSchedulingPreferences() - Auto-scheduling feature has been removed');
+    return {};
   }
 
-  async updateSchedulingPreferences(preferences: any): Promise<any> {
-    return this.makeRequest(
-      `${getSecureApiBaseUrl()}/ai/scheduling-preferences`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(preferences),
-      },
-      ErrorCategory.SYNC,
-      'updateSchedulingPreferences'
-    );
+  /** @deprecated Auto-scheduling feature removed */
+  async updateSchedulingPreferences(_preferences: any): Promise<Record<string, never>> {
+    console.warn('[DEPRECATED] enhancedAPI.updateSchedulingPreferences() - Auto-scheduling feature has been removed');
+    return {};
   }
 }
 

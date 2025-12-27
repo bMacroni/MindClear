@@ -6,8 +6,8 @@ import GroqService from '../utils/groqService.js';
 import { conversationController } from '../controllers/conversationController.js';
 import logger from '../utils/logger.js';
 import { sendFeedback } from '../controllers/feedbackController.js';
-import { autoSchedulingController } from '../controllers/autoSchedulingController.js';
 import { sendNotification } from '../services/notificationService.js';
+import { getSupabaseConfig } from '../config/supabase.js';
 
 const router = express.Router();
 const geminiService = new GeminiService();
@@ -22,13 +22,13 @@ router.post('/chat', requireAuth, async (req, res) => {
     const moodHeader = req.headers['x-user-mood'];
     const timeZoneHeader = req.headers['x-user-timezone'];
 
-    const mode = (typeof modelMode === 'string' && ['fast', 'smart'].includes(modelMode)) 
-      ? modelMode 
+    const mode = (typeof modelMode === 'string' && ['fast', 'smart'].includes(modelMode))
+      ? modelMode
       : 'fast'; // default per PRD
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return res.status(400).json({ 
-        error: 'Message is required and must be a non-empty string' 
+      return res.status(400).json({
+        error: 'Message is required and must be a non-empty string'
       });
     }
 
@@ -62,15 +62,15 @@ router.post('/chat', requireAuth, async (req, res) => {
             return res.end();
           }
         } else {
-           // Send threadId confirmation
-           res.write(`data: ${JSON.stringify({ type: 'meta', threadId: finalThreadId })}\n\n`);
+          // Send threadId confirmation
+          res.write(`data: ${JSON.stringify({ type: 'meta', threadId: finalThreadId })}\n\n`);
         }
 
         // Save user message immediately
         try {
-           await conversationController.addMessageToThread(finalThreadId, userId, message, 'user', { mood: moodHeader });
+          await conversationController.addMessageToThread(finalThreadId, userId, message, 'user', { mood: moodHeader });
         } catch (dbError) {
-           logger.error('Database save error (User Message SSE):', dbError);
+          logger.error('Database save error (User Message SSE):', dbError);
         }
 
         const stream = mode === 'fast'
@@ -86,11 +86,11 @@ router.post('/chat', requireAuth, async (req, res) => {
             accumulatedActions = chunk.actions || [];
             fullMessage = chunk.message || fullMessage; // Ensure we have the final sanitized message
             modelProvider = chunk.provider || modelProvider;
-            
+
             // Send finish event with final data
-            res.write(`data: ${JSON.stringify({ 
-              type: 'finish', 
-              message: fullMessage, 
+            res.write(`data: ${JSON.stringify({
+              type: 'finish',
+              message: fullMessage,
               actions: accumulatedActions,
               provider: modelProvider
             })}\n\n`);
@@ -101,10 +101,11 @@ router.post('/chat', requireAuth, async (req, res) => {
         if (fullMessage) {
           try {
             await conversationController.addMessageToThread(finalThreadId, userId, fullMessage, 'assistant', { actions: accumulatedActions });
-            
+
             // Track analytics
             const { createClient } = await import('@supabase/supabase-js');
-            const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+            const { url, serviceKey, anonKey } = getSupabaseConfig();
+            const supabase = createClient(url, serviceKey || anonKey);
             await supabase
               .from('analytics_events')
               .insert({
@@ -132,42 +133,43 @@ router.post('/chat', requireAuth, async (req, res) => {
         logger.error('SSE Stream Error:', error);
         // Attempt to save partial message if we have something
         if (finalThreadId && fullMessage) {
-           try {
-             await conversationController.addMessageToThread(finalThreadId, userId, fullMessage, 'assistant', { error: 'stream_interrupted' });
-           } catch (e) { /* ignore */ }
+          try {
+            await conversationController.addMessageToThread(finalThreadId, userId, fullMessage, 'assistant', { error: 'stream_interrupted' });
+          } catch (e) { /* ignore */ }
         }
         if (!res.headersSent) {
-           res.status(500).json({ error: 'Stream failed' });
+          res.status(500).json({ error: 'Stream failed' });
         } else {
-           res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream interrupted' })}\n\n`);
-           res.end();
+          res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream interrupted' })}\n\n`);
+          res.end();
         }
       }
       return;
     }
 
     // Process message with Gemini service, passing token and mood in userContext
-    logger.info('Processing AI chat message', { 
-      userId, 
-      threadId, 
+    logger.info('Processing AI chat message', {
+      userId,
+      threadId,
       messageLength: message.length,
       modelMode: mode
-    });    
+    });
 
-    const response = mode === 'fast' 
+    const response = mode === 'fast'
       ? await groqService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader })
       : await geminiService.processMessage(message, userId, threadId, { token, mood: moodHeader, timeZone: timeZoneHeader });
-    
-    logger.info('AI response received', { 
-      userId, 
-      threadId, 
+
+    logger.info('AI response received', {
+      userId,
+      threadId,
       responseMessageLength: response.message?.length || 0,
       hasActions: response.actions?.length > 0
     });
 
     // Track AI message processing event
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    const { url, serviceKey, anonKey } = getSupabaseConfig();
+    const supabase = createClient(url, serviceKey || anonKey);
     await supabase
       .from('analytics_events')
       .insert({
@@ -214,7 +216,7 @@ router.post('/chat', requireAuth, async (req, res) => {
     }
 
     const safeMessage = typeof response.message === 'string' ? response.message : '';
-    
+
     // Log if we get an empty response
     if (!safeMessage || safeMessage.trim().length === 0) {
       logger.warn('Empty AI response received', {
@@ -242,12 +244,12 @@ router.post('/chat', requireAuth, async (req, res) => {
     sendNotification(userId, notification).catch(err =>
       logger.error('sendNotification failed', err)
     );
-    
+
     res.json(finalResponse);
 
   } catch (error) {
     logger.error('AI Chat Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to process message',
       message: 'I\'m sorry, I encountered an error processing your request. Please try again.'
     });
@@ -265,7 +267,8 @@ router.post('/recommend-task', requireAuth, async (req, res) => {
     // Fetch the user's tasks (reuse logic from getTasks controller)
     const token = req.headers.authorization?.split(' ')[1];
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+    const { url, serviceKey, anonKey } = getSupabaseConfig();
+    const supabase = createClient(url, serviceKey || anonKey, {
       global: {
         headers: {
           Authorization: `Bearer ${token}`
@@ -310,7 +313,8 @@ router.post('/braindump', requireAuth, async (req, res) => {
 
     // Track brain dump processing event
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY);
+    const { url, serviceKey, anonKey } = getSupabaseConfig();
+    const supabase = createClient(url, serviceKey || anonKey);
     await supabase
       .from('analytics_events')
       .insert({
@@ -392,12 +396,12 @@ router.put('/threads/:threadId', requireAuth, async (req, res) => {
     const { threadId } = req.params;
     const { title, summary } = req.body;
     const userId = req.user.id;
-    
+
     const updatedThread = await conversationController.updateThread(threadId, userId, { title, summary });
     if (!updatedThread) {
       return res.status(404).json({ error: 'Thread not found' });
     }
-    
+
     res.json(updatedThread);
   } catch (error) {
     logger.error('Update Thread Error:', error);
@@ -410,12 +414,12 @@ router.delete('/threads/:threadId', requireAuth, async (req, res) => {
   try {
     const { threadId } = req.params;
     const userId = req.user.id;
-    
+
     const deleted = await conversationController.deleteThread(threadId, userId);
     if (!deleted) {
       return res.status(404).json({ error: 'Thread not found' });
     }
-    
+
     res.json({ message: 'Thread deleted successfully' });
   } catch (error) {
     logger.error('Delete Thread Error:', error);
@@ -430,8 +434,8 @@ router.post('/goal-suggestions', requireAuth, async (req, res) => {
     const userId = req.user.id;
 
     if (!goalTitle || typeof goalTitle !== 'string') {
-      return res.status(400).json({ 
-        error: 'Goal title is required and must be a string' 
+      return res.status(400).json({
+        error: 'Goal title is required and must be a string'
       });
     }
 
@@ -456,7 +460,7 @@ router.post('/goal-suggestions', requireAuth, async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate suggestions',
       message: "I'm sorry, I couldn't generate suggestions right now. Please try again."
     });
@@ -470,8 +474,8 @@ router.post('/goal-breakdown', requireAuth, async (req, res) => {
     const userId = req.user.id;
 
     if (!goalTitle || typeof goalTitle !== 'string') {
-      return res.status(400).json({ 
-        error: 'Goal title is required and must be a string' 
+      return res.status(400).json({
+        error: 'Goal title is required and must be a string'
       });
     }
 
@@ -482,7 +486,7 @@ router.post('/goal-breakdown', requireAuth, async (req, res) => {
     try {
       breakdown = await geminiService.generateGoalBreakdown(goalTitle, goalDescription);
     } catch (error) {
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'Failed to generate goal breakdown',
         message: "I'm sorry, I couldn't generate a breakdown right now. Please try again."
       });
@@ -495,7 +499,7 @@ router.post('/goal-breakdown', requireAuth, async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate breakdown',
       message: "I'm sorry, I couldn't generate a breakdown right now. Please try again."
     });
@@ -504,119 +508,13 @@ router.post('/goal-breakdown', requireAuth, async (req, res) => {
 
 // Health check for AI service
 router.get('/health', requireAuth, (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'AI service is running',
     timestamp: new Date().toISOString()
   });
 });
 
 router.post('/feedback', sendFeedback);
-
-// Auto-scheduling endpoints
-
-// Get user scheduling preferences
-router.get('/scheduling-preferences', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    const preferences = await autoSchedulingController.getSchedulingPreferences(userId, token);
-    res.json(preferences);
-  } catch (error) {
-    logger.error('Get Scheduling Preferences Error:', error);
-    res.status(500).json({ error: 'Failed to get scheduling preferences' });
-  }
-});
-
-// Update user scheduling preferences
-router.put('/scheduling-preferences', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const token = req.headers.authorization?.split(' ')[1];
-    const preferences = req.body;
-    
-    const updatedPreferences = await autoSchedulingController.updateSchedulingPreferences(userId, preferences, token);
-    res.json(updatedPreferences);
-  } catch (error) {
-    logger.error('Update Scheduling Preferences Error:', error);
-    res.status(500).json({ error: 'Failed to update scheduling preferences' });
-  }
-});
-
-// Get auto-scheduling status for a specific task
-router.get('/task-scheduling-status/:taskId', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    const status = await autoSchedulingController.getTaskSchedulingStatus(userId, taskId, token);
-    res.json(status);
-  } catch (error) {
-    logger.error('Get Task Scheduling Status Error:', error);
-    res.status(500).json({ error: 'Failed to get task scheduling status' });
-  }
-});
-
-// Toggle auto-scheduling for a specific task
-router.put('/task-scheduling-toggle/:taskId', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { enabled } = req.body;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    await autoSchedulingController.toggleTaskAutoScheduling(userId, taskId, enabled, token);
-    res.json({ message: 'Task auto-scheduling updated successfully' });
-  } catch (error) {
-    logger.error('Toggle Task Auto-Scheduling Error:', error);
-    res.status(500).json({ error: 'Failed to toggle task auto-scheduling' });
-  }
-});
-
-// Auto-schedule all eligible tasks
-router.post('/auto-schedule-tasks', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    const result = await autoSchedulingController.autoScheduleTasks(userId, token);
-    res.json(result);
-  } catch (error) {
-    logger.error('Auto-Schedule Tasks Error:', error);
-    res.status(500).json({ error: 'Failed to auto-schedule tasks' });
-  }
-});
-
-// Get available time slots for a task
-router.get('/available-time-slots/:taskId', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    const timeSlots = await autoSchedulingController.getAvailableTimeSlots(userId, taskId, token);
-    res.json(timeSlots);
-  } catch (error) {
-    logger.error('Get Available Time Slots Error:', error);
-    res.status(500).json({ error: 'Failed to get available time slots' });
-  }
-});
-
-// Schedule a single task now
-router.post('/schedule-single-task/:taskId', requireAuth, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    const result = await autoSchedulingController.scheduleSingleTask(userId, taskId, token);
-    res.json(result);
-  } catch (error) {
-    logger.error('Schedule Single Task Error:', error);
-    res.status(500).json({ error: 'Failed to schedule single task' });
-  }
-});
 
 export default router; 

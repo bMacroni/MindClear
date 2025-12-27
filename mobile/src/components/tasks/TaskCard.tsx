@@ -344,59 +344,9 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(({
               )}
             </View>
 
-            {/* Auto-scheduling controls (hidden unless enabled or indicators present) */}
-            {(task.auto_schedule_enabled || task.weather_dependent || !!task.location) && (
+            {/* Weather/Location indicators (auto-scheduling UI removed) */}
+            {(task.weather_dependent || !!task.location) && (
               <View style={styles.autoScheduleSection}>
-                {task.auto_schedule_enabled && (
-                  <>
-                    <View style={styles.autoScheduleRow}>
-                      <TouchableOpacity
-                        style={[
-                          styles.autoScheduleToggle,
-                          task.status === 'completed' && styles.autoScheduleToggleDisabled
-                        ]}
-                        onPress={handleToggleAutoSchedule}
-                        activeOpacity={0.7}
-                        disabled={task.status === 'completed'}
-                      >
-                        <Icon
-                          icon={task.auto_schedule_enabled ? CheckmarkCircle01Icon : CircleIcon}
-                          size={20}
-                          color={task.status === 'completed' ? colors.text.disabled : (task.auto_schedule_enabled ? colors.primary : colors.text.disabled)}
-                        />
-                        <Text style={[
-                          styles.autoScheduleText,
-                          task.auto_schedule_enabled && styles.autoScheduleTextEnabled,
-                          task.status === 'completed' && styles.autoScheduleTextDisabled
-                        ]}>
-                          Auto-schedule
-                        </Text>
-                      </TouchableOpacity>
-
-                      {task.auto_schedule_enabled && task.status !== 'completed' && (
-                        <TouchableOpacity
-                          style={styles.scheduleNowButton}
-                          onPress={handleScheduleNow}
-                          activeOpacity={0.7}
-                        >
-                          <Icon icon={Clock01Icon} size={16} color={colors.primary} />
-                          <Text style={styles.scheduleNowText}>Schedule Now</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-
-                    {/* Scheduled time display */}
-                    {task.due_date && (
-                      <View style={styles.scheduledTimeRow}>
-                        <Icon icon={Clock01Icon} size={14} color={colors.text.secondary} />
-                        <Text style={styles.scheduledTimeText}>
-                          Scheduled for {formatScheduledTime(task.due_date)}
-                        </Text>
-                      </View>
-                    )}
-                  </>
-                )}
-
                 {/* Weather dependency indicator */}
                 {task.weather_dependent && (
                   <View style={styles.weatherIndicator}>
