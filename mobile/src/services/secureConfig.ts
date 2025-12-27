@@ -8,13 +8,44 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { configService } from './config';
 import logger from '../utils/logger';
-import { enhancedAPI } from './enhancedApi'; // Import enhancedAPI
 
-// Type declarations for React Native environment variables
-declare const process: {
+
+import {
+  DEV_API_HOST,
+  DEV_API_PORT,
+  DEV_API_URL,
+  PROD_API_BASE,
+  API_BASE_URL,
+  API_FALLBACK,
+  SECURE_API_BASE,
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
+  GOOGLE_WEB_CLIENT_ID,
+  GOOGLE_ANDROID_CLIENT_ID,
+  GOOGLE_IOS_CLIENT_ID,
+  MINDCLEAR_CONFIRM_URI,
+  MINDCLEAR_RESET_PASSWORD_URI
+} from '@env';
+
+// Mimic process.env for backward compatibility with the existing code structure
+const process = {
   env: {
-    [key: string]: string | undefined;
-  };
+    DEV_API_HOST,
+    DEV_API_PORT,
+    DEV_API_URL,
+    PROD_API_BASE,
+    API_BASE_URL,
+    API_FALLBACK,
+    SECURE_API_BASE,
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
+    GOOGLE_WEB_CLIENT_ID,
+    GOOGLE_ANDROID_CLIENT_ID,
+    GOOGLE_IOS_CLIENT_ID,
+    MINDCLEAR_CONFIRM_URI,
+    MINDCLEAR_RESET_PASSWORD_URI,
+    // Add any other keys needed
+  } as Record<string, string | undefined>
 };
 
 
@@ -125,8 +156,22 @@ class SecureConfigService {
 
       let remoteConfig: RemoteConfig;
       try {
-        const remoteConfigPromise = enhancedAPI.getUserConfig(timeoutController.signal);
-        remoteConfig = await Promise.race([remoteConfigPromise, timeoutPromise]);
+        // Use fetch directly to avoid circular dependency with enhancedAPI
+        // This ensures secureConfigService doesn't depend on modules that depend on it
+        const fetchPromise = fetch(`${this.getApiBaseUrl()}/user/config`, {
+          signal: timeoutController.signal,
+          headers: {
+            'Accept': 'application/json'
+          }
+        }).then(async res => {
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            throw new Error(`HTTP error! status: ${res.status} ${text}`);
+          }
+          return res.json() as Promise<RemoteConfig>;
+        });
+
+        remoteConfig = await Promise.race([fetchPromise, timeoutPromise]);
       } finally {
         // Clean up external signal listener
         if (signal) {
