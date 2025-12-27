@@ -1725,183 +1725,178 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                               >
                                 <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
                               </TouchableOpacity>
-                            </HelpTarget>                                accessibilityRole="button"
-                            accessibilityLabel="Complete today's focus task"
-                              >
-                            <Icon icon={Tick01Icon} size={22} color={colors.text.primary} />
-                          </TouchableOpacity>
-                        </HelpTarget>                            {momentumEnabled && (
-                          <HelpTarget helpId="tasks-focus-skip">
-                            <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
-                              <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
-                            </TouchableOpacity>
-                          </HelpTarget>
-                        )}
-                      <HelpTarget helpId="tasks-focus-change">
-                        <HelpTarget helpId="tasks-focus-change">
-                          <TouchableOpacity
-                            style={styles.focusIconBtn}
-                            onPress={handleChangeFocus}
-                            accessibilityRole="button"
-                            accessibilityLabel="Change today's focus task"
-                          >
-                            <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
-                          </TouchableOpacity>
-                        </HelpTarget>                          </View>
-                    </Reanimated.View>
+                            </HelpTarget>
+                            {momentumEnabled && (<HelpTarget helpId="tasks-focus-skip">
+                              <TouchableOpacity testID="skipFocusButton" style={styles.focusIconBtn} onPress={handleFocusSkip}>
+                                <Icon icon={ArrowRight01Icon} size={22} color={colors.text.primary} />
+                              </TouchableOpacity>
+                            </HelpTarget>
+                            )}
+                            <HelpTarget helpId="tasks-focus-change">
+                              <HelpTarget helpId="tasks-focus-change">
+                                <TouchableOpacity
+                                  style={styles.focusIconBtn}
+                                  onPress={handleChangeFocus}
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Change today's focus task"
+                                >
+                                  <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
+                                </TouchableOpacity>
+                              </HelpTarget>                          </View>
+                        </Reanimated.View>
+                      )}
+                    </CelebratoryDismissal>
+                  ) : (
+                    <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
+                      <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
+                      <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
+                    </TouchableOpacity>
                   )}
-                </CelebratoryDismissal>
-                ) : (
-                <TouchableOpacity style={styles.focusCard} onPress={handleChangeFocus}>
-                  <Text style={styles.focusTaskTitle}>Mind Clear. Ready for the next one?</Text>
-                  <Text style={styles.emptyFocusSubtext}>Tap to choose your focus</Text>
-                </TouchableOpacity>
-                  )}
-              </Reanimated.View>
-              </View>
-        );
-          })()}
-
-        <LazyList
-          data={showInbox ? inboxTasks : []}
-          renderItem={renderTaskItem}
-          keyExtractor={keyExtractor}
-          contentContainerStyle={styles.listContainer}
-          showsVerticalScrollIndicator={false}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-          emptyComponent={showInbox ? renderEmptyState : () => null}
-          initialLoadSize={20}
-          loadMoreSize={10}
-          extraFooterComponent={() => {
-            if (!showInbox) { return null; }
-            const completedTasks = getCompletedTasks();
-            if (completedTasks.length === 0) { return null; }
-
-            return (
-              <View style={styles.completedSection}>
-                <Text style={styles.completedSectionTitle}>Completed</Text>
-                {completedTasks.slice(0, 10).map(task => (
-                  <CompletedTaskCard
-                    key={task.id}
-                    task={convertTaskForTaskCard(task)}
-                    onResetStatus={handleResetCompletedTask}
-                  />
-                ))}
-                {completedTasks.length > 10 && (
-                  <TouchableOpacity
-                    onPress={() => navigation.navigate('CompletedTasks')}
-                    accessibilityRole="button"
-                    accessibilityLabel="View all completed tasks"
-                    style={styles.showAllCompletedButton}
-                  >
-                    <Text style={styles.showAllCompletedText}>Show all completed…</Text>
-                  </TouchableOpacity>
-                )}
+                </Reanimated.View>
               </View>
             );
-          }}
-        />
+          })()}
 
-        {/* Floating Action Button */}
-        <HelpTarget helpId="tasks-fab-add">
-          <TouchableOpacity
-            style={styles.fab}
-            onPress={handleCreateTask}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="Create new task"
-          >
-            <Text style={styles.fabText}>+</Text>
-          </TouchableOpacity>
-        </HelpTarget>
+          <LazyList
+            data={showInbox ? inboxTasks : []}
+            renderItem={renderTaskItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.listContainer}
+            showsVerticalScrollIndicator={false}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            emptyComponent={showInbox ? renderEmptyState : () => null}
+            initialLoadSize={20}
+            loadMoreSize={10}
+            extraFooterComponent={() => {
+              if (!showInbox) { return null; }
+              const completedTasks = getCompletedTasks();
+              if (completedTasks.length === 0) { return null; }
 
-
-        {/* Task Form Modal */}
-        <Modal
-          visible={showModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={handleCancelModal}
-        >
-          <TaskForm
-            task={convertTaskForTaskForm(editingTask)}
-            goals={goals}
-            onSave={handleSaveTask}
-            onCancel={handleCancelModal}
-            loading={saving}
-            stickyFooter
+              return (
+                <View style={styles.completedSection}>
+                  <Text style={styles.completedSectionTitle}>Completed</Text>
+                  {completedTasks.slice(0, 10).map(task => (
+                    <CompletedTaskCard
+                      key={task.id}
+                      task={convertTaskForTaskCard(task)}
+                      onResetStatus={handleResetCompletedTask}
+                    />
+                  ))}
+                  {completedTasks.length > 10 && (
+                    <TouchableOpacity
+                      onPress={() => navigation.navigate('CompletedTasks')}
+                      accessibilityRole="button"
+                      accessibilityLabel="View all completed tasks"
+                      style={styles.showAllCompletedButton}
+                    >
+                      <Text style={styles.showAllCompletedText}>Show all completed…</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            }}
           />
-        </Modal>
 
-        {/* Quick Schedule Radial overlay */}
-        <QuickScheduleRadial
-          visible={quickMenuVisible}
-          center={quickAnchor}
-          openTimestamp={quickOpenedAt}
-          onSelect={async (preset) => {
-            setQuickMenuVisible(false);
-            if (quickTaskId) {
-              await handleQuickSchedule(quickTaskId, preset);
-            }
-          }}
-          onClose={() => setQuickMenuVisible(false)}
-        />
+          {/* Floating Action Button */}
+          <HelpTarget helpId="tasks-fab-add">
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={handleCreateTask}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Create new task"
+            >
+              <Text style={styles.fabText}>+</Text>
+            </TouchableOpacity>
+          </HelpTarget>
 
-        {/* End-of-day prompt modal */}
-        <Modal
-          visible={showEodPrompt}
-          animationType="fade"
-          transparent
-          onRequestClose={() => setShowEodPrompt(false)}
-        >
-          <View style={styles.eodOverlay}>
-            <View style={styles.eodCard}>
-              <Text style={styles.eodTitle}>How did today’s focus go?</Text>
-              <Text style={styles.eodSubtitle}>No pressure—want to mark it done, roll it over to tomorrow, or choose something new?</Text>
-              {(() => {
-                const focus = getFocusTask();
-                if (!focus) { return null; }
-                return (
-                  <View style={[styles.focusCard, styles.focusCardGutter]}>
-                    <Text style={styles.focusTaskTitle}>{focus.title}</Text>
-                    <View style={styles.focusBadges}>
-                      {!!focus.category && (
-                        <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
-                      )}
-                      <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+
+          {/* Task Form Modal */}
+          <Modal
+            visible={showModal}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={handleCancelModal}
+          >
+            <TaskForm
+              task={convertTaskForTaskForm(editingTask)}
+              goals={goals}
+              onSave={handleSaveTask}
+              onCancel={handleCancelModal}
+              loading={saving}
+              stickyFooter
+            />
+          </Modal>
+
+          {/* Quick Schedule Radial overlay */}
+          <QuickScheduleRadial
+            visible={quickMenuVisible}
+            center={quickAnchor}
+            openTimestamp={quickOpenedAt}
+            onSelect={async (preset) => {
+              setQuickMenuVisible(false);
+              if (quickTaskId) {
+                await handleQuickSchedule(quickTaskId, preset);
+              }
+            }}
+            onClose={() => setQuickMenuVisible(false)}
+          />
+
+          {/* End-of-day prompt modal */}
+          <Modal
+            visible={showEodPrompt}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setShowEodPrompt(false)}
+          >
+            <View style={styles.eodOverlay}>
+              <View style={styles.eodCard}>
+                <Text style={styles.eodTitle}>How did today’s focus go?</Text>
+                <Text style={styles.eodSubtitle}>No pressure—want to mark it done, roll it over to tomorrow, or choose something new?</Text>
+                {(() => {
+                  const focus = getFocusTask();
+                  if (!focus) { return null; }
+                  return (
+                    <View style={[styles.focusCard, styles.focusCardGutter]}>
+                      <Text style={styles.focusTaskTitle}>{focus.title}</Text>
+                      <View style={styles.focusBadges}>
+                        {!!focus.category && (
+                          <View style={styles.badge}><Text style={styles.badgeText}>{focus.category}</Text></View>
+                        )}
+                        <View style={[styles.badge, (styles as any)[focus.priority || 'medium']]}><Text style={[styles.badgeText, styles.badgeTextDark]}>{focus.priority}</Text></View>
+                      </View>
                     </View>
-                  </View>
-                );
-              })()}
-              <View style={styles.eodActionsRow}>
-                <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodMarkDone}>
-                  <Icon icon={Tick01Icon} size={16} color={colors.secondary} />
-                  <Text style={styles.eodBtnText}>Mark done</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodRollover}>
-                  <Icon icon={Clock01Icon} size={16} color={colors.secondary} />
-                  <Text style={styles.eodBtnText}>Roll over</Text>
+                  );
+                })()}
+                <View style={styles.eodActionsRow}>
+                  <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodMarkDone}>
+                    <Icon icon={Tick01Icon} size={16} color={colors.secondary} />
+                    <Text style={styles.eodBtnText}>Mark done</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.eodBtn, styles.eodPrimary]} onPress={handleEodRollover}>
+                    <Icon icon={Clock01Icon} size={16} color={colors.secondary} />
+                    <Text style={styles.eodBtnText}>Roll over</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity style={styles.eodSecondary} onPress={handleEodChooseNew}>
+                  <Text style={styles.eodSecondaryText}>Choose a new focus</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.eodSecondary} onPress={handleEodChooseNew}>
-                <Text style={styles.eodSecondaryText}>Choose a new focus</Text>
-              </TouchableOpacity>
             </View>
-          </View>
-        </Modal>
+          </Modal>
 
-        {/* Success Toast */}
-        <SuccessToast
-          visible={showToast}
-          message={toastMessage}
-          scheduledTime={toastScheduledTime}
-          calendarEventCreated={toastCalendarEvent}
-          onClose={() => setShowToast(false)}
-          duration={5000}
-        />
-      </View>
-    </SafeAreaView>
+          {/* Success Toast */}
+          <SuccessToast
+            visible={showToast}
+            message={toastMessage}
+            scheduledTime={toastScheduledTime}
+            calendarEventCreated={toastCalendarEvent}
+            onClose={() => setShowToast(false)}
+            duration={5000}
+          />
+        </View>
+      </SafeAreaView>
     </HelpScope >
   );
 };
