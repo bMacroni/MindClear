@@ -1677,19 +1677,18 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                     </HelpTarget>
 
                     <HelpTarget helpId="tasks-inbox-toggle">
-                      <HelpTarget helpId="tasks-inbox-toggle">
-                        <TouchableOpacity
-                          testID="inboxToggle"
-                          style={styles.inboxButton}
-                          onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${showInbox ? 'Hide' : 'Show'} inbox with ${inboxCount} tasks`}
-                        >
-                          <Icon icon={InboxIcon} size={14} color={colors.text.primary} />
-                          <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
-                          <Icon icon={showInbox ? ArrowUp01Icon : ArrowDown01Icon} size={14} color={colors.text.primary} />
-                        </TouchableOpacity>
-                      </HelpTarget>                  </View>
+                      <TouchableOpacity
+                        testID="inboxToggle"
+                        style={styles.inboxButton}
+                        onPress={() => { setShowInbox(!showInbox); setSelectingFocus(false); }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${showInbox ? 'Hide' : 'Show'} inbox with ${inboxCount} tasks`}
+                      >
+                        <Icon icon={InboxIcon} size={14} color={colors.text.primary} />
+                        <Text style={styles.inboxText}>Inbox{inboxCount > 0 ? ` (${inboxCount})` : ''}</Text>
+                        <Icon icon={showInbox ? ArrowUp01Icon : ArrowDown01Icon} size={14} color={colors.text.primary} />
+                      </TouchableOpacity>
+                    </HelpTarget>                  </View>
                 </View>
                 <Reanimated.View layout={ReanimatedLayout.springify()} style={styles.focusCardGutter}>
                   {focus ? (
@@ -1733,16 +1732,15 @@ const TasksScreen: React.FC<InternalTasksScreenProps> = ({ tasks: observableTask
                             </HelpTarget>
                             )}
                             <HelpTarget helpId="tasks-focus-change">
-                              <HelpTarget helpId="tasks-focus-change">
-                                <TouchableOpacity
-                                  style={styles.focusIconBtn}
-                                  onPress={handleChangeFocus}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Change today's focus task"
-                                >
-                                  <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
-                                </TouchableOpacity>
-                              </HelpTarget>                          </View>
+                              <TouchableOpacity
+                                style={styles.focusIconBtn}
+                                onPress={handleChangeFocus}
+                                accessibilityRole="button"
+                                accessibilityLabel="Change today's focus task"
+                              >
+                                <Icon icon={ArrowLeftRightIcon} size={22} color={colors.text.primary} />
+                              </TouchableOpacity>
+                            </HelpTarget>                          </View>
                         </Reanimated.View>
                       )}
                     </CelebratoryDismissal>
